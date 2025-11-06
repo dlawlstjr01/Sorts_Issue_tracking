@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>웹툰 대시보드</title>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- CSS -->
+    <link rel="stylesheet" href="./css/basic.css">
+    <link rel="stylesheet" href="./css/main.css">
+    <link rel="stylesheet" href="./css/sub.css">
+</head>
+<body>
+    <header>
+        <!-- 헤더 내용 -->
+        네이버 웹툰 데이터 분석
+    </header>
+    
+    <div id="container">
+        <!-- 🔹 사이드바: 검색 + 필터 통합 -->
+        <aside id="sidebar">
+          <h2>웹툰 검색 <button id="refreshBtn" class="refresh-btn" title="새로고침">🔄</button></h2>
+                <input 
+                    type="text" 
+                    id="searchInput" 
+                    placeholder="웹툰 제목 또는 작가를 입력하세요"
+                    style="width: 100%; padding: 8px; border-radius: 6px; border: none; margin-bottom: 10px;"
+                >   <span id="allsearch">
+                    전체조회를 원하실 경우 *를 입력하세요</span>
+
+            <section>
+                <h2>웹툰 필터</h2>
+                <div>
+                    <label for="genre">장르</label>
+                    <select id="genre">
+                        <option value="all" selected>전체</option>
+                    </select>
+                </div>
+          
+                <div>
+                    <label for="age">연령</label>
+                    <select id="age">
+                        <option value="all" selected>전체</option>
+                    </select>
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="completed">
+                    <label for="completed">완결만 보기</label>
+                </div>
+                <div class="checkbox-container">
+                    <input type="checkbox" id="incomplete">
+                    <label for="incomplete">연재중만 보기</label>
+                </div>
+                <br>
+               <div id="filter-buttons" class="filter-buttons">
+                <!-- 자음 -->
+                <span class="filter-btn" data-type="korean">ㄱ</span>
+                <span class="filter-btn" data-type="korean">ㄴ</span>
+                <span class="filter-btn" data-type="korean">ㄷ</span>
+                <span class="filter-btn" data-type="korean">ㄹ</span>
+                <span class="filter-btn" data-type="korean">ㅁ</span>
+                <span class="filter-btn" data-type="korean">ㅂ</span>
+                <span class="filter-btn" data-type="korean">ㅅ</span>
+                <span class="filter-btn" data-type="korean">ㅇ</span>
+                <span class="filter-btn" data-type="korean">ㅈ</span>
+                <span class="filter-btn" data-type="korean">ㅊ</span>
+                <span class="filter-btn" data-type="korean">ㅋ</span>
+                <span class="filter-btn" data-type="korean">ㅌ</span>
+                <span class="filter-btn" data-type="korean">ㅍ</span>
+                <span class="filter-btn" data-type="korean">ㅎ</span>
+                
+                <!-- 숫자 -->
+                <span class="filter-btn" data-type="number">1</span>
+                <span class="filter-btn" data-type="number">2</span>
+                <span class="filter-btn" data-type="number">3</span>
+                <span class="filter-btn" data-type="number">4</span>
+                <span class="filter-btn" data-type="number">5</span>
+                <span class="filter-btn" data-type="number">6</span>
+                <span class="filter-btn" data-type="number">7</span>
+                <span class="filter-btn" data-type="number">8</span>
+                <span class="filter-btn" data-type="number">9</span>
+                </div>
+
+            </section>
+        </aside>
+
+        <!-- 메인 콘텐츠 -->
+        <main id="main-content">
+            <!-- 1. 요약 카드 -->
+            <section id="summary-cards">
+                <div class="card">
+                    <div class="card-title">평균 평점</div>
+                    <div id="avg-rating" class="card-value">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">완결 비율</div>
+                    <div id="completion-rate" class="card-value">--</div>
+                </div>
+                <div class="card">
+                    <div class="card-title">무료 비율</div>
+                    <div id="free-rate" class="card-value">--</div>
+                </div>
+            </section>
+ 
+
+
+            <!-- 2. 차트 -->
+           <section id="charts">
+            <div class="chart-container">
+                <h3>장르별 평점 통계</h3>
+                <!--  체크박스 추가 -->
+                <div class="chart-controls">
+                <label><input type="checkbox" id="avgRatingToggle"> 평균 평점</label>
+                <label><input type="checkbox" id="minRatingToggle"> 최소 평점</label>
+                <label><input type="checkbox" id="maxRatingToggle"> 최대 평점</label>
+                </div>
+                <canvas id="genreChart"></canvas>
+            </div>
+
+            <div class="chart-container">
+                <h3>평점별 분포</h3>
+                 <div class="chart-controls">
+            <label><input type="checkbox" id="yearTrendToggle"> 연도별 트렌드 보기</label>
+        </div>
+                <canvas id="ratingChart"></canvas>
+            </div>
+            </section>
+
+            <!-- 4. 랭킹 -->
+            <section id="ranking">
+                <h3>TOP 10</h3>
+                <ul id="rankingList"></ul>
+            </section>
+                
+        <div id="resultsModal" class="modal">
+        <div class="modal-content">
+            <span id="closeModal" class="close">&times;</span>
+            <h2>검색 결과</h2>
+
+            <!-- 가로로 나란히 배치될 영역 -->
+            <div class="modal-body">
+            <!-- 🔹 왼쪽: 검색 결과 리스트 -->
+            <div id="resultsContainer"></div>
+
+            <!-- 🔹 오른쪽: 상세보기 -->
+            <div id="webtoonDetail" class="webtoon-detail hidden">
+                <div class="modal-detail-view">
+                <!-- 좌측 이미지 -->
+                <div class="modal-left">
+                    <img id="detailThumbnail" src="" alt="" />
+                </div>
+                <!-- 우측 상세정보 -->
+                <div class="modal-right">
+                    <h2 id="detailTitle"></h2>
+                    <p id="detailAuthor"></p>
+                    <p id="detailGenre"></p>
+                    <p id="detailDescription"></p>
+                </div>
+                </div>
+            </div>
+            </div>
+        </div>
+        </div>
+
+
+        </main>
+    </div>
+
+  
+
+    <!-- JavaScript -->
+    <script src="./js/webtoons_data.js"></script> <!-- 대용량 데이터 -->
+    <script src="./js/data.js"></script> <!-- 누락되었던 스크립트 추가 -->
+    <script src="./js/main.js"></script> <!-- 메인 로직 -->
+    
+</body>
+</html>

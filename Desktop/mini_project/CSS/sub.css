@@ -1,0 +1,105 @@
+/* 카드 공통 스타일 (상단 요약, 차트, 랭킹) */
+.card,
+.chart-container,
+#ranking {
+    background-color: #FFFFFF;
+    border-radius: 12px; /* 더 둥글게 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 부드러운 그림자 */
+    padding: 1.5rem;
+}
+
+/* 상단 요약 카드 내부 텍스트 */
+.card {
+    text-align: center;
+}
+
+.card-title {
+    font-size: 0.9rem;
+    color: #718096;
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.card-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #1A202C;
+}
+
+/* 차트 섹션 */
+#charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+/* 각 컴포넌트 제목 (h3) */
+h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #2D3748;
+    margin-top: 0;
+    margin-bottom: 1.5rem;
+}
+
+/* 랭킹 리스트 */
+#ranking ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#ranking li {
+    padding: 0.7rem 0.2rem;
+    border-bottom: 1px solid #EDF2F7;
+    font-size: 0.9rem;
+    color: #4A5568;
+    display: flex;
+    align-items: center;
+}
+
+#ranking li:last-child {
+    border-bottom: none;
+}
+
+.rank-num {
+    font-weight: 700;
+    color: #4299E1; /* 포인트 색상 */
+    margin-right: 1rem;
+    width: 20px;
+    text-align: right;
+}
+
+/* 필터 컨트롤 (select, checkbox) */
+select,
+input[type="checkbox"] {
+    background-color: #2D3748;
+    color: #E2E8F0;
+    border-radius: 8px;
+    border: 1px solid #4A5568;
+    padding: 0.6rem 0.8rem;
+    width: 100%;
+    font-size: 0.9rem;
+}
+
+select:focus {
+    outline: none;
+    border-color: #4299E1; /* 포커스 시 포인트 색상 */
+}
+
+/* 커스텀 체크박스 스타일 */
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    margin-top: 0.5rem;
+}
+
+input[type="checkbox"] {
+    width: 1.2em;
+    height: 1.2em;
+    accent-color: #4299E1;
+}
+#allsearch{
+    font-size: 13px;
+}

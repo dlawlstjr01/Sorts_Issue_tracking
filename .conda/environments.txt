@@ -1,0 +1,3 @@
+C:\Users\smhrd\anaconda3
+C:\Users\smhrd\anaconda3\envs\webtoon_project
+c:\Users\smhrd\anaconda3\envs\webtoon_project

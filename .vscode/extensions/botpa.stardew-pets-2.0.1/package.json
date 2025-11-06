@@ -1,0 +1,181 @@
+{
+	"name": "stardew-pets",
+	"displayName": "Stardew Pets",
+	"description": "Stardew Valley pets for VSCode 😸",
+	"version": "2.0.1",
+	"publisher": "Botpa",
+	"author": {
+		"name": "Botpa"
+	},
+	"icon": "media/icons/icon.png",
+	"galleryBanner": {
+		"color": "#45a319",
+		"theme": "dark"
+	},
+	"pricing": "Free",
+	"keywords": [
+		"stardew",
+		"valley",
+		"stardew valley",
+		"pets",
+		"cat",
+		"cog",
+		"dino",
+		"duck",
+		"turtle",
+		"raccoon",
+		"goat",
+		"sheep",
+		"ostrich",
+		"pig",
+		"rabbit",
+		"chicken",
+		"cow",
+		"junimo"
+	],
+	"categories": [
+		"Other"
+	],
+	"repository": {
+		"type": "github",
+		"url": "https://github.com/BOTPanzer/Stardew-Pets"
+	},
+	"engines": {
+		"vscode": "^1.92.0"
+	},
+	"activationEvents": [],
+	"main": "./out/extension.js",
+	"contributes": {
+		"configuration": {
+			"title": "Stardew Pets",
+			"properties": {
+				"stardew-pets.background": {
+					"type": "string",
+					"default": "Grass",
+					"enum": [
+						"Grass",
+						"Dirt",
+						"Sand",
+						"Snow"
+					],
+					"description": "The background theme for the window."
+				},
+				"stardew-pets.scale": {
+					"type": "string",
+					"default": "Medium",
+					"enum": [
+						"Small",
+						"Medium",
+						"Big"
+					],
+					"description": "The size of the pets."
+				},
+				"stardew-pets.monsters": {
+					"type": "boolean",
+					"default": true,
+					"description": "Toggles if monsters can spawn."
+				}
+			}
+		},
+		"commands": [
+			{
+				"command": "stardew-pets.addPet",
+				"title": "Add pet",
+				"icon": {
+					"light": "media/icons/light/add.svg",
+					"dark": "media/icons/dark/add.svg"
+				}
+			},
+			{
+				"command": "stardew-pets.removePet",
+				"title": "Remove pet",
+				"icon": {
+					"light": "media/icons/light/remove.svg",
+					"dark": "media/icons/dark/remove.svg"
+				}
+			},
+			{
+				"command": "stardew-pets.actions",
+				"title": "Pet actions",
+				"icon": {
+					"light": "media/icons/light/actions.svg",
+					"dark": "media/icons/dark/actions.svg"
+				}
+			},
+			{
+				"command": "stardew-pets.settings",
+				"title": "Stardew Pets Settings",
+				"icon": {
+					"light": "media/icons//light/settings.svg",
+					"dark": "media/icons/dark/settings.svg"
+				}
+			},
+			{
+				"command": "stardew-pets.openSaveFile",
+				"title": "Stardew Pets: Open save file (JSON)"
+			},
+			{
+				"command": "stardew-pets.reloadSaveFile",
+				"title": "Stardew Pets: Reload save file"
+			}
+		],
+		"menus": {
+			"view/title": [
+				{
+					"command": "stardew-pets.addPet",
+					"when": "view == stardew-pets",
+					"group": "navigation@0"
+				},
+				{
+					"command": "stardew-pets.removePet",
+					"when": "view == stardew-pets",
+					"group": "navigation@1"
+				},
+				{
+					"command": "stardew-pets.actions",
+					"when": "view == stardew-pets",
+					"group": "navigation@2"
+				},
+				{
+					"command": "stardew-pets.settings",
+					"when": "view == stardew-pets",
+					"group": "navigation@3"
+				}
+			]
+		},
+		"views": {
+			"explorer": [
+				{
+					"id": "stardew-pets",
+					"name": "Stardew Pets 😸",
+					"icon": "media/icons/icon.png",
+					"contextualTitle": "Stardew Valley pets for VSCode 😸",
+					"type": "webview"
+				}
+			]
+		}
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"watch": "tsc -watch -p ./",
+		"pretest": "npm run compile && npm run lint",
+		"lint": "eslint src --ext ts"
+	},
+	"devDependencies": {
+		"@types/mocha": "^10.0.7",
+		"@types/node": "20.x",
+		"@types/vscode": "^1.92.0",
+		"@typescript-eslint/eslint-plugin": "^7.14.1",
+		"@typescript-eslint/parser": "^7.11.0",
+		"@vscode/test-cli": "^0.0.9",
+		"@vscode/test-electron": "^2.4.0",
+		"eslint": "^8.57.0",
+		"typescript": "^5.4.5"
+	},
+	"__metadata": {
+		"installedTimestamp": 1761027935147,
+		"targetPlatform": "undefined",
+		"size": 1189915
+	}
+}

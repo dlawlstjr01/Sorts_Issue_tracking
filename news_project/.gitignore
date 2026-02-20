@@ -1,0 +1,17 @@
+# env
+.env
+server/.env
+client/.env
+
+# node
+node_modules/
+
+# logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# docker
+.env.*

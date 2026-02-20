@@ -1,160 +1,149 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-
-const MOCK = {
-  "ISS-101": {
-    title: "정책 발표 이후 시장 변동 확대",
-    category: "경제",
-    updatedAt: "방금",
-    core: [
-      { s: "발표 내용이 단기 금리 기대를 바꾸며 변동성이 확대됨", src: "Reuters", link: "#" },
-      { s: "주요 지표 해석이 엇갈려 투자자 포지션이 빠르게 교체됨", src: "BBC", link: "#" },
-    ],
-    why: "정책 방향성과 수치 해석 차이가 커서 시장이 재평가 국면으로 진입.",
-    now: "시장 반응이 업종별로 분화되고 있고, 추가 발언/지표에 민감하게 반응 중.",
-    next: "추가 브리핑, 주요 지표 발표, 해외 시장 동조 여부를 관찰할 필요.",
-    timeline: [
-      { t: "10:20", e: "정책 발표", src: "연합뉴스" },
-      { t: "10:35", e: "시장 급등락", src: "Reuters" },
-      { t: "11:05", e: "전문가 코멘트 확산", src: "BBC" },
-      { t: "11:20", e: "관련 키워드 언급 급증", src: "SNS" },
-    ],
-    keywords: ["금리", "물가", "증시", "정책", "브리핑"],
-    evidence: [
-      { sum: "변동성 확대의 직접 원인은 기대 경로 변화", ev: "선물 금리 경로가 발표 직후 크게 재조정됐다", src: "Reuters", link: "#" },
-      { sum: "업종별 분화가 심화", ev: "방어주는 상대적으로 견조, 성장주는 변동 확대", src: "BBC", link: "#" },
-    ],
-  },
-};
+import { getIssueById } from "../../api/issuesApi";
+import SideMenuCard from "../../components/SideMenuCard";
 
 export default function IssueDetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
-  const id = params.get("id") || "ISS-101";
+  const id = params.get("id");
+  const [issue, setIssue] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const data = MOCK[id] || MOCK["ISS-101"];
-
-  const [level, setLevel] = useState("short");
+  useEffect(() => {
+    let mounted = true;
+    const fetchIssue = async () => {
+      try {
+        setLoading(true);
+        setError("");
+        const data = await getIssueById(id);
+        if (mounted) setIssue(data);
+      } catch (err) {
+        if (mounted) setError("이슈 상세 데이터를 불러오지 못했습니다.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    fetchIssue();
+    return () => {
+      mounted = false;
+    };
+  }, [id]);
 
   return (
-    <div className="page">
-      <div className="detailTop">
-        <button className="btn ghost" onClick={() => navigate("/?view=issues")} type="button">
-          뒤로
+    <div className="page issue-detail-page">
+      <div className="issue-detail-top">
+        <button className="issue-back" onClick={() => navigate("/?view=issues")} type="button">
+          ← 목록으로
         </button>
-
-        <div className="detailHead">
-          <div className="badge">{data.category}</div>
-          <div className="detailTitle">{data.title}</div>
-          <div className="muted">업데이트 {data.updatedAt}</div>
-        </div>
-
-        <div className="detailActions">
-          <button className={`seg ${level === "short" ? "is-on" : ""}`} onClick={() => setLevel("short")} type="button">
-            짧게
-          </button>
-          <button className={`seg ${level === "full" ? "is-on" : ""}`} onClick={() => setLevel("full")} type="button">
-            자세히
-          </button>
-        </div>
       </div>
 
-      <div className="grid2">
-        <section className="card">
-          <div className="cardHead">
-            <div className="cardTitle">핵심 요약</div>
-            <div className="cardMeta">문장별 출처</div>
+      {loading ? (
+        <div className="issues-empty">불러오는 중...</div>
+      ) : error ? (
+        <div className="issues-empty">{error}</div>
+      ) : !issue ? (
+        <div className="issue-detail-empty">
+          <div className="issue-detail-title">이슈를 찾을 수 없습니다.</div>
+          <div className="issue-detail-desc">요청하신 이슈가 삭제되었거나 주소가 잘못되었습니다.</div>
+          <button className="issue-back primary" onClick={() => navigate("/?view=issues")} type="button">
+            이슈 목록으로
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="issue-detail-hero">
+            <div className="issue-detail-meta">
+              <span className="badge">{issue.category}</span>
+              <span className={`issue-priority ${issue.priority === "높음" ? "high" : issue.priority === "중간" ? "mid" : "low"}`}>
+                우선순위 {issue.priority}
+              </span>
+              <span className={`issue-severity ${issue.severity === "위험" ? "danger" : issue.severity === "경고" ? "warn" : "normal"}`}>
+                심각도 {issue.severity}
+              </span>
+              <span className="issue-date">업데이트 {issue.updatedAt}</span>
+            </div>
+            <div className="issue-detail-title">{issue.title}</div>
+            <div className="issue-detail-desc">{issue.summary}</div>
           </div>
 
-          <div className="bulletList">
-            {data.core.map((x, i) => (
-              <div key={i} className="bullet">
-                <div className="bulletText">{x.s}</div>
-                <div className="bulletSrc">
-                  <a className="link" href={x.link} target="_blank" rel="noreferrer">
-                    {x.src}
-                  </a>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="issue-detail-grid">
+            <section className="issue-section">
+              <div className="issue-section-title">요약</div>
+              <p className="issue-section-body">{issue.detail.summary}</p>
+            </section>
 
-          {level === "full" ? (
-            <div className="detailBlock">
-              <div className="subTitle">관련 키워드</div>
-              <div className="pillRow">
-                {data.keywords.map((k) => (
-                  <span key={k} className="pill">
-                    {k}
-                  </span>
+            <section className="issue-section">
+              <div className="issue-section-title">핵심 포인트</div>
+              <ul className="issue-bullets">
+                {issue.detail.highlights.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="issue-section">
+              <div className="issue-section-title">타임라인</div>
+              <div className="issue-timeline">
+                {issue.detail.timeline.map((item) => (
+                  <div key={`${item.time}-${item.event}`} className="issue-timeline-item">
+                    <div className="issue-timeline-time">{item.time}</div>
+                    <div className="issue-timeline-event">{item.event}</div>
+                    <div className="issue-timeline-source">{item.source}</div>
+                  </div>
                 ))}
               </div>
-            </div>
-          ) : null}
-        </section>
+            </section>
 
-        <section className="card">
-          <div className="cardHead">
-            <div className="cardTitle">타임라인</div>
-            <div className="cardMeta">시간 흐름</div>
-          </div>
+            <section className="issue-section">
+              <div className="issue-section-title">왜 발생했는가</div>
+              <p className="issue-section-body">{issue.detail.why}</p>
+            </section>
 
-          <div className="timeline">
-            {data.timeline.map((x, i) => (
-              <div key={i} className="tlRow">
-                <div className="tlTime">{x.t}</div>
-                <div className="tlEvent">{x.e}</div>
-                <div className="tlSrc">{x.src}</div>
+            <section className="issue-section">
+              <div className="issue-section-title">지금 상황은</div>
+              <p className="issue-section-body">{issue.detail.now}</p>
+            </section>
+
+            <section className="issue-section">
+              <div className="issue-section-title">앞으로 주목할 포인트</div>
+              <p className="issue-section-body">{issue.detail.next}</p>
+            </section>
+
+            <section className="issue-section">
+              <div className="issue-section-title">근거</div>
+              <div className="issue-evidence">
+                {issue.detail.evidence.map((item) => (
+                  <div key={`${item.sum}-${item.source}`} className="issue-evidence-card">
+                    <div className="issue-evidence-label">요약 문장</div>
+                    <div className="issue-evidence-text">{item.sum}</div>
+                    <div className="issue-evidence-label">근거 문장</div>
+                    <div className="issue-evidence-text">{item.ev}</div>
+                    <div className="issue-evidence-source">{item.source}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </section>
-      </div>
+            </section>
 
-      <section className="section">
-        <div className="sectionHead">
-          <div className="sectionTitle">왜 발생했는가</div>
-        </div>
-        <div className="card pad">{data.why}</div>
-      </section>
-
-      <section className="section">
-        <div className="sectionHead">
-          <div className="sectionTitle">지금 상황은</div>
-        </div>
-        <div className="card pad">{data.now}</div>
-      </section>
-
-      <section className="section">
-        <div className="sectionHead">
-          <div className="sectionTitle">앞으로 주목할 포인트</div>
-        </div>
-        <div className="card pad">{data.next}</div>
-      </section>
-
-      <section className="section">
-        <div className="sectionHead">
-          <div className="sectionTitle">근거</div>
-          <div className="sectionMeta">요약 왜곡을 줄이기 위한 근거 문장 + 출처</div>
-        </div>
-
-        <div className="grid2">
-          {data.evidence.map((x, i) => (
-            <div key={i} className="card pad">
-              <div className="subTitle">요약 문장</div>
-              <div className="quote">{x.sum}</div>
-              <div className="subTitle">근거 문장</div>
-              <div className="evidence">{x.ev}</div>
-              <div className="eviFoot">
-                <a className="link" href={x.link} target="_blank" rel="noreferrer">
-                  {x.src} 원문
-                </a>
+            <aside className="issue-detail-side">
+              
+              <SideMenuCard />
+<div className="issue-side-card">
+                <div className="issue-side-title">키워드</div>
+                <div className="issue-keywords">
+                  {issue.detail.keywords.map((word) => (
+                    <span key={word} className="issue-keyword">
+                      {word}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            </aside>
+          </div>
+        </>
+      )}
     </div>
   );
 }

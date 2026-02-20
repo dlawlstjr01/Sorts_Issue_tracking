@@ -209,7 +209,56 @@ body {
 .hdr-logo {
   justify-self: start;
 }
+/* 오른쪽 버튼 영역 정렬 */
+.hdr-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 
+/* 로그인 / 마이페이지 / 로그아웃 공통 버튼 */
+.hdr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  height: 36px;
+  padding: 0 14px;
+
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+
+  background: #fff;
+  color: #111827;
+
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* hover 효과 */
+.hdr-btn:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+/* 아이콘 크기 통일 */
+.hdr-btn svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+/* disabled 상태 */
+.hdr-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 /* 추가 */
 html {
   overflow-y: scroll;

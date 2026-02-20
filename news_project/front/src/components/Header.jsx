@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function IconBox(props) {
@@ -45,7 +46,21 @@ function IconArchive(props) {
 function IconUser(props) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" {...props}>
-      <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" fill="currentColor" />
+      <path
+        d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function IconLogout(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" {...props}>
+      <path
+        d="M10 17v-2h4v-2h-4v-2l-3 3 3 3Zm-6 4h10a2 2 0 0 0 2-2v-3h-2v3H4V5h10v3h2V5a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Zm12-6v-2h6v-2h-6V9l-4 3 4 3Z"
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -53,6 +68,11 @@ function IconUser(props) {
 export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  const API_BASE = useMemo(
+    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
+    []
+  );
 
   const view = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -70,6 +90,67 @@ export default function Header() {
   );
 
   const go = (to) => navigate(`/?view=${encodeURIComponent(to)}`);
+
+  const [auth, setAuth] = useState({
+    checked: false,
+    loggedIn: false,
+    login_id: "",
+  });
+
+  // 로그아웃 진행 상태(버튼 잠금 + 텍스트 변경)
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const refreshAuth = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/auth/me`, {
+        withCredentials: true,
+      });
+      setAuth({
+        checked: true,
+        loggedIn: true,
+        login_id: res.data?.login_id || "",
+      });
+    } catch (e) {
+      setAuth({
+        checked: true,
+        loggedIn: false,
+        login_id: "",
+      });
+    }
+  };
+
+  useEffect(() => {
+    refreshAuth();
+  }, [API_BASE, location.search]);
+
+  //  약간 지연
+  const handleLogout = async () => {
+    if (loggingOut) return;
+
+    const ok = window.confirm("로그아웃 하시겠습니까?");
+    if (!ok) return;
+
+    setLoggingOut(true);
+
+    try {
+      await axios.post(`${API_BASE}/auth/logout`, null, {
+        withCredentials: true,
+      });
+
+      // (0.5초)
+      await new Promise((r) => setTimeout(r, 500));
+
+      alert("로그아웃되었습니다.");
+    } catch (e) {
+      // 세션 만료 등으로 실패해도 사용자 입장에선 로그아웃 처리
+      await new Promise((r) => setTimeout(r, 300));
+      alert("로그아웃되었습니다.");
+    } finally {
+      setAuth({ checked: true, loggedIn: false, login_id: "" });
+      setLoggingOut(false);
+      go("main");
+    }
+  };
 
   return (
     <header className="hdr">
@@ -95,10 +176,31 @@ export default function Header() {
           ))}
         </nav>
 
-        <button className="hdr-login" type="button" onClick={() => go("login")}>
-          <IconUser />
-          <span>로그인</span>
-        </button>
+        <div className="hdr-right">
+          {!auth.checked ? (
+            <button className="hdr-btn" type="button" disabled>
+              <IconUser />
+              <span>...</span>
+            </button>
+          ) : auth.loggedIn ? (
+            <>
+              <button className="hdr-btn" type="button" onClick={() => go("mypage")} disabled={loggingOut}>
+                <IconUser />
+                <span>마이페이지</span>
+              </button>
+
+              <button className="hdr-btn" type="button" onClick={handleLogout} disabled={loggingOut}>
+                <IconLogout />
+                <span>{loggingOut ? "로그아웃 중..." : "로그아웃"}</span>
+              </button>
+            </>
+          ) : (
+            <button className="hdr-btn" type="button" onClick={() => go("login")}>
+              <IconUser />
+              <span>로그인</span>
+            </button>
+          )}
+        </div>
       </div>
     </header>
   );

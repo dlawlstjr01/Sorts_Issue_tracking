@@ -56,7 +56,7 @@ export default function Header() {
 
   const view = useMemo(() => {
     const sp = new URLSearchParams(location.search);
-    return sp.get("view") || "issues";
+    return sp.get("view") || "";
   }, [location.search]);
 
   const menu = useMemo(
@@ -74,7 +74,7 @@ export default function Header() {
   return (
     <header className="hdr">
       <div className="hdr-inner">
-        <button className="hdr-logo" type="button" onClick={() => go("issues")}>
+        <button className="hdr-logo" type="button" onClick={() => go("main")}>
           <span className="hdr-mark">NEWS</span>
           <span className="hdr-sub">Issue Tracker</span>
         </button>
@@ -84,7 +84,9 @@ export default function Header() {
             <button
               key={m.to}
               type="button"
-              className={`hdr-item ${view === m.to || view.startsWith(m.to + "-") ? "is-active" : ""}`}
+              className={`hdr-item ${
+                view && (view === m.to || view.startsWith(m.to + "-")) ? "is-active" : ""
+              }`}
               onClick={() => go(m.to)}
             >
               <span className="hdr-ico">{m.icon}</span>

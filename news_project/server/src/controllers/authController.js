@@ -161,13 +161,19 @@ exports.checkLoginId = async (req, res) => {
 exports.updateMe = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { email, phone } = req.body;
+    const { name, email, phone } = req.body;
 
-    const user = await authService.updateMe(userId, { email, phone });
-    return res.status(200).json({ message: "저장 완료", user });
+    const user = await authService.updateMe(userId, { name, email, phone });
+
+    return res.status(200).json({
+      message: "저장 완료",
+      user,
+    });
   } catch (err) {
     const code = err.statusCode || 400;
-    return res.status(code).json({ message: err.message || "저장 실패" });
+    return res.status(code).json({
+      message: err.message || "저장 실패",
+    });
   }
 };
 

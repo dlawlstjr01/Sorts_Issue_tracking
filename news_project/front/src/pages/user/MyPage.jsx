@@ -17,16 +17,16 @@ export default function MyPage() {
   // 원본(취소 시 되돌리기 용)
   const [origin, setOrigin] = useState(null);
 
-  // 백엔드 연동되는 사용자 정보(현재 users 테이블 기준)
+  // 백엔드 연동되는 사용자 정보(users 테이블 기준)
   const [user, setUser] = useState({
     login_id: "",
+    name: "",
     email: "",
     phone: "",
   });
 
   // UI 유지용(현재 DB에 없음 -> 저장 안 함)
   const [uiOnly, setUiOnly] = useState({
-    name: "",
     birth: "",
     agreeEmailBriefing: true,
     agreeWeeklyReport: false,
@@ -42,7 +42,7 @@ export default function MyPage() {
 
   const normalizePhone = (v) => String(v || "").replace(/\D/g, "");
 
-  //  마이페이지 진입 시 내 정보 로딩
+  // 마이페이지 진입 시 내 정보 로딩
   useEffect(() => {
     const fetchMe = async () => {
       setLoading(true);
@@ -54,6 +54,7 @@ export default function MyPage() {
         const me = res.data || {};
         const next = {
           login_id: me.login_id || "",
+          name: me.name || "",
           email: me.email || "",
           phone: me.phone || "",
         };
@@ -62,7 +63,6 @@ export default function MyPage() {
         setOrigin(next); // 취소 시 복원용
       } catch (err) {
         alert(err.response?.data?.message || "로그인이 필요합니다.");
-        // 로그인 페이지로 이동
         navigate("/?view=login");
       } finally {
         setLoading(false);
@@ -74,7 +74,6 @@ export default function MyPage() {
 
   const onChangeUser = (e) => {
     const { name, value } = e.target;
-
     setUser((prev) => ({
       ...prev,
       [name]: value,
@@ -94,14 +93,16 @@ export default function MyPage() {
     setPwForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  //  저장(이메일/폰)
+  // 저장(name/email/phone)
   const handleSave = async () => {
+    if (!user.name.trim()) return alert("이름을 입력해주세요.");
     if (!user.email.trim()) return alert("이메일을 입력해주세요.");
     if (!user.phone.trim()) return alert("휴대폰 번호를 입력해주세요.");
 
     setSaving(true);
     try {
       const payload = {
+        name: user.name.trim(),
         email: user.email.trim(),
         phone: normalizePhone(user.phone.trim()),
       };
@@ -115,9 +116,10 @@ export default function MyPage() {
       // 서버가 최신 user 내려주면 반영
       if (res.data?.user) {
         const next = {
-          login_id: res.data.user.login_id || user.login_id,
-          email: res.data.user.email || user.email,
-          phone: res.data.user.phone || payload.phone,
+          login_id: res.data.user.login_id ?? user.login_id,
+          name: res.data.user.name ?? payload.name,
+          email: res.data.user.email ?? payload.email,
+          phone: res.data.user.phone ?? payload.phone,
         };
         setUser(next);
         setOrigin(next);
@@ -125,6 +127,8 @@ export default function MyPage() {
         // 서버가 message만 주면 현재 값으로 origin 갱신
         const next = {
           ...user,
+          name: payload.name,
+          email: payload.email,
           phone: payload.phone,
         };
         setUser(next);
@@ -137,14 +141,14 @@ export default function MyPage() {
     }
   };
 
-  //  취소
+  // 취소
   const handleCancel = () => {
     if (origin) setUser(origin);
     setPwForm({ currentPassword: "", newPassword: "", newPassword2: "" });
     alert("변경사항을 취소했습니다.");
   };
 
-  //  비밀번호 변경
+  // 비밀번호 변경
   const handleChangePassword = async () => {
     if (!pwForm.currentPassword) return alert("현재 비밀번호를 입력해주세요.");
     if (!pwForm.newPassword) return alert("새 비밀번호를 입력해주세요.");
@@ -226,8 +230,8 @@ export default function MyPage() {
                 className="login-input"
                 type="text"
                 name="name"
-                value={uiOnly.name}
-                onChange={onChangeUiOnly}
+                value={user.name}
+                onChange={onChangeUser}
                 placeholder="홍길동"
               />
             </label>
@@ -360,7 +364,12 @@ export default function MyPage() {
         <button className="login-btn primary" type="button" onClick={handleSave} disabled={saving}>
           {saving ? "저장 중..." : "저장"}
         </button>
-        <button className="login-btn" type="button" onClick={handleCancel} disabled={saving || pwSaving}>
+        <button
+          className="login-btn"
+          type="button"
+          onClick={handleCancel}
+          disabled={saving || pwSaving} 
+        >
           취소
         </button>
       </div>

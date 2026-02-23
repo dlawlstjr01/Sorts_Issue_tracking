@@ -64,7 +64,7 @@ export default function SignupPage() {
 
     if (!form.email.trim()) return "이메일을 입력해주세요.";
     if (!form.password) return "비밀번호를 입력해주세요.";
-    if (form.password.length < 8) return "비밀번호는 8자 이상 입력해주세요.";
+    if (form.password.length < 4) return "비밀번호는 4자 이상 입력해주세요.";
     if (form.password !== form.password2) return "비밀번호가 일치하지 않습니다.";
     if (!form.phone.trim()) return "휴대폰 번호를 입력해주세요.";
     if (!form.agreeTerms) return "서비스 이용약관에 동의해주세요.";
@@ -116,6 +116,7 @@ export default function SignupPage() {
       const payload = {
         login_id: form.login_id.trim(),
         password: form.password,
+        name: form.name.trim(),
         email: form.email.trim(),
         phone: normalizePhone(form.phone.trim()), //  숫자만 저장
         age_group: null,
@@ -236,7 +237,7 @@ export default function SignupPage() {
                     name="password"
                     value={form.password}
                     onChange={onChange}
-                    placeholder="8자 이상 입력"
+                    placeholder="4자 이상 입력"
                     autoComplete="new-password"
                   />
                 </label>

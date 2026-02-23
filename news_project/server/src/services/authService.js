@@ -32,12 +32,11 @@ function makeError(message, statusCode) {
 }
 
 // 회원가입 (local)
-exports.signup = async ({ login_id, password, email, phone, age_group, gender }) => {
-  if (!login_id || !password || !email) {
-    throw makeError("login_id / password / email 필수", 400);
+exports.signup = async ({ login_id, password, name, email, phone, age_group, gender }) => {
+  if (!login_id || !password || !email || !name) {
+    throw makeError("login_id / password / name / email 필수", 400);
   }
 
-  // 중복 체크
   const [dup1] = await db.query(
     `SELECT id FROM users WHERE login_id = ? LIMIT 1`,
     [login_id]
@@ -58,20 +57,20 @@ exports.signup = async ({ login_id, password, email, phone, age_group, gender })
     if (dup3.length) throw makeError("이미 사용 중인 휴대폰 번호입니다.", 409);
   }
 
-  // 비밀번호 해싱
   const passwordHash = await bcrypt.hash(password, 12);
 
   const [result] = await db.query(
     `
-    INSERT INTO users (login_id, password, email, phone, age_group, gender, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, NOW())
+    INSERT INTO users (login_id, password, name, email, phone, age_group, gender, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
     `,
-    [login_id, passwordHash, email, phone || null, age_group || null, gender || null]
+    [login_id, passwordHash, name, email, phone || null, age_group || null, gender || null]
   );
 
   return {
     id: result.insertId,
     login_id,
+    name,
     email,
     phone: phone || null,
     age_group: age_group || null,
@@ -109,7 +108,7 @@ exports.verifyToken = (token) => {
 exports.getMe = async (userId) => {
   const [rows] = await db.query(
     `
-    SELECT id, login_id, email, phone, age_group, gender, created_at, sns_email, provider, sns_id
+    SELECT id, login_id, name, email, phone, age_group, gender, created_at, sns_email, provider, sns_id
     FROM users
     WHERE id = ?
     `,
@@ -122,12 +121,12 @@ exports.getMe = async (userId) => {
   return {
     id: u.id,
     login_id: u.login_id,
+    name: u.name,
     email: u.email,
     phone: u.phone || null,
     age_group: u.age_group,
     gender: u.gender,
     created_at: u.created_at,
-    // 소셜 관련(있으면 내려줌)
     sns_email: u.sns_email || null,
     provider: u.provider || null,
     sns_id: u.sns_id || null,
@@ -177,15 +176,16 @@ exports.upsertSocialUser = async ({ provider, sns_id, sns_email }) => {
 
   const [result] = await db.query(
     `
-    INSERT INTO users (login_id, password, email, phone, sns_email, provider, sns_id, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
-    `,
+  INSERT INTO users (login_id, password, name, email, phone, sns_email, provider, sns_id, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+  `,
     [
-      null,                 // login_id
-      dummyPasswordHash,     // password (NN 대비)
-      sns_email,             // email (NN 대비)
-      null,                 //  phone (소셜은 기본 null)
-      sns_email,             // sns_email
+      null,
+      dummyPasswordHash,
+      null,          // name
+      sns_email,
+      null,
+      sns_email,
       provider,
       String(sns_id),
     ]
@@ -267,7 +267,7 @@ exports.resetPassword = async ({ login_id, email, code, newPassword }) => {
   if (!login_id || !email || !code || !newPassword) {
     throw makeError("login_id / email / code / newPassword 필수", 400);
   }
-  if (String(newPassword).length < 8) throw makeError("비밀번호는 8자 이상이어야 합니다.", 400);
+  if (String(newPassword).length < 4) throw makeError("비밀번호는 4자 이상이어야 합니다.", 400);
 
   const [urows] = await db.query(
     `
@@ -323,7 +323,7 @@ exports.isLoginIdTaken = async (login_id) => {
   return rows.length > 0;
 };
 
-exports.updateMe = async (userId, { email, phone }) => {
+exports.updateMe = async (userId, { name, email, phone }) => {
   if (!userId) throw makeError("유저 없음", 401);
 
   const emailT = String(email || "").trim();
@@ -347,8 +347,8 @@ exports.updateMe = async (userId, { email, phone }) => {
   if (dupPhone.length) throw makeError("이미 사용 중인 휴대폰 번호입니다.", 409);
 
   await db.query(
-    `UPDATE users SET email = ?, phone = ? WHERE id = ?`,
-    [emailT, phoneN, userId]
+    `UPDATE users SET name = ?, email = ?, phone = ? WHERE id = ?`,
+    [name, emailT, phoneN, userId]
   );
 
   // 최신 정보 반환
@@ -358,7 +358,7 @@ exports.updateMe = async (userId, { email, phone }) => {
 exports.changePassword = async (userId, { currentPassword, newPassword }) => {
   if (!userId) throw makeError("유저 없음", 401);
   if (!currentPassword || !newPassword) throw makeError("비밀번호 입력이 필요합니다.", 400);
-  if (String(newPassword).length < 8) throw makeError("새 비밀번호는 8자 이상이어야 합니다.", 400);
+  if (String(newPassword).length < 4) throw makeError("새 비밀번호는 4자 이상이어야 합니다.", 400);
 
   const [rows] = await db.query(
     `SELECT id, password FROM users WHERE id = ? LIMIT 1`,

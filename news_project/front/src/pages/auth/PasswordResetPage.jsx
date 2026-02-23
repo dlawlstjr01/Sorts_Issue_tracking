@@ -313,21 +313,7 @@ export default function PasswordResetPage() {
               </form>
             </section>
 
-            <section className="login-side">
-              <div className="login-side-card">
-                <div className="login-side-badge">NEWS Issue Tracker</div>
-                <h2 className="login-side-title">계정을 안전하게 복구하세요</h2>
-                <p className="login-side-desc">
-                  등록된 이메일을 확인하면 재설정 인증코드를 전송합니다.
-                  인증코드는 일정 시간 후 만료됩니다.
-                </p>
-                <ul className="login-side-list">
-                  <li>간편한 이메일 인증</li>
-                  <li>안전한 비밀번호 재설정</li>
-                  <li>새로운 기기에서도 즉시 로그인</li>
-                </ul>
-              </div>
-            </section>
+            
           </div>
 
           <aside className="login-side-menu">

@@ -117,149 +117,241 @@ body {
 .card:hover { transform: translateY(-4px); }
 .cardPad { padding: 32px; font-size: 19px; font-weight: 500; color: #4b5563; }
 
-/* ===== Header: wider + bigger logo ===== */
+/* ===== Header: Neon Luxe style ===== */
 
 .hdr {
   width: 100%;
-  background: #fff;
-  border-bottom: 1px solid #e5e7eb;
+  height: 83px !important;
+  background:
+    radial-gradient(1200px 140px at 12% -20%, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0) 68%),
+    linear-gradient(125deg, #fbfdff 0%, #f3f8ff 46%, #edf5ff 100%);
+  border-bottom: 1px solid rgba(96, 165, 250, 0.35);
+  box-shadow:
+    0 12px 24px rgba(37, 99, 235, 0.1),
+    inset 0 -1px 0 rgba(125, 211, 252, 0.28);
+  overflow: hidden;
+}
+
+.hdr::before {
+  content: "";
+  position: absolute;
+  inset: -58px auto auto -86px;
+  width: 300px;
+  height: 180px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.22) 0%, rgba(56, 189, 248, 0) 72%);
+  pointer-events: none;
+}
+
+.hdr::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(34, 211, 238, 0),
+    rgba(34, 211, 238, 0.65) 35%,
+    rgba(96, 165, 250, 0.7) 65%,
+    rgba(96, 165, 250, 0)
+  );
+  filter: drop-shadow(0 0 4px rgba(34, 211, 238, 0.28));
 }
 
 .hdr-inner {
-  /* ??? ???????(??? 1200~1280??????? ???) */
-  max-width: 1440px;
+  max-width: 1440px !important;
   width: 100%;
   margin: 0 auto;
-  padding: 0 32px;
-
-  /* ??? ???????? ???????? ??? */
+  padding: 0 32px !important;
   height: 72px;
-
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: relative; /* nav 중앙 정렬 기준 */
+  position: relative;
 }
 
-/* 로고 버튼 정렬 */
 .hdr-logo {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
-
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 0;
+  justify-self: start;
 }
 
-/* NEWS 글씨 키우기 */
 .hdr-mark {
-  font-size: 29px;   /* 여기 숫자 올리면 더 커짐 */
+  font-size: 30px;
   font-weight: 900;
-  letter-spacing: 0.6px;
+  letter-spacing: 0.42px;
   line-height: 1;
+  color: transparent;
+  background: linear-gradient(96deg, #1e3a8a 0%, #2563eb 38%, #0ea5e9 63%, #38bdf8 100%);
+  background-size: 220% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  text-shadow:
+    0 0 10px rgba(59, 130, 246, 0.22),
+    0 0 18px rgba(14, 165, 233, 0.16);
+  animation: hdrLogoFlow 7s ease-in-out infinite;
 }
 
-/* Issue Tracker도 조금 키우기 */
 .hdr-sub {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: 1.6px;
-  color: #6b7280;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1.85px;
+  color: #4f6f95;
   line-height: 1;
   text-transform: uppercase;
 }
 
-/* 헤더 폭 강제 덮어쓰기 */
-.hdr-inner { max-width: 1440px !important; padding: 0 32px !important; }
-.hdr { height: 83px !important; }
-
-/* ===== Header menu text size up (logo 제외) ===== */
-
-/* 가운데 메뉴들 */
-.hdr-nav a,
-.hdr-nav button {
-  font-size: 17px;        /* 기존 14~15 → 16 */
-  font-weight: 600;
+.hdr-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100% - 520px);
+  height: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(147, 197, 253, 0.55);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(239, 246, 255, 0.9) 100%);
+  backdrop-filter: blur(8px);
+  box-shadow:
+    0 8px 18px rgba(59, 130, 246, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  overflow: hidden;
 }
 
-/* 아이콘이 같이 있다면 정렬 보정 */
+.hdr-nav a,
+.hdr-nav button {
+  font-size: 16px;
+  font-weight: 700;
+}
+
 .hdr-nav a svg,
 .hdr-nav button svg {
   width: 18px;
   height: 18px;
 }
 
-/* 헤더 균형 정렬 */
-.hdr-nav {
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-  justify-content: center;
-  max-width: calc(100% - 520px); /* 로고+로그인 영역 확보 */
-  overflow: hidden; /* 겹침 방지 */
+.hdr-item {
+  height: 38px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  background: transparent;
+  color: #355178;
+  transform: none;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.hdr-item .hdr-ico {
+  color: #5381b3;
+  transition: color 0.16s ease, transform 0.16s ease;
+}
+
+.hdr-item:hover {
+  background: linear-gradient(180deg, rgba(191, 219, 254, 0.56) 0%, rgba(186, 230, 253, 0.42) 100%);
+  border-color: rgba(147, 197, 253, 0.72);
+  color: #1e3a5f;
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.18), 0 6px 12px rgba(56, 189, 248, 0.16);
+}
+
+.hdr-item:hover .hdr-ico {
+  color: #0ea5e9;
+  transform: scale(1.05);
+}
+
+.hdr-item.is-active {
+  background: linear-gradient(180deg, rgba(125, 211, 252, 0.94) 0%, rgba(96, 165, 250, 0.94) 100%);
+  border-color: rgba(96, 165, 250, 0.75);
+  border-bottom: none;
+  color: #0b2b4a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 0 0 1px rgba(147, 197, 253, 0.36),
+    0 8px 16px rgba(56, 189, 248, 0.24);
+}
+
+.hdr-item.is-active .hdr-ico {
+  color: #0b2b4a;
+  transform: scale(1.07);
 }
 
 .hdr-login {
   justify-self: end;
 }
 
-.hdr-logo {
-  justify-self: start;
-}
-/* 오른쪽 버튼 영역 정렬 */
 .hdr-right {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-/* 로그인 / 마이페이지 / 로그아웃 공통 버튼 */
 .hdr-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-
   gap: 8px;
-
-  height: 36px;
+  height: 38px;
   padding: 0 14px;
-
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-
-  background: #fff;
-  color: #111827;
-
+  border: 1px solid rgba(147, 197, 253, 0.55);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #ffffff 0%, #eaf4ff 100%);
+  color: #1b3558;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
-
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 6px 14px rgba(59, 130, 246, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.85);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 
-/* hover 효과 */
 .hdr-btn:hover {
-  background: #f9fafb;
-  border-color: #d1d5db;
+  background: linear-gradient(180deg, #f8fcff 0%, #dfefff 100%);
+  border-color: rgba(96, 165, 250, 0.75);
+  color: #0f2747;
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(147, 197, 253, 0.2),
+    0 10px 18px rgba(56, 189, 248, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
-/* 아이콘 크기 통일 */
 .hdr-btn svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
 }
 
-/* disabled 상태 */
 .hdr-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-/* 추가 */
+
+@keyframes hdrLogoFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
 html {
   overflow-y: scroll;
 }
@@ -285,6 +377,7 @@ body {
 .login-head {
   margin-bottom: 24px;
   position: relative;
+  text-align: center;
 }
 
 .login-back {
@@ -341,28 +434,22 @@ body {
 
 
 
+.signup-page .login-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .signup-page .login-grid {
-  grid-template-areas: "card side";
+  grid-template-columns: minmax(550px, 760px);
+  justify-content: center;
 }
 
-.signup-page .login-side {
-  grid-area: side;
-}
-
-.signup-page .login-card {
-  grid-area: card;
+.password-page .login-layout {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .password-page .login-grid {
-  grid-template-areas: "card side";
-}
-
-.password-page .login-side {
-  grid-area: side;
-}
-
-.password-page .login-card {
-  grid-area: card;
+  grid-template-columns: minmax(550px, 760px);
+  justify-content: center;
 }
 
 .login-side-card {
@@ -2320,7 +2407,8 @@ body {
 .side-menu-card {
   width: clamp(200px, 14vw, 240px);
   max-height: calc(100vh - 220px);
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   position: fixed;
   right: 24px;
   top: 180px;
@@ -2334,10 +2422,12 @@ body {
 }
 
 .side-menu-title {
-  font-size: 15px;
-  font-weight: 800;
-  color: #111827;
-  margin-bottom: 10px;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+  margin: 2px 0 12px;
+  text-align: center;
 }
 
 .side-menu-list {
@@ -2355,9 +2445,57 @@ body {
   padding: 10px 12px;
   font-size: 14px;
   font-weight: 700;
-  text-align: left;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
   transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.side-menu-label {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.side-menu-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+}
+
+.side-menu-icon svg {
+  display: block;
+}
+
+.side-menu-icon-main {
+  background: #eaf2ff;
+  color: #1d4ed8;
+}
+
+.side-menu-icon-issues {
+  background: #e8f7ef;
+  color: #15803d;
+}
+
+.side-menu-icon-reports {
+  background: #fff4e6;
+  color: #c2410c;
+}
+
+.side-menu-icon-archive {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.side-menu-icon-support {
+  background: #f3e8ff;
+  color: #7e22ce;
 }
 
 .side-menu-btn:hover {
@@ -2429,6 +2567,12 @@ body {
 
 
 .login-page .side-menu-card {
+  max-height: calc(100vh - 260px);
+  height: auto;
+  min-height: 0;
+}
+
+.signup-page .side-menu-card {
   max-height: calc(100vh - 260px);
   height: auto;
   min-height: 0;

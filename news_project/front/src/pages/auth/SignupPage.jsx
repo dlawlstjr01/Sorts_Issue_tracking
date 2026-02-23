@@ -318,20 +318,6 @@ export default function SignupPage() {
               </form>
             </section>
 
-            <section className="login-side">
-              <div className="login-side-card">
-                <div className="login-side-badge">NEWS Issue Tracker</div>
-                <h2 className="login-side-title">맞춤형 이슈 관리 시작</h2>
-                <p className="login-side-desc">
-                  관심 분야와 알림 기준을 설정하면 핵심 기사만 빠르게 모아볼 수 있습니다.
-                </p>
-                <ul className="login-side-list">
-                  <li>카테고리별 주요 이슈 추적</li>
-                  <li>AI 요약 기반 핵심 브리핑</li>
-                  <li>팀 공유용 북마크/메모</li>
-                </ul>
-              </div>
-            </section>
           </div>
 
           <aside className="login-side-menu">

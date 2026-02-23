@@ -2389,6 +2389,21 @@ body {
   gap: 12px;
 }
 
+.my-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.my-inline-btn {
+  height: 32px;
+  min-width: 82px;
+  padding: 0 12px;
+  font-size: 13px;
+  border-radius: 10px;
+}
+
 .my-actions {
   display: flex;
   justify-content: flex-end;
@@ -2400,6 +2415,51 @@ body {
   height: 44px;
   min-width: 124px;
   font-size: 15px;
+}
+
+.my-notice-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(15, 23, 42, 0.42);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.my-notice-modal {
+  width: min(92vw, 420px);
+  background: #ffffff;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.22);
+  padding: 20px;
+}
+
+.my-notice-title {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.my-notice-message {
+  margin: 0;
+  font-size: 15px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.my-notice-actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.my-notice-actions .login-btn {
+  min-width: 88px;
+  height: 40px;
 }
 
 

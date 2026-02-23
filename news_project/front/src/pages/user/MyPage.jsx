@@ -13,6 +13,21 @@ export default function MyPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pwSaving, setPwSaving] = useState(false);
+  const [nameEditing, setNameEditing] = useState(false);
+  const [nameSaving, setNameSaving] = useState(false);
+
+  const [noticeModal, setNoticeModal] = useState({
+    open: false,
+    message: "",
+  });
+
+  const openNotice = (message = "수정 완료") => {
+    setNoticeModal({ open: true, message });
+  };
+
+  const closeNotice = () => {
+    setNoticeModal((prev) => ({ ...prev, open: false }));
+  };
 
   // 원본(취소 시 되돌리기 용)
   const [origin, setOrigin] = useState(null);
@@ -111,7 +126,7 @@ export default function MyPage() {
         withCredentials: true,
       });
 
-      alert(res.data?.message || "저장 완료");
+      openNotice(res.data?.message || "수정 완료");
 
       // 서버가 최신 user 내려주면 반영
       if (res.data?.user) {
@@ -141,9 +156,52 @@ export default function MyPage() {
     }
   };
 
+  const handleSaveName = async () => {
+    if (!user.name.trim()) return alert("\uC774\uB984\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!user.email.trim()) return alert("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uC774\uBA54\uC77C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
+    if (!user.phone.trim()) return alert("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uD734\uB300\uD3F0 \uBC88\uD638\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
+
+    setNameSaving(true);
+    try {
+      const payload = {
+        name: user.name.trim(),
+        email: user.email.trim(),
+        phone: normalizePhone(user.phone.trim()),
+      };
+
+      const res = await axios.put(`${API_BASE}/auth/me`, payload, {
+        withCredentials: true,
+      });
+
+      const next = res.data?.user
+        ? {
+            login_id: res.data.user.login_id ?? user.login_id,
+            name: res.data.user.name ?? payload.name,
+            email: res.data.user.email ?? payload.email,
+            phone: res.data.user.phone ?? payload.phone,
+          }
+        : {
+            ...user,
+            name: payload.name,
+            email: payload.email,
+            phone: payload.phone,
+          };
+
+      setUser(next);
+      setOrigin(next);
+      setNameEditing(false);
+      openNotice(res.data?.message || "수정 완료");
+    } catch (err) {
+      alert(err.response?.data?.message || "\uC774\uB984 \uC800\uC7A5 \uC2E4\uD328");
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
   // 취소
   const handleCancel = () => {
     if (origin) setUser(origin);
+    setNameEditing(false);
     setPwForm({ currentPassword: "", newPassword: "", newPassword2: "" });
     alert("변경사항을 취소했습니다.");
   };
@@ -225,14 +283,30 @@ export default function MyPage() {
           <h3 className="my-section-title">기본 정보</h3>
           <div className="my-form">
             <label className="login-label">
-              이름
+              <div className="my-field-head">
+                <span>{"\uC774\uB984"}</span>
+                <button
+                  className="login-btn ghost my-inline-btn"
+                  type="button"
+                  onClick={() => (nameEditing ? handleSaveName() : setNameEditing(true))}
+                  disabled={saving || nameSaving}
+                >
+                  {nameSaving
+                    ? "\uC800\uC7A5 \uC911..."
+                    : nameEditing
+                    ? "\uC774\uB984 \uC800\uC7A5"
+                    : "\uC218\uC815"}
+                </button>
+              </div>
               <input
                 className="login-input"
                 type="text"
                 name="name"
                 value={user.name}
                 onChange={onChangeUser}
-                placeholder="홍길동"
+                readOnly={!nameEditing}
+                aria-readonly={!nameEditing}
+                placeholder={"\uD64D\uAE38\uB3D9"}
               />
             </label>
 
@@ -361,18 +435,32 @@ export default function MyPage() {
       </div>
 
       <div className="my-actions">
-        <button className="login-btn primary" type="button" onClick={handleSave} disabled={saving}>
+        <button className="login-btn primary" type="button" onClick={handleSave} disabled={saving || nameSaving}>
           {saving ? "저장 중..." : "저장"}
         </button>
         <button
           className="login-btn"
           type="button"
           onClick={handleCancel}
-          disabled={saving || pwSaving} 
+          disabled={saving || pwSaving || nameSaving} 
         >
           취소
         </button>
       </div>
+
+      {noticeModal.open && (
+        <div className="my-notice-modal-backdrop" onClick={closeNotice}>
+          <div className="my-notice-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h4 className="my-notice-title">알림</h4>
+            <p className="my-notice-message">{noticeModal.message}</p>
+            <div className="my-notice-actions">
+              <button className="login-btn primary" type="button" onClick={closeNotice}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

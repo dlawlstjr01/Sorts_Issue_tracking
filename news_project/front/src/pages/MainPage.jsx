@@ -6,7 +6,6 @@ import { Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/mousewheel";
 
-//  추가: newsApi 호출
 import { fetchNews } from "../api/newsApi";
 
 const CATEGORIES = [
@@ -20,19 +19,6 @@ const CATEGORIES = [
   { key: "sports", label: "스포츠" },
 ];
 
-//  탭별로 백엔드 검색어(q)로 분류
-const CATEGORY_QUERY = {
-  all: "",
-  politics: "국회 OR 선거 OR 대통령 OR 장관 OR 여당 OR 야당",
-  economy: "금리 OR 환율 OR 증시 OR 코스피 OR 물가 OR 부동산",
-  society: "사건 OR 사고 OR 경찰 OR 검찰 OR 법원 OR 화재",
-  world: "미국 OR 중국 OR 일본 OR 러시아 OR 우크라이나 OR UN",
-  it: "AI OR 인공지능 OR 반도체 OR 삼성 OR 애플 OR 구글 OR 네이버",
-  culture: "영화 OR 드라마 OR 연예 OR 공연 OR 전시 OR 문화재",
-  sports: "KBO OR EPL OR NBA OR 축구 OR 야구 OR 올림픽 OR 손흥민",
-};
-
-/**  긴 URL 줄이기 */
 const UQ = "?auto=format&fit=crop&w=1200&q=80";
 const THUMB = {
   it: "https://images.unsplash.com/photo-1677442136019-21780ecad995",
@@ -44,7 +30,6 @@ const THUMB = {
   sports: "https://images.unsplash.com/photo-1521412644187-c49fa049e84d",
 };
 
-/**  (선택) 더미 초기 기사: API가 비어있을 때만 fallback으로 쓰고 싶으면 유지 */
 const INITIAL_ARTICLES = [
   {
     id: 1,
@@ -57,10 +42,9 @@ const INITIAL_ARTICLES = [
       "성능 향상과 운영 비용 최적화가 핵심 이슈로 떠올랐습니다.",
     ],
     createdAt: Date.now() - 1000 * 60 * 20,
+    raw: { url: "" },
   },
 ];
-
-const CATEGORY_POOL = ["politics", "economy", "society", "world", "it", "culture", "sports"];
 
 function getCategoryLabel(key) {
   return CATEGORIES.find((c) => c.key === key)?.label || "기타";
@@ -132,7 +116,6 @@ function LatestCarousel({ items, onItemClick }) {
     velocity: 0,
     rafId: 0,
     targetScrollLeft: 0,
-    smoothingRafId: 0,
     pointerId: null,
     moveRafId: 0,
   });
@@ -150,12 +133,11 @@ function LatestCarousel({ items, onItemClick }) {
     if (e.button !== undefined && e.button !== 0) return;
 
     if (dragRef.current.rafId) cancelAnimationFrame(dragRef.current.rafId);
-    if (dragRef.current.smoothingRafId) cancelAnimationFrame(dragRef.current.smoothingRafId);
 
     dragRef.current.pointerId = e.pointerId;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch { }
+    } catch {}
 
     dragRef.current.active = true;
     dragRef.current.startX = e.clientX;
@@ -210,8 +192,9 @@ function LatestCarousel({ items, onItemClick }) {
     dragRef.current.moveRafId = 0;
 
     try {
-      if (dragRef.current.pointerId !== null) el.releasePointerCapture(dragRef.current.pointerId);
-    } catch { }
+      if (dragRef.current.pointerId !== null)
+        el.releasePointerCapture(dragRef.current.pointerId);
+    } catch {}
     dragRef.current.pointerId = null;
 
     const startVelocity = dragRef.current.velocity;
@@ -233,10 +216,20 @@ function LatestCarousel({ items, onItemClick }) {
       <div className="mp-latest-head">
         <div className="mp-section-title">최신 기사</div>
         <div className="mp-latest-ctrl">
-          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(-1)} aria-label="latest left">
+          <button
+            type="button"
+            className="mp-latest-btn"
+            onClick={() => scrollByAmount(-1)}
+            aria-label="latest left"
+          >
             ◀
           </button>
-          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(1)} aria-label="latest right">
+          <button
+            type="button"
+            className="mp-latest-btn"
+            onClick={() => scrollByAmount(1)}
+            aria-label="latest right"
+          >
             ▶
           </button>
         </div>
@@ -259,138 +252,224 @@ function LatestCarousel({ items, onItemClick }) {
   );
 }
 
-/**  API 응답 → 현재 UI 기사 구조로 매핑 */
-function normalizeCategory(raw) {
-  const v = String(raw || "").toLowerCase();
-  if (v.includes("polit")) return "politics";
-  if (v.includes("econ")) return "economy";
-  if (v.includes("soc")) return "society";
-  if (v.includes("world") || v.includes("intl")) return "world";
-  if (v.includes("it") || v.includes("sci")) return "it";
-  if (v.includes("cult") || v.includes("ent")) return "culture";
-  if (v.includes("sport")) return "sports";
-  // 혹시 한글이 오면 대충 대응
-  if (v.includes("정치")) return "politics";
-  if (v.includes("경제")) return "economy";
-  if (v.includes("사회")) return "society";
-  if (v.includes("국제")) return "world";
-  if (v.includes("it") || v.includes("과학")) return "it";
-  if (v.includes("문화")) return "culture";
-  if (v.includes("스포츠")) return "sports";
-  return "it";
+/** ----------------- 카테고리 자동 분류 ----------------- */
+
+const CATEGORY_RULES = {
+  politics: [
+    "국회","대통령","총리","정당","선거","공천","탄핵","외교","정부","장관","의원","정책","국정",
+  ],
+  economy: [
+    "금리","물가","환율","주가","증시","코스피","코스닥","비트코인","가상자산","부동산","경제","경기",
+    "실적","매출","영업이익","투자","수출","수입","고용","실업","인플레이션",
+  ],
+  society: [
+    "사건","사고","범죄","경찰","검찰","법원","재판","구속","화재","붕괴","실종","폭행","사망",
+    "노동","파업","교육","학교","복지","의료","질병",
+  ],
+  world: [
+    "미국","중국","일본","러시아","우크라이나","유럽","EU","UN","이스라엘","가자","중동","나토",
+    "해외","국제","외신","정상회담","관세",
+  ],
+  it: [
+    "AI","인공지능","챗GPT","오픈AI","구글","애플","메타","MS","마이크로소프트","엔비디아",
+    "반도체","스마트폰","보안","해킹","클라우드","데이터","서버","알고리즘","로봇","과학","우주",
+  ],
+  culture: [
+    "영화","드라마","OTT","넷플릭스","디즈니","음악","가수","아이돌","공연","전시","미술","문학",
+    "문화","축제","패션","연예","방송",
+  ],
+  sports: [
+    "축구","야구","농구","배구","골프","테니스","UFC","EPL","K리그","MLB","NBA","KBO",
+    "올림픽","월드컵","선수","감독","경기","득점",
+  ],
+};
+
+function normalizeText(s) {
+  return String(s || "").toLowerCase();
 }
 
-function mapNewsToArticle(n, forcedCategory) {
-  const id = n.id;
+function inferCategoryFromNews(n) {
+  const text = normalizeText(
+    [n.title, n.description, n.summary, n.content, n.body, n.press_name]
+      .filter(Boolean)
+      .join(" ")
+  );
 
-  const category = forcedCategory && forcedCategory !== "all"
-    ? forcedCategory
-    : normalizeCategory(n.category); // all 탭에서는 기존 로직 유지(기본 it)
+  // 🔧 매칭 실패를 IT로 몰아넣지 않게(국제/사회 비는 현상 완화)
+  if (!text) return "society";
+
+  let bestKey = "society";
+  let bestScore = 0;
+
+  for (const [key, keywords] of Object.entries(CATEGORY_RULES)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (text.includes(String(kw).toLowerCase())) score += 1;
+    }
+    if (score > bestScore) {
+      bestKey = key;
+      bestScore = score;
+    }
+  }
+
+  return bestScore > 0 ? bestKey : "society";
+}
+
+function mapNewsToArticle(n) {
+  const id = n.id ?? `${n.url || "news"}-${n.published_at || Date.now()}`;
+  const category = inferCategoryFromNews(n);
 
   const title = n.title ?? "(제목 없음)";
   const thumb = n.thumbnail ? n.thumbnail : `${(THUMB[category] || THUMB.it)}${UQ}`;
-
   const rawTime = n.published_at ?? n.created_at;
   const createdAt = rawTime ? new Date(rawTime).getTime() : Date.now();
-
-  const summary = ["요약은 상세 페이지에서 확인할 수 있습니다."];
-  const badge = "최신";
 
   return {
     id,
     category,
-    badge,
+    badge: "최신",
     title,
     thumbnailUrl: thumb,
-    summary,
+    summary: ["요약은 상세 페이지에서 확인할 수 있습니다."],
     createdAt,
     raw: n,
   };
 }
-export default function MainPage() {
-  /**  실제 뉴스 데이터가 들어갈 state */
-  const [articles, setArticles] = useState(INITIAL_ARTICLES);
 
+
+export default function MainPage() {
+  const [articles, setArticles] = useState(INITIAL_ARTICLES);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(INITIAL_ARTICLES[0]?.id || 1);
 
   const swiperRef = useRef(null);
 
-  /**  로딩/에러 */
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  /**  페이지네이션(백엔드가 page/size 지원하므로 준비) */
+  //  이제 page는 "누적 풀 확장"용 (탭마다 바뀌는 게 아님)
   const [page, setPage] = useState(1);
-  const size = 30; // 메인페이지는 넉넉히 받아두고 UI에서 필터/슬라이드
+  const size = 30;
 
-  /**  최초 + page 변경 시 뉴스 로드 */
-  useEffect(() => {
-    let alive = true;
+  // 캐시: page/size/q 기준 (category 제거!)
+  const cacheRef = useRef(new Map());
+  const fetchedPagesRef = useRef(new Set()); // 이미 가져온 page 추적
+  const abortRef = useRef(null);
 
-    const loadNews = async () => {
+  // 🔧 카테고리별 최소 개수 확보 (국제/사회 2~3개 뜨는 문제를 확실히 방지)
+  const MIN_PER_CATEGORY = 15;
+  const MAX_AUTO_PAGES = 6; // 자동으로 최대 몇 페이지까지 더 당길지(과도한 네트워크 방지)
+
+  const q = ""; //  핵심: 탭과 무관하게 넓게 가져온다(검색 기능 붙이면 여기만 바꾸면 됨)
+
+  const mergeIntoPool = (incoming) => {
+    // dedup + 최신순
+    const dedup = new Map();
+    for (const a of articles) dedup.set(String(a.id), a);
+    for (const a of incoming) dedup.set(String(a.id), a);
+    return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  };
+
+  const fetchPageAndAppend = async (targetPage) => {
+    const cacheKey = `${targetPage}:${size}:${q}`;
+
+    // 이미 가져온 페이지면 캐시로 빠르게
+    if (cacheRef.current.has(cacheKey)) {
+      const cached = cacheRef.current.get(cacheKey);
+      setArticles((prev) => {
+        const dedup = new Map();
+        for (const a of prev) dedup.set(String(a.id), a);
+        for (const a of cached) dedup.set(String(a.id), a);
+        return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      });
+      return cached.length;
+    }
+
+    // 중복 fetch 방지
+    if (fetchedPagesRef.current.has(cacheKey)) return 0;
+    fetchedPagesRef.current.add(cacheKey);
+
+    // 이전 요청 취소(빠른 연타 대비)
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
       setLoading(true);
       setError("");
-      try {
-        const q = CATEGORY_QUERY[selectedCategory] || "";
-        const res = await fetchNews({ page, size, q: q || undefined });
 
-        const list = res.data?.items ?? [];
-        const mapped = list.map((n) => mapNewsToArticle(n, selectedCategory));
+      const res = await fetchNews({ page: targetPage, size, q }, { signal: controller.signal });
+      const data = res.data;
+      const list = Array.isArray(data?.items) ? data.items : [];
 
-        if (!alive) return;
+      const mapped = list.map(mapNewsToArticle);
 
+      cacheRef.current.set(cacheKey, mapped);
+
+      setArticles((prev) => {
         const dedup = new Map();
+        for (const a of prev) dedup.set(String(a.id), a);
         for (const a of mapped) dedup.set(String(a.id), a);
-        const merged = Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      });
 
-        setArticles(merged.length ? merged : INITIAL_ARTICLES);
+      return mapped.length;
+    } catch (e) {
+      if (e?.name === "CanceledError" || e?.code === "ERR_CANCELED") return 0;
+      setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
+      return 0;
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        if (merged.length) {
-          setSelectedId(merged[0].id);
-          if (swiperRef.current) swiperRef.current.slideTo(0, 0);
-        }
-      } catch (e) {
-        if (!alive) return;
-        setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
-      } finally {
-        if (alive) setLoading(false);
+  // 초기 1페이지 로딩
+  useEffect(() => {
+    fetchPageAndAppend(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 현재 카테고리가 너무 적으면 자동으로 추가 페이지 로딩
+  useEffect(() => {
+    let canceled = false;
+
+    const ensureCategoryFilled = async () => {
+      if (selectedCategory === "all") return;
+
+      const countNow = articles.filter((a) => a.category === selectedCategory).length;
+      if (countNow >= MIN_PER_CATEGORY) return;
+
+      // 부족하면 다음 페이지를 더 가져와서 풀을 키운다
+      // page state를 "다음 가져올 페이지"로 사용
+      let nextPage = page;
+      let tries = 0;
+
+      while (!canceled && tries < MAX_AUTO_PAGES) {
+        tries += 1;
+        nextPage += 1;
+
+        const added = await fetchPageAndAppend(nextPage);
+        setPage(nextPage);
+
+        // 더 이상 데이터가 안 오면 중단
+        if (added === 0) break;
+
+        const after = (prev) => prev; // noop
+        // 상태 업데이트는 fetchPageAndAppend에서 처리됨
+
+        const newCount = (articles.filter((a) => a.category === selectedCategory).length);
+        // 위 newCount는 즉시 반영 안 될 수 있음 → 다음 렌더에서 다시 effect가 돌게 됨
+        // 그래서 여기서는 "몇 페이지까지 당겨온다"만 보장하면 충분합니다.
       }
     };
 
-    loadNews();
+    ensureCategoryFilled();
+
     return () => {
-      alive = false;
+      canceled = true;
     };
-
-  }, [page, selectedCategory]); //  탭 바뀌면 다시 로드
-
-  /**  (중요) 기존 더미 “12초 자동 업로드”는 실제 연동 시 꺼두는 게 맞습니다. */
-  // 필요하면 다시 켤 수 있도록 주석으로 남겨둠.
-  /*
-  useEffect(() => {
-    const makeAutoArticle = () => {
-      const id = `${Date.now()}-${Math.random()}`;
-      const category = CATEGORY_POOL[Math.floor(Math.random() * CATEGORY_POOL.length)];
-      const label = getCategoryLabel(category);
-      return {
-        id,
-        category,
-        badge: "최신",
-        title: `${label} 자동 업로드 더미`,
-        thumbnailUrl: `${(THUMB[category] || THUMB.it)}${UQ}`,
-        summary: [`${label} 분야에서 새로운 이슈가 업데이트되었습니다.`],
-        createdAt: Date.now(),
-      };
-    };
-
-    const timer = setInterval(() => {
-      setArticles((prev) => [makeAutoArticle(), ...prev].slice(0, 60));
-    }, 12000);
-
-    return () => clearInterval(timer);
-  }, []);
-  */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory]);
 
   const filtered = useMemo(() => {
     if (selectedCategory === "all") return articles;
@@ -398,10 +477,10 @@ export default function MainPage() {
   }, [selectedCategory, articles]);
 
   const selectedArticle = useMemo(() => {
+    if (!filtered.length) return null;
     const fromFiltered = filtered.find((a) => a.id === selectedId);
-    if (fromFiltered) return fromFiltered;
-    return filtered[0] || articles[0];
-  }, [filtered, selectedId, articles]);
+    return fromFiltered || filtered[0];
+  }, [filtered, selectedId]);
 
   const relatedArticles = useMemo(() => {
     if (!selectedArticle) return [];
@@ -413,6 +492,17 @@ export default function MainPage() {
     return sorted.slice(0, 15);
   }, [articles]);
 
+  // 탭 바뀌면 첫 기사로 맞추기
+  useEffect(() => {
+    if (!filtered.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId(filtered[0].id);
+    if (swiperRef.current) swiperRef.current.slideTo(0, 0);
+  }, [selectedCategory, filtered]);
+
+  // selectedId가 바뀌면 Swiper 인덱스 동기화
   useEffect(() => {
     if (!swiperRef.current) return;
     const idx = filtered.findIndex((a) => a.id === selectedId);
@@ -421,15 +511,10 @@ export default function MainPage() {
     }
   }, [filtered, selectedId]);
 
-  useEffect(() => {
-    if (!swiperRef.current) return;
-    swiperRef.current.slideTo(0, 0);
-  }, [selectedCategory]);
-
   return (
     <div className="mp-wrap">
       <div className="mp-grid">
-        {/* LEFT: 카테고리 */}
+        {/* LEFT */}
         <aside className="mp-left">
           <div className="mp-panel">
             <div className="mp-panel-title">카테고리</div>
@@ -441,7 +526,6 @@ export default function MainPage() {
                   active={selectedCategory === c.key}
                   onClick={() => {
                     setSelectedCategory(c.key);
-                    setPage(1);
                   }}
                 />
               ))}
@@ -451,9 +535,14 @@ export default function MainPage() {
 
             <div className="mp-panel-title">기사 목록</div>
 
-            {/*  로딩/에러 표시(기존 UI 크게 안 건드리기) */}
             {loading && <div style={{ padding: 12, opacity: 0.8 }}>불러오는 중...</div>}
             {error && <div style={{ padding: 12, color: "crimson" }}>{error}</div>}
+
+            {!loading && !error && filtered.length === 0 && (
+              <div style={{ padding: 12, opacity: 0.8 }}>
+                해당 카테고리 기사가 없습니다. (데이터를 더 불러오는 중일 수 있어요)
+              </div>
+            )}
 
             <div className="mp-article-list">
               {filtered.map((a) => (
@@ -465,97 +554,120 @@ export default function MainPage() {
                 >
                   <div className="mp-article-item-top">
                     <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                    <span className="mp-article-item-badge">{a.badge}</span>
+                    <span className={`mp-article-item-badge new`}>{a.badge}</span>
                   </div>
                   <div className="mp-article-item-title">{a.title}</div>
                 </button>
               ))}
             </div>
 
-            {/*  (선택) 페이지네이션 버튼 - 백엔드가 page/size 지원할 때 */}
+            {/*  이제 "더 불러오기"가 자연스러움(누적 풀 확장) */}
             <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: 12 }}>
-              <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                이전 페이지
-              </button>
-              <button type="button" className="mp-btn" disabled={loading} onClick={() => setPage((p) => p + 1)}>
-                다음 페이지
+              <button
+                type="button"
+                className="mp-btn"
+                disabled={loading}
+                onClick={async () => {
+                  const next = page + 1;
+                  await fetchPageAndAppend(next);
+                  setPage(next);
+                }}
+              >
+                더 불러오기
               </button>
             </div>
           </div>
         </aside>
 
-        {/* CENTER: 메인 기사 */}
+        {/* CENTER */}
         <main className="mp-center">
-          <Swiper
-            direction="vertical"
-            slidesPerView={1}
-            mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
-            speed={600}
-            modules={[Mousewheel]}
-            onSwiper={(s) => {
-              swiperRef.current = s;
-            }}
-            onSlideChange={(s) => {
-              const next = filtered[s.activeIndex];
-              if (next) setSelectedId(next.id);
-            }}
-            className="mp-center-swiper"
-          >
-            {filtered.map((article) => (
-              <SwiperSlide key={article.id}>
-                <div className="mp-center-inner">
-                  <div className="mp-head">
-                    <h1 className="mp-title">{article.title}</h1>
-                    <Badge type={article.badge} />
-                  </div>
+          {!selectedArticle ? (
+            <div style={{ padding: 20, opacity: 0.8 }}>
+              {loading ? "불러오는 중..." : "표시할 기사가 없습니다."}
+            </div>
+          ) : (
+            <Swiper
+              direction="vertical"
+              slidesPerView={1}
+              mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
+              speed={600}
+              modules={[Mousewheel]}
+              onSwiper={(s) => {
+                swiperRef.current = s;
+              }}
+              onSlideChange={(s) => {
+                const next = filtered[s.activeIndex];
+                if (next) setSelectedId(next.id);
+              }}
+              className="mp-center-swiper"
+            >
+              {filtered.map((article) => (
+                <SwiperSlide key={article.id}>
+                  <div className="mp-center-inner">
+                    <div className="mp-head">
+                      <h1 className="mp-title">{article.title}</h1>
+                      <Badge type={article.badge} />
+                    </div>
 
-                  <div className="mp-thumb-wrap">
-                    <img
-                      className="mp-thumb"
-                      src={article.thumbnailUrl}
-                      alt="article thumbnail"
-                      loading="lazy"
+                    <div className="mp-thumb-wrap">
+                      <img
+                        className="mp-thumb"
+                        src={article.thumbnailUrl}
+                        alt="article thumbnail"
+                        loading="lazy"
+                      />
+                      <div className="mp-thumb-label">AI 생성 썸네일</div>
+                    </div>
+
+                    <section className="mp-summary">
+                      <div className="mp-section-title">요약</div>
+                      <div className="mp-summary-lines">
+                        {(article.summary || []).slice(0, 10).map((line, idx) => (
+                          <p key={idx} className="mp-summary-line">
+                            {line}
+                          </p>
+                        ))}
+                      </div>
+
+                      <div className="mp-actions">
+                        <button
+                          className="mp-btn primary"
+                          type="button"
+                          onClick={() => {
+                            const url = article.raw?.url;
+                            if (url) {
+                              window.open(url, "_blank", "noopener,noreferrer");
+                            } else {
+                              alert("원문 링크가 없습니다.");
+                            }
+                          }}
+                        >
+                          본문 보기
+                        </button>
+                        <button className="mp-btn" type="button">
+                          저장
+                        </button>
+                        <button className="mp-btn" type="button">
+                          공유
+                        </button>
+                      </div>
+                    </section>
+
+                    <LatestCarousel
+                      items={latestItems}
+                      onItemClick={(a) => {
+                        setSelectedCategory(a.category);
+                        setSelectedId(a.id);
+                      }}
                     />
-                    <div className="mp-thumb-label">AI 생성 썸네일</div>
                   </div>
-
-                  <section className="mp-summary">
-                    <div className="mp-section-title">요약</div>
-                    <div className="mp-summary-lines">
-                      {(article.summary || []).slice(0, 10).map((line, idx) => (
-                        <p key={idx} className="mp-summary-line">
-                          {line}
-                        </p>
-                      ))}
-                    </div>
-
-                    <div className="mp-actions">
-                      <button className="mp-btn primary" type="button">
-                        본문 보기
-                      </button>
-                      <button className="mp-btn" type="button">
-                        저장
-                      </button>
-                      <button className="mp-btn" type="button">
-                        공유
-                      </button>
-                    </div>
-                  </section>
-
-                  <LatestCarousel
-                    items={latestItems}
-                    onItemClick={(a) => {
-                      setSelectedCategory(a.category);
-                      setSelectedId(a.id);
-                    }}
-                  />
-                </div>
-              </SwiperSlide>
-            ))}
-          </Swiper>
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          )}
         </main>
 
-        {/* RIGHT: 관련/과거 기사 */}
+        {/* RIGHT */}
         <aside className="mp-right">
           <div className="mp-panel">
             <div className="mp-panel-title">관련 기사</div>
@@ -564,8 +676,7 @@ export default function MainPage() {
                 <RelatedItem
                   key={a.id}
                   title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · ${String(a.badge).toUpperCase() === "HOT" ? "핫이슈" : "최신"
-                    }`}
+                  meta={`${getCategoryLabel(a.category)} · 최신`}
                   onClick={() => {
                     setSelectedCategory(a.category);
                     setSelectedId(a.id);

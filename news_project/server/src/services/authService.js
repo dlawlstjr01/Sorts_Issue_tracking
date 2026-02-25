@@ -345,11 +345,17 @@ exports.isLoginIdTaken = async (login_id) => {
 exports.updateMe = async (userId, { name, email, phone, birth_date }) => {
   if (!userId) throw makeError("유저 없음", 401);
 
+  const nameT = String(name || "").trim();
   const emailT = String(email || "").trim();
   const phoneN = String(phone || "").replace(/\D/g, "");
+  const birthT = String(birth || "").trim();
 
+  if (!nameT) throw makeError("이름이 필요합니다.", 400);
   if (!emailT) throw makeError("이메일이 필요합니다.", 400);
   if (!phoneN) throw makeError("휴대폰 번호가 필요합니다.", 400);
+  if (birthT && !/^\d{4}-\d{2}-\d{2}$/.test(birthT)) {
+    throw makeError("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)", 400);
+  }
 
   //  birth_date 검증
   let bd = null;

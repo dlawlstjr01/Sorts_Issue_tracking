@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import SideMenuCard from "../../components/SideMenuCard";
 
 export default function MyPage() {
   const navigate = useNavigate();
@@ -40,7 +41,7 @@ export default function MyPage() {
     phone: "",
   });
 
-  // UI 유지용(현재 DB에 없음 -> 저장 안 함)
+  // UI 유지용(현재 DB 저장 X)
   const [uiOnly, setUiOnly] = useState({
     birth: "",
     agreeEmailBriefing: true,
@@ -243,6 +244,7 @@ export default function MyPage() {
           <div className="pageTitle">마이페이지</div>
           <div className="pageDesc">로딩 중...</div>
         </div>
+        <SideMenuCard />
       </div>
     );
   }
@@ -261,6 +263,8 @@ export default function MyPage() {
         <div className="pageTitle">마이페이지</div>
         <div className="pageDesc">개인 정보를 확인하고 수정할 수 있습니다.</div>
       </div>
+
+      <SideMenuCard />
 
       <div className="my-grid">
         <section className="my-card">

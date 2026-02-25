@@ -79,6 +79,12 @@ export default function Header() {
     return sp.get("view") || "";
   }, [location.search]);
 
+  const activeView = useMemo(() => {
+    if (view === "issue") return "issues";
+    if (view === "report") return "reports";
+    return view;
+  }, [view]);
+
   const menu = useMemo(
     () => [
       { to: "issues", label: "이슈 추적", icon: <IconBox /> },
@@ -156,8 +162,11 @@ export default function Header() {
     <header className="hdr">
       <div className="hdr-inner">
         <button className="hdr-logo" type="button" onClick={() => go("main")}>
-          <span className="hdr-mark">NEWS</span>
-          <span className="hdr-sub">Issue Tracker</span>
+          <img className="hdr-logo-img" src="/logo.png" alt="" aria-hidden="true" />
+          <span className="hdr-logo-text">
+            <span className="hdr-mark">NEWS</span>
+            <span className="hdr-sub">Issue Tracker</span>
+          </span>
         </button>
 
         <nav className="hdr-nav" aria-label="Primary">
@@ -166,7 +175,7 @@ export default function Header() {
               key={m.to}
               type="button"
               className={`hdr-item ${
-                view && (view === m.to || view.startsWith(m.to + "-")) ? "is-active" : ""
+                activeView && (activeView === m.to || activeView.startsWith(m.to + "-")) ? "is-active" : ""
               }`}
               onClick={() => go(m.to)}
             >

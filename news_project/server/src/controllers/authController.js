@@ -161,9 +161,9 @@ exports.checkLoginId = async (req, res) => {
 exports.updateMe = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, email, phone } = req.body;
+    const { name, email, phone, birth } = req.body;
 
-    const user = await authService.updateMe(userId, { name, email, phone });
+    const user = await authService.updateMe(userId, { name, email, phone, birth });
 
     return res.status(200).json({
       message: "저장 완료",

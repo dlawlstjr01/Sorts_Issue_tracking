@@ -1,7 +1,7 @@
 :root {
   --primary: #111827;
   --accent: #2563eb;
-  --bg: #f3f4f6;
+  --bg: #edf4ff;
   --card-bg: #ffffff;
   --border: rgba(17, 24, 39, 0.08);
   --text: #111827;
@@ -13,7 +13,12 @@
 
 body {
   margin: 0;
-  background: var(--bg);
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 520px at -8% -12%, rgba(56, 189, 248, 0.18) 0%, rgba(56, 189, 248, 0) 62%),
+    radial-gradient(980px 460px at 102% -4%, rgba(96, 165, 250, 0.14) 0%, rgba(96, 165, 250, 0) 64%),
+    linear-gradient(180deg, #f7fbff 0%, #edf5ff 48%, #e9f2ff 100%);
+  background-attachment: fixed;
   color: var(--text);
   font-family: 'Pretendard', system-ui, -apple-system, sans-serif;
   line-height: 1.6;
@@ -44,9 +49,29 @@ body {
   background: none;
   cursor: pointer;
   display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+}
+
+.hdr-logo-img {
+  width: 36px;
+  height: 36px;
+  max-width: none;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  flex: 0 0 auto;
+  display: block;
+}
+
+.hdr-logo-text {
+  display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 0;
+  gap: 2px;
+  line-height: 1;
 }
 
 .hdr-mark { font-weight: 900; font-size: 19px; color: var(--accent); letter-spacing: 1px; }
@@ -121,7 +146,7 @@ body {
 
 .hdr {
   width: 100%;
-  height: 83px !important;
+  height: 94px !important;
   background:
     radial-gradient(1200px 140px at 12% -20%, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0) 68%),
     linear-gradient(125deg, #fbfdff 0%, #f3f8ff 46%, #edf5ff 100%);
@@ -165,7 +190,7 @@ body {
   width: 100%;
   margin: 0 auto;
   padding: 0 32px !important;
-  height: 72px;
+  height: 80px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -174,14 +199,34 @@ body {
 
 .hdr-logo {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 0;
   justify-self: start;
+}
+
+.hdr-logo-img {
+  width: 52px;
+  height: 52px;
+  max-width: none;
+  object-fit: contain;
+  object-position: center;
+  border-radius: 0;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 4px 10px rgba(59, 130, 246, 0.18));
+  display: block;
+}
+
+.hdr-logo-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  line-height: 1;
 }
 
 .hdr-mark {
@@ -218,8 +263,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 6px 7px;
+  gap: 14px;
+  padding: 7px 14px;
   border-radius: 999px;
   border: 1px solid rgba(147, 197, 253, 0.55);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(239, 246, 255, 0.9) 100%);
@@ -244,7 +289,7 @@ body {
 
 .hdr-item {
   height: 38px;
-  padding: 0 15px;
+  padding: 0 20px;
   border-radius: 999px;
   border: 1px solid transparent;
   border-bottom: none;
@@ -2679,4 +2724,48 @@ body {
 
 .login-social-icon svg {
   display: block;
+}
+
+/* ===== Global Container Border Accent ===== */
+.card,
+.login-card,
+.login-side-card,
+.support-panel,
+.reports-hero,
+.report-detail-hero,
+.report-section,
+.report-timeline-item,
+.report-card,
+.report-side-card,
+.report-related-item,
+.report-detail-empty,
+.reports-empty,
+.reports-stat,
+.reports-input,
+.reports-chip,
+.issues-hero,
+.issue-detail-hero,
+.issue-section,
+.issue-timeline-item,
+.issues-stat,
+.issues-input,
+.issues-chip,
+.issues-empty,
+.issue-card,
+.issue-side-card,
+.issue-evidence-card,
+.issue-keyword,
+.issue-detail-empty,
+.archive-tab,
+.archive-search,
+.archive-sort button,
+.archive-empty,
+.archive-item,
+.archive-side-card,
+.archive-side-item,
+.archive-keywords-wrap,
+.archive-keyword,
+.my-card,
+.side-menu-card {
+  border-color: rgba(96, 165, 250, 0.55);
 }

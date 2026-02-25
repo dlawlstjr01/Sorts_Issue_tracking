@@ -512,7 +512,13 @@ export default function MainPage() {
                 >
                   <div className="mp-article-item-top">
                     <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                    <span className="mp-article-item-badge">{a.badge}</span>
+                    <span
+                      className={`mp-article-item-badge ${
+                        String(a.badge).toUpperCase() === "HOT" ? "hot" : "new"
+                      }`}
+                    >
+                      {a.badge}
+                    </span>
                   </div>
                   <div className="mp-article-item-title">{a.title}</div>
                 </button>

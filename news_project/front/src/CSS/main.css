@@ -50,8 +50,23 @@
   padding: 10px 10px;
   border-radius: 12px;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   cursor: pointer;
   transition: transform 0.06s ease, background 0.15s ease, border 0.15s ease;
+}
+
+.mp-cat-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #6b7280;
+  flex: 0 0 auto;
+  transition: color 0.15s ease;
 }
 
 .mp-cat-btn:hover {
@@ -60,10 +75,18 @@
   border-color: #d7e3ff;
 }
 
+.mp-cat-btn:hover .mp-cat-ico {
+  color: #3b82f6;
+}
+
 .mp-cat-btn.active {
   background: #eaf2ff;
   border-color: #b9d1ff;
   font-weight: 700;
+}
+
+.mp-cat-btn.active .mp-cat-ico {
+  color: #2563eb;
 }
 
 /* LEFT - 기사 목록 */

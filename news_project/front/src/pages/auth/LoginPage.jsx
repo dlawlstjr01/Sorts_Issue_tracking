@@ -19,6 +19,7 @@ export default function LoginPage() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [loginSuccessOpen, setLoginSuccessOpen] = useState(false);
 
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -43,7 +44,7 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const res = await axios.post(
+      await axios.post(
         `${API_BASE}/auth/login`,
         {
           login_id: form.login_id.trim(),
@@ -51,10 +52,7 @@ export default function LoginPage() {
         },
         { withCredentials: true }
       );
-
-      alert(res.data?.message || "로그인 성공");
-
-      go("main");
+      setLoginSuccessOpen(true);
     } catch (err) {
       const serverMsg = err.response?.data?.message;
       alert(serverMsg || "로그인 실패");
@@ -205,6 +203,33 @@ export default function LoginPage() {
           </aside>
         </div>
       </div>
+
+      {loginSuccessOpen && (
+        <div
+          className="my-notice-modal-backdrop"
+          onClick={() => {
+            setLoginSuccessOpen(false);
+            go("main");
+          }}
+        >
+          <div className="my-notice-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h4 className="my-notice-title">알림</h4>
+            <p className="my-notice-message">로그인 완료</p>
+            <div className="my-notice-actions">
+              <button
+                className="login-btn primary"
+                type="button"
+                onClick={() => {
+                  setLoginSuccessOpen(false);
+                  go("main");
+                }}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

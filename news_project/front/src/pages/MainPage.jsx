@@ -18,6 +18,17 @@ const CATEGORIES = [
   { key: "sports", label: "스포츠" },
 ];
 
+const CATEGORY_ICON_PATHS = {
+  all: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
+  politics: "M3 8l9-4 9 4v2H3V8zm2 3h2v7H5v-7zm4 0h2v7H9v-7zm4 0h2v7h-2v-7zm4 0h2v7h-2v-7zM3 20h18v2H3z",
+  economy: "M3 7a2 2 0 0 1 2-2h14a1 1 0 0 1 1 1v2H5a1 1 0 0 0 0 2h16v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm14 5a1.5 1.5 0 1 0 0 3h2v-3h-2Z",
+  society: "M9 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm6 0a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 15 12ZM4 19a5 5 0 0 1 10 0v1H4Zm10 1v-1a4.5 4.5 0 0 0-1.1-3 4.8 4.8 0 0 1 7.1 4v0Z",
+  world: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm7.8 9h-3.1a15.5 15.5 0 0 0-1.1-5A8 8 0 0 1 19.8 11ZM12 4a13.6 13.6 0 0 1 2.7 7H9.3A13.6 13.6 0 0 1 12 4Zm-3.6 2a15.5 15.5 0 0 0-1.1 5H4.2A8 8 0 0 1 8.4 6ZM4.2 13h3.1a15.5 15.5 0 0 0 1.1 5A8 8 0 0 1 4.2 13ZM12 20a13.6 13.6 0 0 1-2.7-7h5.4A13.6 13.6 0 0 1 12 20Zm3.6-2a15.5 15.5 0 0 0 1.1-5h3.1a8 8 0 0 1-4.2 5Z",
+  it: "M9 9h6v6H9zM3 10h3v2H3v-2zm15 0h3v2h-3v-2zM10 3h2v3h-2V3zm0 15h2v3h-2v-3zM5.5 5.5 7.6 7.6 6.2 9 4.1 6.9l1.4-1.4Zm12.4 12.4-2.1-2.1 1.4-1.4 2.1 2.1-1.4 1.4Zm0-11-2.1 2.1-1.4-1.4 2.1-2.1 1.4 1.4Zm-12.4 12.4 2.1-2.1 1.4 1.4-2.1 2.1-1.4-1.4Z",
+  culture: "M14 4v10.2A3.5 3.5 0 1 1 12 11V6l8-2v8.2A3.5 3.5 0 1 1 18 9V4.8L14 6Z",
+  sports: "M3 9h2v6H3V9Zm16 0h2v6h-2V9ZM6 7h2v10H6V7Zm10 0h2v10h-2V7ZM9 10h6v4H9v-4Z",
+};
+
 /** ✅ 긴 URL 줄이기(채팅/VSCode에서 "오른쪽 잘림" 체감 줄이기) */
 const UQ = "?auto=format&fit=crop&w=1200&q=80";
 const THUMB = {
@@ -193,13 +204,25 @@ function Badge({ type }) {
   );
 }
 
-function CategoryButton({ label, active, onClick }) {
+function CategoryIcon({ categoryKey }) {
+  const path = CATEGORY_ICON_PATHS[categoryKey] || CATEGORY_ICON_PATHS.all;
+  return (
+    <span className="mp-cat-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <path d={path} fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
+function CategoryButton({ label, categoryKey, active, onClick }) {
   return (
     <button
       type="button"
       className={`mp-cat-btn ${active ? "active" : ""}`}
       onClick={onClick}
     >
+      <CategoryIcon categoryKey={categoryKey} />
       {label}
     </button>
   );
@@ -486,6 +509,7 @@ export default function MainPage() {
                 <CategoryButton
                   key={c.key}
                   label={c.label}
+                  categoryKey={c.key}
                   active={selectedCategory === c.key}
                   onClick={() => {
                     setSelectedCategory(c.key);

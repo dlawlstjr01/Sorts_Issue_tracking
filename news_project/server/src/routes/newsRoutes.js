@@ -1,12 +1,15 @@
-const express = require('express');
+const express = require("express");
+const newsController = require("../controllers/newsController");
+
 const router = express.Router();
 
-router.get("/trending", (req, res) => {
-  res.json([{ id: 1, title: "예시 이슈", score: 92 }]);
-});
+// /news?page=1&size=20&category=기타&q=삼성
+router.get("/", newsController.list);
 
-router.get("/summary", (req, res) => {
-  res.json({ summary: "요약 예시" });
-});
+// /news/categories
+router.get("/categories", newsController.categories);
+
+// /news/123
+router.get("/:id", newsController.detail);
 
 module.exports = router;

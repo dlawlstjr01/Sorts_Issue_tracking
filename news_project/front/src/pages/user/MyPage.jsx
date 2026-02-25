@@ -1,14 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 export default function MyPage() {
   const navigate = useNavigate();
-
-  const API_BASE = useMemo(
-    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
-    []
-  );
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -17,17 +12,17 @@ export default function MyPage() {
   // 원본(취소 시 되돌리기 용)
   const [origin, setOrigin] = useState(null);
 
-  // 백엔드 연동되는 사용자 정보(users 테이블 기준)
+  //  백엔드 연동되는 사용자 정보(users 테이블 기준)
   const [user, setUser] = useState({
     login_id: "",
     name: "",
     email: "",
     phone: "",
+    birth_date: "", 
   });
 
   // UI 유지용(현재 DB에 없음 -> 저장 안 함)
   const [uiOnly, setUiOnly] = useState({
-    birth: "",
     agreeEmailBriefing: true,
     agreeWeeklyReport: false,
     agreeHotIssuePush: true,
@@ -42,12 +37,26 @@ export default function MyPage() {
 
   const normalizePhone = (v) => String(v || "").replace(/\D/g, "");
 
+  //  date input용 normalize (백엔드가 DateTime/String 어떤 걸 주든 YYYY-MM-DD로 맞춤)
+  const toYMD = (v) => {
+    if (!v) return "";
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) {
+      // 이미 YYYY-MM-DD면 그대로, 아니면 앞 10자리
+      return String(v).slice(0, 10);
+    }
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
+
   // 마이페이지 진입 시 내 정보 로딩
   useEffect(() => {
     const fetchMe = async () => {
       setLoading(true);
       try {
-        const res = await axios.get(`${API_BASE}/auth/me`, {
+        const res = await axios.get(`/auth/me`, {
           withCredentials: true,
         });
 
@@ -57,6 +66,7 @@ export default function MyPage() {
           name: me.name || "",
           email: me.email || "",
           phone: me.phone || "",
+          birth_date: toYMD(me.birth_date), 
         };
 
         setUser(next);
@@ -70,7 +80,7 @@ export default function MyPage() {
     };
 
     fetchMe();
-  }, [API_BASE, navigate]);
+  }, [navigate]);
 
   const onChangeUser = (e) => {
     const { name, value } = e.target;
@@ -93,11 +103,17 @@ export default function MyPage() {
     setPwForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // 저장(name/email/phone)
+  //  저장(name/email/phone/birth_date)
   const handleSave = async () => {
     if (!user.name.trim()) return alert("이름을 입력해주세요.");
     if (!user.email.trim()) return alert("이메일을 입력해주세요.");
     if (!user.phone.trim()) return alert("휴대폰 번호를 입력해주세요.");
+
+    //  birth_date는 선택값이면 빈문자열 -> null로 보냄 (백엔드에서 null 허용 시)
+    const bd = user.birth_date ? String(user.birth_date).trim() : "";
+    if (bd && !/^\d{4}-\d{2}-\d{2}$/.test(bd)) {
+      return alert("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)");
+    }
 
     setSaving(true);
     try {
@@ -105,9 +121,10 @@ export default function MyPage() {
         name: user.name.trim(),
         email: user.email.trim(),
         phone: normalizePhone(user.phone.trim()),
+        birth_date: bd || null, 
       };
 
-      const res = await axios.put(`${API_BASE}/auth/me`, payload, {
+      const res = await axios.put(`/auth/me`, payload, {
         withCredentials: true,
       });
 
@@ -120,6 +137,7 @@ export default function MyPage() {
           name: res.data.user.name ?? payload.name,
           email: res.data.user.email ?? payload.email,
           phone: res.data.user.phone ?? payload.phone,
+          birth_date: toYMD(res.data.user.birth_date ?? payload.birth_date),
         };
         setUser(next);
         setOrigin(next);
@@ -130,6 +148,7 @@ export default function MyPage() {
           name: payload.name,
           email: payload.email,
           phone: payload.phone,
+          birth_date: payload.birth_date ? toYMD(payload.birth_date) : "",
         };
         setUser(next);
         setOrigin(next);
@@ -158,7 +177,7 @@ export default function MyPage() {
     setPwSaving(true);
     try {
       const res = await axios.post(
-        `${API_BASE}/auth/password/change`,
+        `/auth/password/change`,
         {
           currentPassword: pwForm.currentPassword,
           newPassword: pwForm.newPassword,
@@ -261,14 +280,15 @@ export default function MyPage() {
               />
             </label>
 
+            {/*  birth_date를 DB와 연동 */}
             <label className="login-label">
               생년월일
               <input
                 className="login-input"
                 type="date"
-                name="birth"
-                value={uiOnly.birth}
-                onChange={onChangeUiOnly}
+                name="birth_date"
+                value={user.birth_date}
+                onChange={onChangeUser}
               />
             </label>
           </div>
@@ -364,12 +384,7 @@ export default function MyPage() {
         <button className="login-btn primary" type="button" onClick={handleSave} disabled={saving}>
           {saving ? "저장 중..." : "저장"}
         </button>
-        <button
-          className="login-btn"
-          type="button"
-          onClick={handleCancel}
-          disabled={saving || pwSaving} 
-        >
+        <button className="login-btn" type="button" onClick={handleCancel} disabled={saving || pwSaving}>
           취소
         </button>
       </div>

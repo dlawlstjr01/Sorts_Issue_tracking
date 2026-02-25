@@ -70,7 +70,7 @@ exports.googleCallback = async (req, res) => {
 
     res.cookie("accessToken", token, authService.getCookieOptions());
 
-    // 프론트 첫 화면으로 (원하면 /?view=home 이런식으로 바꿔도 됨)
+    // 프론트 첫 화면으로
     const origin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
     return res.redirect(`${origin}/`);
   } catch (e) {
@@ -161,9 +161,9 @@ exports.checkLoginId = async (req, res) => {
 exports.updateMe = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { name, email, phone } = req.body;
+    const { name, email, phone, birth_date } = req.body; 
 
-    const user = await authService.updateMe(userId, { name, email, phone });
+    const user = await authService.updateMe(userId, { name, email, phone, birth_date });
 
     return res.status(200).json({
       message: "저장 완료",

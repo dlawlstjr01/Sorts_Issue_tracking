@@ -6,6 +6,8 @@ import { Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/mousewheel";
 
+//  추가: newsApi 호출
+import { fetchNews } from "../api/newsApi";
 
 const CATEGORIES = [
   { key: "all", label: "전체" },
@@ -18,7 +20,19 @@ const CATEGORIES = [
   { key: "sports", label: "스포츠" },
 ];
 
-/** ✅ 긴 URL 줄이기(채팅/VSCode에서 "오른쪽 잘림" 체감 줄이기) */
+//  탭별로 백엔드 검색어(q)로 분류
+const CATEGORY_QUERY = {
+  all: "",
+  politics: "국회 OR 선거 OR 대통령 OR 장관 OR 여당 OR 야당",
+  economy: "금리 OR 환율 OR 증시 OR 코스피 OR 물가 OR 부동산",
+  society: "사건 OR 사고 OR 경찰 OR 검찰 OR 법원 OR 화재",
+  world: "미국 OR 중국 OR 일본 OR 러시아 OR 우크라이나 OR UN",
+  it: "AI OR 인공지능 OR 반도체 OR 삼성 OR 애플 OR 구글 OR 네이버",
+  culture: "영화 OR 드라마 OR 연예 OR 공연 OR 전시 OR 문화재",
+  sports: "KBO OR EPL OR NBA OR 축구 OR 야구 OR 올림픽 OR 손흥민",
+};
+
+/**  긴 URL 줄이기 */
 const UQ = "?auto=format&fit=crop&w=1200&q=80";
 const THUMB = {
   it: "https://images.unsplash.com/photo-1677442136019-21780ecad995",
@@ -30,7 +44,7 @@ const THUMB = {
   sports: "https://images.unsplash.com/photo-1521412644187-c49fa049e84d",
 };
 
-/** ✅ 초기 기사(기존 SAMPLE_ARTICLES 유지 + createdAt만 추가) */
+/**  (선택) 더미 초기 기사: API가 비어있을 때만 fallback으로 쓰고 싶으면 유지 */
 const INITIAL_ARTICLES = [
   {
     id: 1,
@@ -41,131 +55,12 @@ const INITIAL_ARTICLES = [
     summary: [
       "글로벌 기업들이 생성형 AI 모델 고도화 경쟁을 벌이고 있습니다.",
       "성능 향상과 운영 비용 최적화가 핵심 이슈로 떠올랐습니다.",
-      "보안과 개인정보 보호 기준도 강화되는 추세입니다.",
-      "모델 경량화와 멀티모달 기능이 빠르게 확산 중입니다.",
-      "규제와 표준화 논의도 함께 진행되고 있습니다.",
     ],
     createdAt: Date.now() - 1000 * 60 * 20,
   },
-  {
-    id: 2,
-    category: "economy",
-    badge: "최신",
-    title: "물가·금리 변수 속 소비심리 변화… 유통 업계 전략 수정",
-    thumbnailUrl: `${THUMB.economy}${UQ}`,
-    summary: [
-      "금리와 물가 변동성이 유통업계 전략에 영향을 주고 있습니다.",
-      "프로모션과 가격 정책을 유연하게 조정하는 추세입니다.",
-      "필수재 중심 소비가 강화되는 모습입니다.",
-      "할인 경쟁과 PB 전략이 동시에 강화되고 있습니다.",
-      "연말 수요 회복을 대비한 재고 조정도 진행 중입니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 45,
-  },
-  {
-    id: 3,
-    category: "society",
-    badge: "HOT",
-    title: "도심 교통 혼잡 완화 대책… 대중교통 확대·수요 분산",
-    thumbnailUrl: `${THUMB.society}${UQ}`,
-    summary: [
-      "도심 교통 혼잡을 줄이기 위한 정책이 논의 중입니다.",
-      "대중교통 확대와 수요 분산 정책이 핵심입니다.",
-      "지자체는 교통 인프라 개선에 집중하고 있습니다.",
-      "혼잡 통행료 등 추가 대책도 검토됩니다.",
-      "시민 참여형 모니터링도 도입될 예정입니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 70,
-  },
-  {
-    id: 4,
-    category: "politics",
-    badge: "HOT",
-    title: "국회, 핵심 법안 조정 논의 확대",
-    thumbnailUrl: `${THUMB.politics}${UQ}`,
-    summary: [
-      "정치 분야에서 주요 법안 조정 논의가 진행 중입니다.",
-      "사회적 합의를 통해 정책을 보완하는 방향입니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 90,
-  },
-  {
-    id: 5,
-    category: "world",
-    badge: "최신",
-    title: "국제 경제 재편, 공급망 안정 전략 부각",
-    thumbnailUrl: `${THUMB.world}${UQ}`,
-    summary: [
-      "국제 공급망 리스크 대응을 위한 협상이 이어지고 있습니다.",
-      "해외 투자와 회복 시나리오가 논의됩니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 110,
-  },
-  {
-    id: 6,
-    category: "culture",
-    badge: "HOT",
-    title: "대형 페스티벌 회복으로 문화 수요 회복",
-    thumbnailUrl: `${THUMB.culture}${UQ}`,
-    summary: [
-      "지역 축제 재개로 관광 수요가 살아나고 있습니다.",
-      "전시·공연 예약이 활발해지고 있습니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 130,
-  },
-  {
-    id: 7,
-    category: "sports",
-    badge: "최신",
-    title: "프로리그 시즌 개막, 신인 선수 활약",
-    thumbnailUrl: `${THUMB.sports}${UQ}`,
-    summary: [
-      "신인 선수들의 활약으로 경기 흐름이 빨라지고 있습니다.",
-      "팀 간 전술 대결이 본격적으로 시작됩니다.",
-    ],
-    createdAt: Date.now() - 1000 * 60 * 150,
-  }
 ];
 
-/** ✅ “최신기사 자동 업로드” 더미 생성용 풀 */
 const CATEGORY_POOL = ["politics", "economy", "society", "world", "it", "culture", "sports"];
-const TITLE_POOL = {
-  politics: [
-    "국회, 주요 현안 논의와 민생 법안 처리 속도",
-    "야당·여당, 예산안 조정 협상 진행",
-    "지방 정책 발표와 지역 현안 해법 모색",
-  ],
-  economy: [
-    "환율 변동성 확대, 수출 기업 대응 분주",
-    "금리 동결 전망 속 시장 관망세",
-    "물가 안정 조짐… 유통·소비 업계 변화",
-  ],
-  society: [
-    "교육 현장 디지털 전환… 학습 격차 해소 과제",
-    "지역 의료 공백 해소 위한 공공 인프라 강화",
-    "재난 대응 강화로 생활 SOC 개선 추진",
-  ],
-  world: [
-    "글로벌 공급망 재편으로 기업 전략 변화",
-    "주요국 통화정책 변화에 국제 시장 출렁",
-    "기후 협력 강화… 탄소 감축 논의 확대",
-  ],
-  it: [
-    "AI 서비스 고도화로 개인정보 보안 기준 강화",
-    "반도체 투자 확대… 첨단 공정 경쟁 심화",
-    "클라우드 비용 최적화와 기업 IT 전략 재정비",
-  ],
-  culture: [
-    "공연·전시 수요 회복, 문화 콘텐츠 시장 활기",
-    "OTT 시장 경쟁 심화… 콘텐츠 투자 확대",
-    "출판 시장 변화 속 디지털 콘텐츠 성장",
-  ],
-  sports: [
-    "프로리그 순위 경쟁 치열… 중반 판도 변동",
-    "국제 대회 참가 명단 발표… 팬 관심 집중",
-    "부상 복귀 선수 합류로 전력 변화",
-  ],
-};
 
 function getCategoryLabel(key) {
   return CATEGORIES.find((c) => c.key === key)?.label || "기타";
@@ -214,7 +109,6 @@ function RelatedItem({ title, meta, onClick }) {
   );
 }
 
-/** ✅ 최신기사 카드(슬라이더용) */
 function LatestCard({ article, onClick }) {
   return (
     <button type="button" className="mp-latest-card" onClick={onClick}>
@@ -227,7 +121,6 @@ function LatestCard({ article, onClick }) {
   );
 }
 
-/** ✅ 요약 밑 “최신 기사 슬라이더” */
 function LatestCarousel({ items, onItemClick }) {
   const trackRef = useRef(null);
   const dragRef = useRef({
@@ -255,20 +148,15 @@ function LatestCarousel({ items, onItemClick }) {
     const el = trackRef.current;
     if (!el) return;
     if (e.button !== undefined && e.button !== 0) return;
-    if (dragRef.current.rafId) {
-      cancelAnimationFrame(dragRef.current.rafId);
-      dragRef.current.rafId = 0;
-    }
-    if (dragRef.current.smoothingRafId) {
-      cancelAnimationFrame(dragRef.current.smoothingRafId);
-      dragRef.current.smoothingRafId = 0;
-    }
+
+    if (dragRef.current.rafId) cancelAnimationFrame(dragRef.current.rafId);
+    if (dragRef.current.smoothingRafId) cancelAnimationFrame(dragRef.current.smoothingRafId);
+
     dragRef.current.pointerId = e.pointerId;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {
-      // ignore if capture is not supported
-    }
+    } catch { }
+
     dragRef.current.active = true;
     dragRef.current.startX = e.clientX;
     dragRef.current.startScrollLeft = el.scrollLeft;
@@ -276,6 +164,7 @@ function LatestCarousel({ items, onItemClick }) {
     dragRef.current.lastTime = performance.now();
     dragRef.current.velocity = 0;
     dragRef.current.targetScrollLeft = el.scrollLeft;
+
     el.classList.add("is-dragging");
     e.preventDefault();
   };
@@ -283,6 +172,7 @@ function LatestCarousel({ items, onItemClick }) {
   const onPointerMove = (e) => {
     const el = trackRef.current;
     if (!el || !dragRef.current.active) return;
+
     const dx = e.clientX - dragRef.current.startX;
     dragRef.current.targetScrollLeft = dragRef.current.startScrollLeft - dx;
 
@@ -296,36 +186,32 @@ function LatestCarousel({ items, onItemClick }) {
     }
 
     if (!dragRef.current.moveRafId) {
-      const moveStep = () => {
+      dragRef.current.moveRafId = requestAnimationFrame(() => {
         if (!dragRef.current.active) {
           dragRef.current.moveRafId = 0;
           return;
         }
         el.scrollLeft = dragRef.current.targetScrollLeft;
         dragRef.current.moveRafId = 0;
-      };
-      dragRef.current.moveRafId = requestAnimationFrame(moveStep);
+      });
     }
+
     e.preventDefault();
   };
 
   const stopDrag = () => {
     const el = trackRef.current;
     if (!el) return;
+
     dragRef.current.active = false;
     el.classList.remove("is-dragging");
-    if (dragRef.current.moveRafId) {
-      cancelAnimationFrame(dragRef.current.moveRafId);
-      dragRef.current.moveRafId = 0;
-    }
+
+    if (dragRef.current.moveRafId) cancelAnimationFrame(dragRef.current.moveRafId);
+    dragRef.current.moveRafId = 0;
+
     try {
-      // release pointer capture if it was set
-      if (dragRef.current.pointerId !== null) {
-        el.releasePointerCapture(dragRef.current.pointerId);
-      }
-    } catch {
-      // ignore
-    }
+      if (dragRef.current.pointerId !== null) el.releasePointerCapture(dragRef.current.pointerId);
+    } catch { }
     dragRef.current.pointerId = null;
 
     const startVelocity = dragRef.current.velocity;
@@ -335,11 +221,8 @@ function LatestCarousel({ items, onItemClick }) {
       const v = dragRef.current.velocity * 0.95;
       dragRef.current.velocity = v;
       el.scrollLeft -= v * 16;
-      if (Math.abs(v) > 0.02) {
-        dragRef.current.rafId = requestAnimationFrame(step);
-      } else {
-        dragRef.current.rafId = 0;
-      }
+      if (Math.abs(v) > 0.02) dragRef.current.rafId = requestAnimationFrame(step);
+      else dragRef.current.rafId = 0;
     };
 
     dragRef.current.rafId = requestAnimationFrame(step);
@@ -350,20 +233,10 @@ function LatestCarousel({ items, onItemClick }) {
       <div className="mp-latest-head">
         <div className="mp-section-title">최신 기사</div>
         <div className="mp-latest-ctrl">
-          <button
-            type="button"
-            className="mp-latest-btn"
-            onClick={() => scrollByAmount(-1)}
-            aria-label="latest left"
-          >
+          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(-1)} aria-label="latest left">
             ◀
           </button>
-          <button
-            type="button"
-            className="mp-latest-btn"
-            onClick={() => scrollByAmount(1)}
-            aria-label="latest right"
-          >
+          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(1)} aria-label="latest right">
             ▶
           </button>
         </div>
@@ -382,62 +255,142 @@ function LatestCarousel({ items, onItemClick }) {
           <LatestCard key={a.id} article={a} onClick={() => onItemClick(a)} />
         ))}
       </div>
-
     </section>
   );
 }
 
+/**  API 응답 → 현재 UI 기사 구조로 매핑 */
+function normalizeCategory(raw) {
+  const v = String(raw || "").toLowerCase();
+  if (v.includes("polit")) return "politics";
+  if (v.includes("econ")) return "economy";
+  if (v.includes("soc")) return "society";
+  if (v.includes("world") || v.includes("intl")) return "world";
+  if (v.includes("it") || v.includes("sci")) return "it";
+  if (v.includes("cult") || v.includes("ent")) return "culture";
+  if (v.includes("sport")) return "sports";
+  // 혹시 한글이 오면 대충 대응
+  if (v.includes("정치")) return "politics";
+  if (v.includes("경제")) return "economy";
+  if (v.includes("사회")) return "society";
+  if (v.includes("국제")) return "world";
+  if (v.includes("it") || v.includes("과학")) return "it";
+  if (v.includes("문화")) return "culture";
+  if (v.includes("스포츠")) return "sports";
+  return "it";
+}
+
+function mapNewsToArticle(n, forcedCategory) {
+  const id = n.id;
+
+  const category = forcedCategory && forcedCategory !== "all"
+    ? forcedCategory
+    : normalizeCategory(n.category); // all 탭에서는 기존 로직 유지(기본 it)
+
+  const title = n.title ?? "(제목 없음)";
+  const thumb = n.thumbnail ? n.thumbnail : `${(THUMB[category] || THUMB.it)}${UQ}`;
+
+  const rawTime = n.published_at ?? n.created_at;
+  const createdAt = rawTime ? new Date(rawTime).getTime() : Date.now();
+
+  const summary = ["요약은 상세 페이지에서 확인할 수 있습니다."];
+  const badge = "최신";
+
+  return {
+    id,
+    category,
+    badge,
+    title,
+    thumbnailUrl: thumb,
+    summary,
+    createdAt,
+    raw: n,
+  };
+}
 export default function MainPage() {
-  /** ✅ 기존 SAMPLE_ARTICLES → state로 (자동 업로드를 위해) */
+  /**  실제 뉴스 데이터가 들어갈 state */
   const [articles, setArticles] = useState(INITIAL_ARTICLES);
 
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(INITIAL_ARTICLES[0]?.id || 1);
+
   const swiperRef = useRef(null);
 
-  /** ✅ 자동 업로드용 id */
-  const nextIdRef = useRef(
-    Math.max(...INITIAL_ARTICLES.map((a) => a.id)) + 1
-  );
+  /**  로딩/에러 */
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  /** ✅ “최신기사 계속 업로드” (더미: 12초마다 1개) */
+  /**  페이지네이션(백엔드가 page/size 지원하므로 준비) */
+  const [page, setPage] = useState(1);
+  const size = 30; // 메인페이지는 넉넉히 받아두고 UI에서 필터/슬라이드
+
+  /**  최초 + page 변경 시 뉴스 로드 */
+  useEffect(() => {
+    let alive = true;
+
+    const loadNews = async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const q = CATEGORY_QUERY[selectedCategory] || "";
+        const res = await fetchNews({ page, size, q: q || undefined });
+
+        const list = res.data?.items ?? [];
+        const mapped = list.map((n) => mapNewsToArticle(n, selectedCategory));
+
+        if (!alive) return;
+
+        const dedup = new Map();
+        for (const a of mapped) dedup.set(String(a.id), a);
+        const merged = Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        setArticles(merged.length ? merged : INITIAL_ARTICLES);
+
+        if (merged.length) {
+          setSelectedId(merged[0].id);
+          if (swiperRef.current) swiperRef.current.slideTo(0, 0);
+        }
+      } catch (e) {
+        if (!alive) return;
+        setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+
+    loadNews();
+    return () => {
+      alive = false;
+    };
+
+  }, [page, selectedCategory]); //  탭 바뀌면 다시 로드
+
+  /**  (중요) 기존 더미 “12초 자동 업로드”는 실제 연동 시 꺼두는 게 맞습니다. */
+  // 필요하면 다시 켤 수 있도록 주석으로 남겨둠.
+  /*
   useEffect(() => {
     const makeAutoArticle = () => {
-      const id = nextIdRef.current++;
+      const id = `${Date.now()}-${Math.random()}`;
       const category = CATEGORY_POOL[Math.floor(Math.random() * CATEGORY_POOL.length)];
-      const titles = TITLE_POOL[category] || ["최신 이슈 업데이트"];
-      const title = titles[Math.floor(Math.random() * titles.length)];
-
       const label = getCategoryLabel(category);
-      const createdAt = Date.now();
-
       return {
         id,
         category,
         badge: "최신",
-        title,
+        title: `${label} 자동 업로드 더미`,
         thumbnailUrl: `${(THUMB[category] || THUMB.it)}${UQ}`,
-        summary: [
-          `${label} 분야에서 새로운 이슈가 업데이트되었습니다.`,
-          "관련 이해관계자들의 반응과 대응이 이어지고 있습니다.",
-          "시장/여론 흐름에 영향을 줄 수 있다는 분석도 나옵니다.",
-          "세부 내용은 추가 확인이 필요합니다.",
-          "후속 보도가 이어질 전망입니다.",
-        ],
-        createdAt,
+        summary: [`${label} 분야에서 새로운 이슈가 업데이트되었습니다.`],
+        createdAt: Date.now(),
       };
     };
 
     const timer = setInterval(() => {
-      setArticles((prev) => {
-        const next = makeAutoArticle();
-        const merged = [next, ...prev];
-        return merged.slice(0, 60); // 너무 길어지지 않게 제한
-      });
+      setArticles((prev) => [makeAutoArticle(), ...prev].slice(0, 60));
     }, 12000);
 
     return () => clearInterval(timer);
   }, []);
+  */
 
   const filtered = useMemo(() => {
     if (selectedCategory === "all") return articles;
@@ -455,7 +408,6 @@ export default function MainPage() {
     return articles.filter((a) => a.id !== selectedArticle.id).slice(0, 6);
   }, [selectedArticle, articles]);
 
-  /** ✅ 최신기사 슬라이더용: createdAt 기준 최신순 */
   const latestItems = useMemo(() => {
     const sorted = [...articles].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return sorted.slice(0, 15);
@@ -489,11 +441,7 @@ export default function MainPage() {
                   active={selectedCategory === c.key}
                   onClick={() => {
                     setSelectedCategory(c.key);
-                    const next =
-                      c.key === "all"
-                        ? articles[0]
-                        : articles.find((a) => a.category === c.key) || articles[0];
-                    if (next?.id) setSelectedId(next.id);
+                    setPage(1);
                   }}
                 />
               ))}
@@ -502,6 +450,11 @@ export default function MainPage() {
             <div className="mp-divider" />
 
             <div className="mp-panel-title">기사 목록</div>
+
+            {/*  로딩/에러 표시(기존 UI 크게 안 건드리기) */}
+            {loading && <div style={{ padding: 12, opacity: 0.8 }}>불러오는 중...</div>}
+            {error && <div style={{ padding: 12, color: "crimson" }}>{error}</div>}
+
             <div className="mp-article-list">
               {filtered.map((a) => (
                 <button
@@ -517,6 +470,16 @@ export default function MainPage() {
                   <div className="mp-article-item-title">{a.title}</div>
                 </button>
               ))}
+            </div>
+
+            {/*  (선택) 페이지네이션 버튼 - 백엔드가 page/size 지원할 때 */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: 12 }}>
+              <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                이전 페이지
+              </button>
+              <button type="button" className="mp-btn" disabled={loading} onClick={() => setPage((p) => p + 1)}>
+                다음 페이지
+              </button>
             </div>
           </div>
         </aside>
@@ -579,11 +542,9 @@ export default function MainPage() {
                     </div>
                   </section>
 
-                  {/* ✅ 여기! 요약 밑에 최신기사 슬라이더 추가 */}
                   <LatestCarousel
                     items={latestItems}
                     onItemClick={(a) => {
-                      // 최신기사 클릭 시, 해당 카테고리로 이동 + 본문 표시
                       setSelectedCategory(a.category);
                       setSelectedId(a.id);
                     }}
@@ -603,9 +564,8 @@ export default function MainPage() {
                 <RelatedItem
                   key={a.id}
                   title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · ${
-                    String(a.badge).toUpperCase() === "HOT" ? "핫이슈" : "최신"
-                  }`}
+                  meta={`${getCategoryLabel(a.category)} · ${String(a.badge).toUpperCase() === "HOT" ? "핫이슈" : "최신"
+                    }`}
                   onClick={() => {
                     setSelectedCategory(a.category);
                     setSelectedId(a.id);
@@ -624,7 +584,6 @@ export default function MainPage() {
             </div>
           </div>
         </aside>
-
       </div>
     </div>
   );

@@ -1,0 +1,19 @@
+services:
+  server:
+    build: ./server
+    ports:
+      - "5000:5000"
+    env_file:
+      - ./server/.env
+    depends_on:
+      - python
+
+  python:
+    build: ./python
+    ports:
+      - "8000:8000"
+    environment:
+      - ARTIFACT_DIR=/app/reco_artifacts
+    # 모델 파일을 컨테이너에 포함시키거나(추천), 볼륨으로 마운트해도 됨
+    # volumes:
+    #   - ./python/reco_artifacts:/app/reco_artifacts

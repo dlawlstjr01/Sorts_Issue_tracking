@@ -8,6 +8,8 @@ const passport = require("passport");
 const authRoutes = require("./routes/authRoutes");
 const initPassport = require("./config/passport");
 const newsRoutes = require("./routes/newsRoutes");
+const recoRoutes = require("./routes/recoRoutes");
+const userLogRoutes = require("./routes/userLogRoutes");
 
 const app = express();
 
@@ -25,7 +27,8 @@ initPassport();
 //  /auth/login, /auth/me, /auth/logout
 app.use("/auth", authRoutes);
 app.use("/news", newsRoutes);
-
+app.use("/reco", recoRoutes);
+app.use("/log", userLogRoutes);
 app.get("/health", (req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 5000;

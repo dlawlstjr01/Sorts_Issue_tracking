@@ -13,6 +13,15 @@ export default defineConfig({
         target: "http://localhost:5000",
         changeOrigin: true,
       },
+      "/log": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
+      "/reco": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      }
     },
   },
-});
+},
+);

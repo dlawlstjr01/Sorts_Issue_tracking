@@ -348,7 +348,7 @@ exports.updateMe = async (userId, { name, email, phone, birth_date }) => {
   const nameT = String(name || "").trim();
   const emailT = String(email || "").trim();
   const phoneN = String(phone || "").replace(/\D/g, "");
-  const birthT = String(birth || "").trim();
+  const birthT = String(birth_date || "").trim();
 
   if (!nameT) throw makeError("이름이 필요합니다.", 400);
   if (!emailT) throw makeError("이메일이 필요합니다.", 400);

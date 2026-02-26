@@ -32,33 +32,35 @@ function makeError(message, statusCode) {
 }
 
 // 회원가입 (local)
-exports.signup = async ({ login_id, password, name, email, phone, birth, age_group, gender }) => {
+exports.signup = async ({
+  login_id,
+  password,
+  name,
+  email,
+  phone,
+  birth_date,   //  추가
+  age_group,
+  gender,
+}) => {
   if (!login_id || !password || !email || !name) {
     throw makeError("login_id / password / name / email 필수", 400);
   }
 
-  const birthDate = String(birth || "").trim();
-  if (birthDate && !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) {
-    throw makeError("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)", 400);
+  //  birth_date 형식 간단 검증(YYYY-MM-DD 권장)
+  if (birth_date) {
+    const bd = String(birth_date).trim();
+    const ok = /^\d{4}-\d{2}-\d{2}$/.test(bd);
+    if (!ok) throw makeError("birth_date 형식은 YYYY-MM-DD 이어야 합니다.", 400);
   }
 
-  const [dup1] = await db.query(
-    `SELECT id FROM users WHERE login_id = ? LIMIT 1`,
-    [login_id]
-  );
+  const [dup1] = await db.query(`SELECT id FROM users WHERE login_id = ? LIMIT 1`, [login_id]);
   if (dup1.length) throw makeError("이미 사용 중인 login_id 입니다.", 409);
 
-  const [dup2] = await db.query(
-    `SELECT id FROM users WHERE email = ? LIMIT 1`,
-    [email]
-  );
+  const [dup2] = await db.query(`SELECT id FROM users WHERE email = ? LIMIT 1`, [email]);
   if (dup2.length) throw makeError("이미 사용 중인 email 입니다.", 409);
 
   if (phone) {
-    const [dup3] = await db.query(
-      `SELECT id FROM users WHERE phone = ? LIMIT 1`,
-      [phone]
-    );
+    const [dup3] = await db.query(`SELECT id FROM users WHERE phone = ? LIMIT 1`, [phone]);
     if (dup3.length) throw makeError("이미 사용 중인 휴대폰 번호입니다.", 409);
   }
 
@@ -69,7 +71,16 @@ exports.signup = async ({ login_id, password, name, email, phone, birth, age_gro
     INSERT INTO users (login_id, password, name, email, phone, birth_date, age_group, gender, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `,
-    [login_id, passwordHash, name, email, phone || null, birthDate || null, age_group || null, gender || null]
+    [
+      login_id,
+      passwordHash,
+      name,
+      email,
+      phone || null,
+      birth_date || null,  
+      age_group || null,
+      gender || null,
+    ]
   );
 
   return {
@@ -78,7 +89,7 @@ exports.signup = async ({ login_id, password, name, email, phone, birth, age_gro
     name,
     email,
     phone: phone || null,
-    birth: birthDate || null,
+    birth_date: birth_date || null,  
     age_group: age_group || null,
     gender: gender || null,
   };
@@ -114,7 +125,8 @@ exports.verifyToken = (token) => {
 exports.getMe = async (userId) => {
   const [rows] = await db.query(
     `
-    SELECT id, login_id, name, email, phone, DATE_FORMAT(birth_date, '%Y-%m-%d') AS birth_date, age_group, gender, created_at, sns_email, provider, sns_id
+    SELECT id, login_id, name, email, phone, birth_date, age_group, gender, created_at,
+           sns_email, provider, sns_id
     FROM users
     WHERE id = ?
     `,
@@ -130,7 +142,7 @@ exports.getMe = async (userId) => {
     name: u.name,
     email: u.email,
     phone: u.phone || null,
-    birth: u.birth_date || null,
+    birth_date: u.birth_date || null, 
     age_group: u.age_group,
     gender: u.gender,
     created_at: u.created_at,
@@ -330,7 +342,7 @@ exports.isLoginIdTaken = async (login_id) => {
   return rows.length > 0;
 };
 
-exports.updateMe = async (userId, { name, email, phone, birth }) => {
+exports.updateMe = async (userId, { name, email, phone, birth_date }) => {
   if (!userId) throw makeError("유저 없음", 401);
 
   const nameT = String(name || "").trim();
@@ -343,6 +355,20 @@ exports.updateMe = async (userId, { name, email, phone, birth }) => {
   if (!phoneN) throw makeError("휴대폰 번호가 필요합니다.", 400);
   if (birthT && !/^\d{4}-\d{2}-\d{2}$/.test(birthT)) {
     throw makeError("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)", 400);
+  }
+
+  //  birth_date 검증
+  let bd = null;
+  if (birth_date !== undefined) {
+    const t = String(birth_date || "").trim();
+    if (t) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+        throw makeError("birth_date 형식은 YYYY-MM-DD 이어야 합니다.", 400);
+      }
+      bd = t;
+    } else {
+      bd = null;
+    }
   }
 
   // 이메일 중복 체크 (본인 제외)
@@ -361,10 +387,9 @@ exports.updateMe = async (userId, { name, email, phone, birth }) => {
 
   await db.query(
     `UPDATE users SET name = ?, email = ?, phone = ?, birth_date = ? WHERE id = ?`,
-    [nameT, emailT, phoneN, birthT || null, userId]
+    [name, emailT, phoneN, bd, userId]
   );
 
-  // 최신 정보 반환
   return exports.getMe(userId);
 };
 

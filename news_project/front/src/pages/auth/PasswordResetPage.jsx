@@ -7,11 +7,6 @@ export default function PasswordResetPage() {
   const navigate = useNavigate();
   const go = (to) => navigate(`/?view=${encodeURIComponent(to)}`);
 
-  const API_BASE = useMemo(
-    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
-    []
-  );
-
   // 아이디 찾기 폼
   const [findForm, setFindForm] = useState({
     name: "",
@@ -61,7 +56,7 @@ export default function PasswordResetPage() {
 
     try {
       const res = await axios.post(
-        `${API_BASE}/auth/find-id`,
+        `/auth/find-id`,
         {
           name: findForm.name.trim(),
           phone: phoneN,
@@ -89,7 +84,7 @@ export default function PasswordResetPage() {
 
     try {
       const res = await axios.post(
-        `${API_BASE}/auth/password/reset-request`,
+        `/auth/password/reset-request`,
         {
           login_id: resetForm.login_id.trim(),
           email: resetForm.email.trim(),
@@ -119,7 +114,7 @@ export default function PasswordResetPage() {
     setLoadingReset(true);
     try {
       const res = await axios.post(
-        `${API_BASE}/auth/password/reset`,
+        `/auth/password/reset`,
         {
           login_id: resetForm.login_id.trim(),
           email: resetForm.email.trim(),

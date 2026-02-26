@@ -7,11 +7,6 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const go = (to) => navigate(`/?view=${encodeURIComponent(to)}`);
 
-  const API_BASE = useMemo(
-    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
-    []
-  );
-
   const [form, setForm] = useState({
     login_id: "",
     password: "",
@@ -44,8 +39,8 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await axios.post(
-        `${API_BASE}/auth/login`,
+      const res = await axios.post(
+        `/auth/login`,
         {
           login_id: form.login_id.trim(),
           password: form.password,
@@ -63,11 +58,11 @@ export default function LoginPage() {
 
   // 소셜 로그인
   const handleGoogleLogin = () => {
-    window.location.href = `${API_BASE}/auth/google`;
+    window.location.href = `/auth/google`;
   };
 
   const handleKakaoLogin = () => {
-    window.location.href = `${API_BASE}/auth/kakao`;
+    window.location.href = `/auth/kakao`;
   };
 
   return (

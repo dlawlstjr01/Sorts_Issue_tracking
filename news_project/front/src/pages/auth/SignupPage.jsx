@@ -7,11 +7,6 @@ export default function SignupPage() {
   const navigate = useNavigate();
   const go = (to) => navigate(`/?view=${encodeURIComponent(to)}`);
 
-  const API_BASE = useMemo(
-    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
-    []
-  );
-
   const [form, setForm] = useState({
     login_id: "",
     name: "", // 현재 백엔드/DB에 없음(일단 UI 유지용)
@@ -19,7 +14,7 @@ export default function SignupPage() {
     password: "",
     password2: "",
     phone: "",
-    birth: "", // 현재 백엔드/DB에 없음(일단 UI 유지용)
+    birth_date: "", // 현재 백엔드/DB에 없음(일단 UI 유지용)
     agreeEmail: false,
     agreeTerms: false,
   });
@@ -80,7 +75,7 @@ export default function SignupPage() {
 
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/auth/check-login-id`, {
+      const res = await axios.get(`/auth/check-login-id`, {
         params: { login_id: form.login_id.trim() },
         withCredentials: true,
       });
@@ -119,11 +114,12 @@ export default function SignupPage() {
         name: form.name.trim(),
         email: form.email.trim(),
         phone: normalizePhone(form.phone.trim()), //  숫자만 저장
+        birth_date: form.birth_date || null,
         age_group: null,
         gender: null,
       };
 
-      const res = await axios.post(`${API_BASE}/auth/signup`, payload, {
+      const res = await axios.post(`/auth/signup`, payload, {
         withCredentials: true,
       });
 
@@ -273,8 +269,8 @@ export default function SignupPage() {
                   <input
                     className="login-input"
                     type="date"
-                    name="birth"
-                    value={form.birth}
+                    name="birth_date"
+                    value={form.birth_date}
                     onChange={onChange}
                   />
                 </label>

@@ -7,6 +7,7 @@ const cookieParser = require("cookie-parser");
 const passport = require("passport");
 const authRoutes = require("./routes/authRoutes");
 const initPassport = require("./config/passport");
+const newsRoutes = require("./routes/newsRoutes");
 
 const app = express();
 
@@ -21,11 +22,11 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
 initPassport();
-
-app.get("/health", (req, res) => res.json({ ok: true }));
-
 //  /auth/login, /auth/me, /auth/logout
 app.use("/auth", authRoutes);
+app.use("/news", newsRoutes);
+
+app.get("/health", (req, res) => res.json({ ok: true }));
 
 const PORT = process.env.PORT || 5000;
 

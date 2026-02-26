@@ -51,7 +51,7 @@ function IconSupport(props) {
 }
 
 const MENU_ITEMS = [
-  { key: "main", label: "\uD648", icon: <IconHome /> },
+  { key: "article-list", label: "\uAE30\uC0AC \uBAA9\uB85D", icon: <IconHome /> },
   { key: "issues", label: "\uC774\uC288 \uCD94\uC801", icon: <IconIssues /> },
   { key: "reports", label: "\uC694\uC57D/\uB9AC\uD3EC\uD2B8", icon: <IconReports /> },
   { key: "archive", label: "\uC544\uCE74\uC774\uBE0C", icon: <IconArchive /> },
@@ -65,6 +65,7 @@ export default function SideMenuCard() {
 
   const isItemActive = (key) => {
     if (view === key || view.startsWith(`${key}-`)) return true;
+    if (key === "article-list" && view === "main") return true;
     if (key === "issues" && view === "issue") return true;
     if (key === "reports" && view === "report") return true;
     return false;

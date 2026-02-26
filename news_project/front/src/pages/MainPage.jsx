@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "../CSS/main.css";
-
+import axios from "axios";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Mousewheel } from "swiper/modules";
 import "swiper/css";
@@ -161,7 +161,7 @@ function LatestCarousel({ items, onItemClick }) {
     dragRef.current.pointerId = e.pointerId;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
 
     dragRef.current.active = true;
     dragRef.current.startX = e.clientX;
@@ -218,7 +218,7 @@ function LatestCarousel({ items, onItemClick }) {
     try {
       if (dragRef.current.pointerId !== null)
         el.releasePointerCapture(dragRef.current.pointerId);
-    } catch {}
+    } catch { }
     dragRef.current.pointerId = null;
 
     const startVelocity = dragRef.current.velocity;
@@ -280,31 +280,145 @@ function LatestCarousel({ items, onItemClick }) {
 
 const CATEGORY_RULES = {
   politics: [
-    "국회","대통령","총리","정당","선거","공천","탄핵","외교","정부","장관","의원","정책","국정",
+    "국회",
+    "대통령",
+    "총리",
+    "정당",
+    "선거",
+    "공천",
+    "탄핵",
+    "외교",
+    "정부",
+    "장관",
+    "의원",
+    "정책",
+    "국정",
   ],
   economy: [
-    "금리","물가","환율","주가","증시","코스피","코스닥","비트코인","가상자산","부동산","경제","경기",
-    "실적","매출","영업이익","투자","수출","수입","고용","실업","인플레이션",
+    "금리",
+    "물가",
+    "환율",
+    "주가",
+    "증시",
+    "코스피",
+    "코스닥",
+    "비트코인",
+    "가상자산",
+    "부동산",
+    "경제",
+    "경기",
+    "실적",
+    "매출",
+    "영업이익",
+    "투자",
+    "수출",
+    "수입",
+    "고용",
+    "실업",
+    "인플레이션",
   ],
   society: [
-    "사건","사고","범죄","경찰","검찰","법원","재판","구속","화재","붕괴","실종","폭행","사망",
-    "노동","파업","교육","학교","복지","의료","질병",
+    "사건",
+    "사고",
+    "범죄",
+    "경찰",
+    "검찰",
+    "법원",
+    "재판",
+    "구속",
+    "화재",
+    "붕괴",
+    "실종",
+    "폭행",
+    "사망",
+    "노동",
+    "파업",
+    "교육",
+    "학교",
+    "복지",
+    "의료",
+    "질병",
   ],
   world: [
-    "미국","중국","일본","러시아","우크라이나","유럽","EU","UN","이스라엘","가자","중동","나토",
-    "해외","국제","외신","정상회담","관세",
+    "미국",
+    "중국",
+    "일본",
+    "러시아",
+    "우크라이나",
+    "유럽",
+    "EU",
+    "UN",
+    "이스라엘",
+    "가자",
+    "중동",
+    "나토",
+    "해외",
+    "국제",
+    "외신",
+    "정상회담",
+    "관세",
   ],
   it: [
-    "AI","인공지능","챗GPT","오픈AI","구글","애플","메타","MS","마이크로소프트","엔비디아",
-    "반도체","스마트폰","보안","해킹","클라우드","데이터","서버","알고리즘","로봇","과학","우주",
+    "AI",
+    "인공지능",
+    "챗GPT",
+    "오픈AI",
+    "구글",
+    "애플",
+    "메타",
+    "MS",
+    "마이크로소프트",
+    "엔비디아",
+    "반도체",
+    "스마트폰",
+    "보안",
+    "해킹",
+    "클라우드",
+    "데이터",
+    "서버",
+    "알고리즘",
+    "로봇",
+    "과학",
+    "우주",
   ],
   culture: [
-    "영화","드라마","OTT","넷플릭스","디즈니","음악","가수","아이돌","공연","전시","미술","문학",
-    "문화","축제","패션","연예","방송",
+    "영화",
+    "드라마",
+    "OTT",
+    "넷플릭스",
+    "디즈니",
+    "음악",
+    "가수",
+    "아이돌",
+    "공연",
+    "전시",
+    "미술",
+    "문학",
+    "문화",
+    "축제",
+    "패션",
+    "연예",
+    "방송",
   ],
   sports: [
-    "축구","야구","농구","배구","골프","테니스","UFC","EPL","K리그","MLB","NBA","KBO",
-    "올림픽","월드컵","선수","감독","경기","득점",
+    "축구",
+    "야구",
+    "농구",
+    "배구",
+    "골프",
+    "테니스",
+    "UFC",
+    "EPL",
+    "K리그",
+    "MLB",
+    "NBA",
+    "KBO",
+    "올림픽",
+    "월드컵",
+    "선수",
+    "감독",
+    "경기",
+    "득점",
   ],
 };
 
@@ -319,7 +433,6 @@ function inferCategoryFromNews(n) {
       .join(" ")
   );
 
-  // 🔧 매칭 실패를 IT로 몰아넣지 않게(국제/사회 비는 현상 완화)
   if (!text) return "society";
 
   let bestKey = "society";
@@ -360,9 +473,42 @@ function mapNewsToArticle(n) {
   };
 }
 
+/**  reco items를 UI article 형태로 안전 변환 */
+function mapRecoItemToArticle(item) {
+  const raw = item?.raw ?? item ?? {};
+  const url = raw.url || raw.link || raw.news_url || "";
+  const title = raw.title || raw.headline || "(제목 없음)";
+
+  const category =
+    raw.category && raw.category !== "기타"
+      ? raw.category
+      : inferCategoryFromNews(raw);
+
+  const id =
+    (raw.id ?? raw.articleId ?? raw.news_id ?? url) ||
+    `${title}-${raw.published_at || Date.now()}`;
+
+  const createdAt = raw.published_at
+    ? new Date(raw.published_at).getTime()
+    : Date.now();
+
+  return {
+    id,
+    category,
+    badge: "추천",
+    title,
+    thumbnailUrl: raw.thumbnail
+      ? raw.thumbnail
+      : `${(THUMB[category] || THUMB.it)}${UQ}`,
+    summary: ["추천 기사입니다. 상세는 본문에서 확인하세요."],
+    createdAt,
+    raw: { ...raw, url },
+  };
+}
 
 export default function MainPage() {
   const [articles, setArticles] = useState(INITIAL_ARTICLES);
+  const [recoItems, setRecoItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(INITIAL_ARTICLES[0]?.id || 1);
   const [articleListMode, setArticleListMode] = useState("daily");
@@ -372,50 +518,41 @@ export default function MainPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  //  이제 page는 "누적 풀 확장"용 (탭마다 바뀌는 게 아님)
   const [page, setPage] = useState(1);
   const size = 30;
 
-  // 캐시: page/size/q 기준 (category 제거!)
   const cacheRef = useRef(new Map());
-  const fetchedPagesRef = useRef(new Set()); // 이미 가져온 page 추적
+  const fetchedPagesRef = useRef(new Set());
   const abortRef = useRef(null);
 
-  // 🔧 카테고리별 최소 개수 확보 (국제/사회 2~3개 뜨는 문제를 확실히 방지)
   const MIN_PER_CATEGORY = 15;
-  const MAX_AUTO_PAGES = 6; // 자동으로 최대 몇 페이지까지 더 당길지(과도한 네트워크 방지)
+  const MAX_AUTO_PAGES = 6;
 
-  const q = ""; //  핵심: 탭과 무관하게 넓게 가져온다(검색 기능 붙이면 여기만 바꾸면 됨)
+  const q = "";
 
-  const mergeIntoPool = (incoming) => {
-    // dedup + 최신순
-    const dedup = new Map();
-    for (const a of articles) dedup.set(String(a.id), a);
-    for (const a of incoming) dedup.set(String(a.id), a);
-    return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  };
+  /**  로그 저장/업데이트용 ref들 */
+  const viewStartRef = useRef(null); // 현재 기사 뷰 시작 시간
+  const logMapRef = useRef(new Map()); // articleId -> logId
 
   const fetchPageAndAppend = async (targetPage) => {
     const cacheKey = `${targetPage}:${size}:${q}`;
 
-    // 이미 가져온 페이지면 캐시로 빠르게
     if (cacheRef.current.has(cacheKey)) {
       const cached = cacheRef.current.get(cacheKey);
       setArticles((prev) => {
         const dedup = new Map();
         for (const a of prev) dedup.set(String(a.id), a);
         for (const a of cached) dedup.set(String(a.id), a);
-        return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return Array.from(dedup.values()).sort(
+          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+        );
       });
       return cached.length;
     }
 
-    // 중복 fetch 방지
     if (fetchedPagesRef.current.has(cacheKey)) return 0;
     fetchedPagesRef.current.add(cacheKey);
 
-    // 이전 요청 취소(빠른 연타 대비)
-    if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -423,7 +560,10 @@ export default function MainPage() {
       setLoading(true);
       setError("");
 
-      const res = await fetchNews({ page: targetPage, size, q }, { signal: controller.signal });
+      const res = await fetchNews(
+        { page: targetPage, size, q },
+        { signal: controller.signal }
+      );
       const data = res.data;
       const list = Array.isArray(data?.items) ? data.items : [];
 
@@ -435,7 +575,9 @@ export default function MainPage() {
         const dedup = new Map();
         for (const a of prev) dedup.set(String(a.id), a);
         for (const a of mapped) dedup.set(String(a.id), a);
-        return Array.from(dedup.values()).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return Array.from(dedup.values()).sort(
+          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+        );
       });
 
       return mapped.length;
@@ -448,11 +590,70 @@ export default function MainPage() {
     }
   };
 
+  //  로그 생성
+  const createLog = async (article, action = "view") => {
+    try {
+      const payload = {
+        article_id: Number(article?.id),
+        url: article?.url,
+        stay_time: 0,
+        scroll_depth: 0,
+      };
+      const res = await axios.post("/log", payload);
+      const logId = res.data?.logId ?? res.data?.id ?? res.data?.data?.logId;
+
+      if (logId != null) logMapRef.current.set(String(article.id), logId);
+
+      return { ok: true, status: res.status, logId, data: res.data };
+    } catch (e) {
+      return {
+        ok: false,
+        status: e?.response?.status,
+        message: e?.response?.data?.message || e.message,
+      };
+    }
+  };
+
+  //  로그 업데이트 (체류시간 등)
+  const updateLog = async (article, extra = {}) => {
+    try {
+      const logId = logMapRef.current.get(String(article?.id));
+      if (!logId) return;
+
+      const payload = {
+        ...extra,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await axios.put(`/log/${logId}`, payload);
+    } catch (e) {
+      console.error("log update failed:", e);
+    }
+  };
+
+  const [userId, setUserId] = useState(null);
+
+  useEffect(() => {
+    const loadMe = async () => {
+      try {
+        const res = await axios.get("/auth/me", { withCredentials: true });
+        setUserId(res.data?.id ?? null);
+      } catch (e) {
+        setUserId(null);
+      }
+    };
+    loadMe();
+  }, []);
+
   // 초기 1페이지 로딩
   useEffect(() => {
     fetchPageAndAppend(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (abortRef.current) abortRef.current.abort();
+  }, [selectedCategory]);
 
   // 현재 카테고리가 너무 적으면 자동으로 추가 페이지 로딩
   useEffect(() => {
@@ -464,8 +665,6 @@ export default function MainPage() {
       const countNow = articles.filter((a) => a.category === selectedCategory).length;
       if (countNow >= MIN_PER_CATEGORY) return;
 
-      // 부족하면 다음 페이지를 더 가져와서 풀을 키운다
-      // page state를 "다음 가져올 페이지"로 사용
       let nextPage = page;
       let tries = 0;
 
@@ -476,15 +675,7 @@ export default function MainPage() {
         const added = await fetchPageAndAppend(nextPage);
         setPage(nextPage);
 
-        // 더 이상 데이터가 안 오면 중단
         if (added === 0) break;
-
-        const after = (prev) => prev; // noop
-        // 상태 업데이트는 fetchPageAndAppend에서 처리됨
-
-        const newCount = (articles.filter((a) => a.category === selectedCategory).length);
-        // 위 newCount는 즉시 반영 안 될 수 있음 → 다음 렌더에서 다시 effect가 돌게 됨
-        // 그래서 여기서는 "몇 페이지까지 당겨온다"만 보장하면 충분합니다.
       }
     };
 
@@ -495,6 +686,26 @@ export default function MainPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory]);
+
+  /**  추천 불러오기 (응답 items를 UI용 article로 매핑) */
+  useEffect(() => {
+    const loadReco = async () => {
+      try {
+        const res = await axios.get("/reco", {
+          params: { k: 20, userId },
+        });
+
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        const mapped = items.map(mapRecoItemToArticle);
+        setRecoItems(mapped);
+      } catch (err) {
+        console.error("추천 불러오기 실패", err);
+        setRecoItems([]);
+      }
+    };
+
+    loadReco();
+  }, []);
 
   const filtered = useMemo(() => {
     if (selectedCategory === "all") return articles;
@@ -544,9 +755,35 @@ export default function MainPage() {
     if (swiperRef.current) swiperRef.current.slideTo(0, 0);
   }, [selectedCategory, filtered]);
 
+  /**  selectedArticle가 바뀔 때: 이전 기사 dwellTime 업데이트 + 새 기사 view 로그 생성 */
   useEffect(() => {
-    setArticleListMode("daily");
-  }, [selectedCategory]);
+    const prevStart = viewStartRef.current;
+    // 이전 기사 dwell 업데이트
+    // prevStart가 있고, 이전 selectedArticle를 따로 저장해야 정확하지만,
+    // 여기서는 "바뀌기 직전"을 잡기 위해 ref로 이전 article을 저장
+  }, []);
+
+  const prevArticleRef = useRef(null);
+  useEffect(() => {
+    const now = Date.now();
+
+    // 이전 기사 업데이트
+    if (prevArticleRef.current && viewStartRef.current) {
+      const dwellMs = now - viewStartRef.current;
+      updateLog(prevArticleRef.current, { dwellMs });
+    }
+
+    // 새 기사 로그 생성
+    if (selectedArticle) {
+      createLog(selectedArticle, "view");
+      viewStartRef.current = now;
+      prevArticleRef.current = selectedArticle;
+    } else {
+      viewStartRef.current = null;
+      prevArticleRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedArticle?.id]);
 
   // selectedId가 바뀌면 Swiper 인덱스 동기화
   useEffect(() => {
@@ -556,6 +793,26 @@ export default function MainPage() {
       swiperRef.current.slideTo(idx, 0);
     }
   }, [filtered, selectedId]);
+
+  /**  본문 보기 클릭: click 로그 + dwellTime 업데이트 후 새 탭 */
+  const openOriginal = async (article) => {
+    const url = article?.raw?.url;
+    if (!url) {
+      alert("원문 링크가 없습니다.");
+      return;
+    }
+
+    // 클릭 로그(생성)
+    await createLog(article, "open");
+
+    // 현재 view dwell 업데이트
+    if (viewStartRef.current) {
+      const dwellMs = Date.now() - viewStartRef.current;
+      await updateLog(article, { dwellMs, opened: true });
+    }
+
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="mp-wrap">
@@ -602,34 +859,27 @@ export default function MainPage() {
                 </div>
               </div>
 
-              {loading && <div style={{ padding: 12, opacity: 0.8 }}>불러오는 중...</div>}
-              {error && <div style={{ padding: 12, color: "crimson" }}>{error}</div>}
-
-              {!loading && !error && displayedArticles.length === 0 && (
-                <div style={{ padding: 12, opacity: 0.8 }}>
-                  해당 카테고리 기사가 없습니다. (데이터를 더 불러오는 중일 수 있어요)
-                </div>
-              )}
-
-              <div className="mp-article-list">
-                {displayedArticles.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className={`mp-article-item ${a.id === selectedArticle?.id ? "active" : ""}`}
-                    onClick={() => setSelectedId(a.id)}
-                  >
-                    <div className="mp-article-item-top">
-                      <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                      <span className={`mp-article-item-badge ${String(a.badge).toUpperCase() === "HOT" ? "hot" : "new"}`}>{a.badge}</span>
-                    </div>
-                    <div className="mp-article-item-title">{a.title}</div>
-                  </button>
-                ))}
-              </div>
+            <div className="mp-article-list">
+              {filtered.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={`mp-article-item ${a.id === selectedArticle?.id ? "active" : ""}`}
+                  onClick={() => {
+                    setSelectedId(a.id);
+                    // 리스트 클릭도 로그(원하면 유지)
+                    createLog(a, "click");
+                  }}
+                >
+                  <div className="mp-article-item-top">
+                    <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
+                    <span className={`mp-article-item-badge new`}>{a.badge}</span>
+                  </div>
+                  <div className="mp-article-item-title">{a.title}</div>
+                </button>
+              ))}
             </div>
 
-            {/*  이제 "더 불러오기"가 자연스러움(누적 풀 확장) */}
             <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: 12 }}>
               <button
                 type="button"
@@ -644,6 +894,7 @@ export default function MainPage() {
                 더 불러오기
               </button>
             </div>
+          </div>
           </div>
         </aside>
 
@@ -701,14 +952,7 @@ export default function MainPage() {
                         <button
                           className="mp-btn primary"
                           type="button"
-                          onClick={() => {
-                            const url = article.raw?.url;
-                            if (url) {
-                              window.open(url, "_blank", "noopener,noreferrer");
-                            } else {
-                              alert("원문 링크가 없습니다.");
-                            }
-                          }}
+                          onClick={() => openOriginal(article)}
                         >
                           본문 보기
                         </button>
@@ -726,6 +970,7 @@ export default function MainPage() {
                       onItemClick={(a) => {
                         setSelectedCategory(a.category);
                         setSelectedId(a.id);
+                        createLog(a, "click");
                       }}
                     />
                   </div>
@@ -738,16 +983,17 @@ export default function MainPage() {
         {/* RIGHT */}
         <aside className="mp-right">
           <div className="mp-panel">
-            <div className="mp-panel-title">관련 기사</div>
+            <div className="mp-panel-title">추천 기사</div>
             <div className="mp-related-list">
-              {relatedArticles.map((a) => (
+              {(recoItems.length ? recoItems : relatedArticles).map((a) => (
                 <RelatedItem
                   key={a.id}
                   title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · 최신`}
+                  meta={`${getCategoryLabel(a.category)} · 추천`}
                   onClick={() => {
-                    setSelectedCategory(a.category);
+                    setSelectedCategory(a.category || "all");
                     setSelectedId(a.id);
+                    createLog(a, "click");
                   }}
                 />
               ))}
@@ -761,6 +1007,21 @@ export default function MainPage() {
               <div className="mp-past-item">주간 리포트/아카이브로 바로 이동할 수 있도록 연결</div>
               <div className="mp-past-item">(데이터 연동 시) 클릭하면 해당 이슈 상세로 이동</div>
             </div>
+          </div>
+
+          <div style={{ position: "fixed", right: 16, bottom: 16, zIndex: 9999 }}>
+            <button
+              type="button"
+              className="mp-btn"
+              onClick={async () => {
+                const a = selectedArticle || articles[0];
+                const r = await createLog(a, "test");
+                if (r.ok) alert(`✅ LOG OK\nstatus=${r.status}\nlogId=${r.logId ?? "(없음)"}`);
+                else alert(`❌ LOG FAIL\nstatus=${r.status ?? "(없음)"}\n${r.message}`);
+              }}
+            >
+              로그 테스트
+            </button>
           </div>
         </aside>
       </div>

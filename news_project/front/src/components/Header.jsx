@@ -169,7 +169,7 @@ export default function Header() {
     <header className="hdr">
       <div className="hdr-inner">
         <button className="hdr-logo" type="button" onClick={() => go("main")}>
-          <img className="hdr-logo-img" src="/logo.png" alt="" aria-hidden="true" />
+          <img className="hdr-logo-img" src="..public/logo.png" alt="" aria-hidden="true" />
           <span className="hdr-logo-text">
             <span className="hdr-mark">NEWS</span>
             <span className="hdr-sub">Issue Tracker</span>

@@ -1,0 +1,4 @@
+id,title,content,source,category,url,thumbnail,published_at,press_name
+1,"테스트 기사 1","추천 엔진 테스트용 본문입니다. 인공지능 뉴스.","TestPress","it","https://example.com/1","",2026-02-26 00:00:00,"TestPress"
+2,"테스트 기사 2","경제 관련 기사 본문입니다. 금리와 물가.","EcoPress","economy","https://example.com/2","",2026-02-26 00:00:00,"EcoPress"
+3,"테스트 기사 3","스포츠 경기 결과 요약 기사 본문입니다.","SportsPress","sports","https://example.com/3","",2026-02-26 00:00:00,"SportsPress"

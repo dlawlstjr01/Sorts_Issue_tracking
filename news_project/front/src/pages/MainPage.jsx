@@ -429,9 +429,10 @@ function inferCategoryFromNews(n) {
 }
 
 function mapNewsToArticle(n) {
-  const id = n.id ?? `${n.url || "news"}-${n.published_at || Date.now()}`;
-  const category = inferCategoryFromNews(n);
+  const rawId = n.id ?? `${n.url || "news"}-${n.published_at || Date.now()}`;
+  const id = String(rawId);
 
+  const category = inferCategoryFromNews(n);
   const title = n.title ?? "(제목 없음)";
   const thumb = n.thumbnail ? n.thumbnail : `${(THUMB[category] || THUMB.it)}${UQ}`;
   const rawTime = n.published_at ?? n.created_at;
@@ -448,7 +449,6 @@ function mapNewsToArticle(n) {
     raw: n,
   };
 }
-
 /**  reco items를 UI article 형태로 안전 변환 */
 function mapRecoItemToArticle(item) {
   const raw = item?.raw ?? item ?? {};
@@ -486,7 +486,7 @@ export default function MainPage() {
   const [articles, setArticles] = useState(INITIAL_ARTICLES);
   const [recoItems, setRecoItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
-  const [selectedId, setSelectedId] = useState(INITIAL_ARTICLES[0]?.id || 1);
+  const [selectedId, setSelectedId] = useState(null);
 
   const swiperRef = useRef(null);
 
@@ -494,7 +494,7 @@ export default function MainPage() {
   const [error, setError] = useState("");
 
   const [page, setPage] = useState(1);
-  const size = 30;
+  const size = 100;
 
   const cacheRef = useRef(new Map());
   const fetchedPagesRef = useRef(new Set());
@@ -512,6 +512,7 @@ export default function MainPage() {
   const fetchPageAndAppend = async (targetPage) => {
     const cacheKey = `${targetPage}:${size}:${q}`;
 
+    // 캐시 있으면 바로 사용
     if (cacheRef.current.has(cacheKey)) {
       const cached = cacheRef.current.get(cacheKey);
       setArticles((prev) => {
@@ -525,8 +526,8 @@ export default function MainPage() {
       return cached.length;
     }
 
+    //  이미 "성공적으로" 가져온 것만 스킵
     if (fetchedPagesRef.current.has(cacheKey)) return 0;
-    fetchedPagesRef.current.add(cacheKey);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -539,11 +540,13 @@ export default function MainPage() {
         { page: targetPage, size, q },
         { signal: controller.signal }
       );
+
       const data = res.data;
       const list = Array.isArray(data?.items) ? data.items : [];
-
       const mapped = list.map(mapNewsToArticle);
 
+      //  성공했을 때만 “가져옴 처리”
+      fetchedPagesRef.current.add(cacheKey);
       cacheRef.current.set(cacheKey, mapped);
 
       setArticles((prev) => {
@@ -557,7 +560,14 @@ export default function MainPage() {
 
       return mapped.length;
     } catch (e) {
-      if (e?.name === "CanceledError" || e?.code === "ERR_CANCELED") return 0;
+      //  취소된 요청이면 “가져옴 처리”를 절대 남기지 않음
+      if (e?.name === "CanceledError" || e?.code === "ERR_CANCELED") {
+        // 혹시 이전 코드에서 add된 키가 남아있을 수 있으니 안전하게 제거
+        fetchedPagesRef.current.delete(cacheKey);
+        return 0;
+      }
+
+      fetchedPagesRef.current.delete(cacheKey); // 실패도 재시도 가능하게
       setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
       return 0;
     } finally {
@@ -569,7 +579,7 @@ export default function MainPage() {
   const createLog = async (article, action = "view") => {
     try {
       const payload = {
-        article_id: Number(article?.id),
+        article_id: Number(article?.id) || null,
         url: article?.url,
         stay_time: 0,
         scroll_depth: 0,
@@ -621,12 +631,35 @@ export default function MainPage() {
   }, []);
 
   // 초기 1페이지 로딩
+  const didInitRef = useRef(false);
+  const pageRef = useRef(1);
   useEffect(() => {
-    fetchPageAndAppend(1);
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    const loadInitial = async () => {
+      await fetchPageAndAppend(1);
+      await fetchPageAndAppend(2);
+      await fetchPageAndAppend(3);
+
+      pageRef.current = 3; // 다음 페이지부터 이어서 불러오기 위해
+      setPage(3);
+    };
+
+    loadInitial();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const skipAbortFirstRunRef = useRef(true);
+
   useEffect(() => {
+    //  첫 렌더(초기 진입)에서는 abort 하지 않기
+    if (skipAbortFirstRunRef.current) {
+      skipAbortFirstRunRef.current = false;
+      return;
+    }
+
     if (abortRef.current) abortRef.current.abort();
   }, [selectedCategory]);
 
@@ -689,7 +722,7 @@ export default function MainPage() {
 
   const selectedArticle = useMemo(() => {
     if (!filtered.length) return null;
-    const fromFiltered = filtered.find((a) => a.id === selectedId);
+    const fromFiltered = filtered.find((a) => String(a.id) === String(selectedId));
     return fromFiltered || filtered[0];
   }, [filtered, selectedId]);
 
@@ -709,9 +742,17 @@ export default function MainPage() {
       setSelectedId(null);
       return;
     }
-    setSelectedId(filtered[0].id);
-    if (swiperRef.current) swiperRef.current.slideTo(0, 0);
-  }, [selectedCategory, filtered]);
+
+    const exists =
+      selectedId != null &&
+      filtered.some((a) => String(a.id) === String(selectedId));
+
+    if (!exists) {
+      setSelectedId(String(filtered[0].id));
+      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered, selectedCategory]);
 
   /**  selectedArticle가 바뀔 때: 이전 기사 dwellTime 업데이트 + 새 기사 view 로그 생성 */
   useEffect(() => {
@@ -787,6 +828,8 @@ export default function MainPage() {
                   active={selectedCategory === c.key}
                   onClick={() => {
                     setSelectedCategory(c.key);
+                    setSelectedId(null);
+                    if (swiperRef.current) swiperRef.current.slideTo(0, 0);
                   }}
                 />
               ))}
@@ -812,7 +855,7 @@ export default function MainPage() {
                   type="button"
                   className={`mp-article-item ${a.id === selectedArticle?.id ? "active" : ""}`}
                   onClick={() => {
-                    setSelectedId(a.id);
+                    setSelectedId(String(a.id));
                     // 리스트 클릭도 로그(원하면 유지)
                     createLog(a, "click");
                   }}
@@ -851,6 +894,7 @@ export default function MainPage() {
             </div>
           ) : (
             <Swiper
+              key={selectedCategory}
               direction="vertical"
               slidesPerView={1}
               mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
@@ -861,7 +905,7 @@ export default function MainPage() {
               }}
               onSlideChange={(s) => {
                 const next = filtered[s.activeIndex];
-                if (next) setSelectedId(next.id);
+                if (next) setSelectedId(String(next.id));
               }}
               className="mp-center-swiper"
             >
@@ -961,7 +1005,7 @@ export default function MainPage() {
               onClick={async () => {
                 const a = selectedArticle || articles[0];
                 const r = await createLog(a, "test");
-                if (r.ok) alert(`✅ LOG OK\nstatus=${r.status}\nlogId=${r.logId ?? "(없음)"}`);
+                if (r.ok) alert(` LOG OK\nstatus=${r.status}\nlogId=${r.logId ?? "(없음)"}`);
                 else alert(`❌ LOG FAIL\nstatus=${r.status ?? "(없음)"}\n${r.message}`);
               }}
             >

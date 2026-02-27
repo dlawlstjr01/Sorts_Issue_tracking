@@ -228,10 +228,10 @@ export default function MyPage() {
 
   // 비밀번호 변경
   const handleChangePassword = async () => {
-    if (!pwForm.currentPassword) return alert("현재 비밀번호를 입력해주세요.");
-    if (!pwForm.newPassword) return alert("새 비밀번호를 입력해주세요.");
-    if (pwForm.newPassword.length < 8) return alert("새 비밀번호는 8자 이상 입력해주세요.");
-    if (pwForm.newPassword !== pwForm.newPassword2) return alert("새 비밀번호가 일치하지 않습니다.");
+    if (!pwForm.currentPassword) return openNotice("비밀번호 입력해주세요");
+    if (!pwForm.newPassword) return openNotice("새 비밀번호를 입력해주세요.");
+    if (pwForm.newPassword.length < 8) return openNotice("새 비밀번호는 8자 이상 입력해주세요.");
+    if (pwForm.newPassword !== pwForm.newPassword2) return openNotice("새 비밀번호가 일치하지 않습니다.");
 
     setPwSaving(true);
     try {
@@ -244,10 +244,10 @@ export default function MyPage() {
         { withCredentials: true }
       );
 
-      alert(res.data?.message || "비밀번호 변경 완료");
+      openNotice("비밀번호 변경 완료");
       setPwForm({ currentPassword: "", newPassword: "", newPassword2: "" });
     } catch (err) {
-      alert(err.response?.data?.message || "비밀번호 변경 실패");
+      openNotice(err.response?.data?.message || "비밀번호 변경 실패");
     } finally {
       setPwSaving(false);
     }

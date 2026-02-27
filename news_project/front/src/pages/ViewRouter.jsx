@@ -12,6 +12,7 @@ import SignupPage from "./auth/SignupPage";
 import PasswordResetPage from "./auth/PasswordResetPage";
 import MyPage from "./user/MyPage";
 import MainPage from "./MainPage";
+import ArticleListPage from "./article/ArticleListPage";
 
 
 export default function ViewRouter() {
@@ -32,6 +33,7 @@ export default function ViewRouter() {
   if (view === "signup") return <SignupPage />;
   if (view === "password") return <PasswordResetPage />;
   if (view === "mypage") return <MyPage />;
+  if (view === "article-list") return <ArticleListPage />;
   if (view === "main") return <MainPage />;
 
 

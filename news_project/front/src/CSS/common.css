@@ -2500,6 +2500,7 @@ body {
   margin-top: 16px;
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
 }
 
 .my-notice-actions .login-btn {

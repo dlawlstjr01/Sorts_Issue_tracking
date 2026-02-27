@@ -43,6 +43,17 @@ function IconArchive(props) {
   );
 }
 
+function IconList(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" {...props}>
+      <path
+        d="M4 6h2v2H4V6Zm4 0h12v2H8V6Zm-4 5h2v2H4v-2Zm4 0h12v2H8v-2Zm-4 5h2v2H4v-2Zm4 0h12v2H8v-2Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function IconUser(props) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" {...props}>
@@ -76,7 +87,7 @@ export default function Header() {
 
   const view = useMemo(() => {
     const sp = new URLSearchParams(location.search);
-    return sp.get("view") || "";
+    return sp.get("view") || "main";
   }, [location.search]);
 
   const activeView = useMemo(() => {
@@ -87,6 +98,7 @@ export default function Header() {
 
   const menu = useMemo(
     () => [
+      { to: "article-list", label: "기사 목록", icon: <IconList /> },
       { to: "issues", label: "이슈 추적", icon: <IconBox /> },
       { to: "reports", label: "요약/리포트", icon: <IconChart /> },
       { to: "archive", label: "아카이브", icon: <IconArchive /> },
@@ -105,6 +117,7 @@ export default function Header() {
 
   // 로그아웃 진행 상태(버튼 잠금 + 텍스트 변경)
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const refreshAuth = async () => {
     try {
@@ -133,9 +146,6 @@ export default function Header() {
   const handleLogout = async () => {
     if (loggingOut) return;
 
-    const ok = window.confirm("로그아웃 하시겠습니까?");
-    if (!ok) return;
-
     setLoggingOut(true);
 
     try {
@@ -145,12 +155,9 @@ export default function Header() {
 
       // (0.5초)
       await new Promise((r) => setTimeout(r, 500));
-
-      alert("로그아웃되었습니다.");
     } catch (e) {
       // 세션 만료 등으로 실패해도 사용자 입장에선 로그아웃 처리
       await new Promise((r) => setTimeout(r, 300));
-      alert("로그아웃되었습니다.");
     } finally {
       setAuth({ checked: true, loggedIn: false, login_id: "" });
       setLoggingOut(false);
@@ -198,7 +205,12 @@ export default function Header() {
                 <span>마이페이지</span>
               </button>
 
-              <button className="hdr-btn" type="button" onClick={handleLogout} disabled={loggingOut}>
+              <button
+                className="hdr-btn"
+                type="button"
+                onClick={() => setLogoutConfirmOpen(true)}
+                disabled={loggingOut}
+              >
                 <IconLogout />
                 <span>{loggingOut ? "로그아웃 중..." : "로그아웃"}</span>
               </button>
@@ -211,6 +223,41 @@ export default function Header() {
           )}
         </div>
       </div>
+
+      {logoutConfirmOpen && (
+        <div
+          className="my-notice-modal-backdrop"
+          onClick={() => {
+            if (!loggingOut) setLogoutConfirmOpen(false);
+          }}
+        >
+          <div className="my-notice-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h4 className="my-notice-title">알림</h4>
+            <p className="my-notice-message">로그아웃 하시겠습니까?</p>
+            <div className="my-notice-actions">
+              <button
+                className="login-btn"
+                type="button"
+                onClick={() => setLogoutConfirmOpen(false)}
+                disabled={loggingOut}
+              >
+                취소
+              </button>
+              <button
+                className="login-btn primary"
+                type="button"
+                onClick={() => {
+                  setLogoutConfirmOpen(false);
+                  handleLogout();
+                }}
+                disabled={loggingOut}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

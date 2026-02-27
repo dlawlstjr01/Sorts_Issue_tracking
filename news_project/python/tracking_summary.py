@@ -2099,12 +2099,12 @@ def build_bucket_from_df(
             "representative_url": str(rep_row.get("url","")),
             "keywords": kws,
 
-            # ✅ 추가: 이 이슈에 묶인 기사 수/목록을 top-level로도 항상 제공
+            #  추가: 이 이슈에 묶인 기사 수/목록을 top-level로도 항상 제공
             "related_count": int(len(members)),
             "related_urls": related_urls,
 
             "stats": {
-                # ✅ 기존 그대로 (여기도 동일한 값)
+                #  기존 그대로 (여기도 동일한 값)
                 "size": int(len(members)),
                 "domains": int(len(set(str(df1.loc[i,"domain"]) for i in members))),
                 "centroid_mean": float(metrics["centroid_mean"]),
@@ -2383,7 +2383,7 @@ def make_cfg() -> "PipelineConfig":
         BUCKET=DEFAULT_BUCKET,
         MAX_BUCKETS=DEFAULT_MAX_BUCKETS,
     )
-    # ✅ PipelineConfig에 해당 필드가 "원래" 없을 수도 있으니 동적으로 주입
+    #  PipelineConfig에 해당 필드가 "원래" 없을 수도 있으니 동적으로 주입
     cfg.E5_MODEL = DEFAULT_E5_MODEL
     cfg.DEVICE = DEFAULT_DEVICE
     cfg.MODEL_DIR = DEFAULT_MODEL_DIR
@@ -2487,7 +2487,7 @@ def upsert_issue_summary(issue: dict) -> None:
 
 def load_articles_from_db(cfg: PipelineConfig) -> pd.DataFrame:
     """
-    ✅ articles 테이블에서 '가장 최신 published_at' 날짜를 기준으로
+     articles 테이블에서 '가장 최신 published_at' 날짜를 기준으로
     그 날짜 구간의 기사들을 가져온다.
     (기존처럼 NOW()-2DAY 고정조건 때문에 0건 나오는 문제 방지)
     """
@@ -2566,12 +2566,12 @@ def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
     bucket_key = str(latest_day)
     df_bucket = df_all[df_all["_dt"].dt.date == latest_day].copy()
 
-    # ✅ 핵심: KoE5Embedder는 model_name, device가 필수
+    #  핵심: KoE5Embedder는 model_name, device가 필수
     device = get_device(getattr(cfg, "DEVICE", "cpu"))
     model_name = getattr(cfg, "E5_MODEL", "intfloat/multilingual-e5-base")
     model_dir = getattr(cfg, "MODEL_DIR", "") or None
 
-    # ✅ model_dir을 지원하는 구현/안하는 구현 둘 다 안전하게 처리
+    #  model_dir을 지원하는 구현/안하는 구현 둘 다 안전하게 처리
     try:
         if model_dir:
             embedder = KoE5Embedder(model_name, device=device, max_length=512, model_dir=model_dir)

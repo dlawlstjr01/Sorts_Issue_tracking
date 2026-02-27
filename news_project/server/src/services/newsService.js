@@ -7,8 +7,12 @@ function makeError(message, statusCode) {
   return e;
 }
 
+function isDateString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || ""));
+}
+
 // 목록 조회 (페이지네이션 + 카테고리 + 검색)
-exports.listArticles = async ({ page, size, category, q }) => {
+exports.listArticles = async ({ page, size, category, q, date_from, date_to }) => {
   const p = Math.max(1, parseInt(page, 10) || 1);
   const s = Math.min(50, Math.max(1, parseInt(size, 10) || 20));
   const offset = (p - 1) * s;
@@ -27,6 +31,16 @@ exports.listArticles = async ({ page, size, category, q }) => {
       where.push("(title LIKE ? OR content LIKE ?)");
       params.push(`%${keyword}%`, `%${keyword}%`);
     }
+  }
+
+  if (date_from && isDateString(date_from)) {
+    where.push("DATE(COALESCE(published_at, created_at)) >= ?");
+    params.push(String(date_from));
+  }
+
+  if (date_to && isDateString(date_to)) {
+    where.push("DATE(COALESCE(published_at, created_at)) <= ?");
+    params.push(String(date_to));
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";

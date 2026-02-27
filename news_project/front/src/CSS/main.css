@@ -31,6 +31,68 @@
   margin: 4px 0 10px;
 }
 
+.mp-article-shell {
+  border: 1px solid #dbe7fb;
+  border-radius: 16px;
+  padding: 10px;
+  background: linear-gradient(180deg, #fafdff 0%, #f2f7ff 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.mp-article-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mp-article-head .mp-panel-title {
+  margin: 0;
+}
+
+.mp-article-sub {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #5f7292;
+  line-height: 1.45;
+}
+
+.mp-article-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 4px;
+  border: 1px solid #cfe0ff;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f5f9ff 0%, #ebf3ff 100%);
+}
+
+.mp-article-tab {
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: #4c6487;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.mp-article-tab:hover {
+  border-color: #c6d9ff;
+  color: #244675;
+  background: rgba(255, 255, 255, 0.72);
+  transform: translateY(-1px);
+}
+
+.mp-article-tab.active {
+  border-color: #95b8ff;
+  background: linear-gradient(180deg, #ffffff 0%, #e8f1ff 100%);
+  color: #1f4dff;
+  box-shadow: 0 6px 12px rgba(63, 128, 255, 0.18);
+}
+
 .mp-divider {
   height: 1px;
   background: #eef2f7;
@@ -50,8 +112,23 @@
   padding: 10px 10px;
   border-radius: 12px;
   font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   cursor: pointer;
   transition: transform 0.06s ease, background 0.15s ease, border 0.15s ease;
+}
+
+.mp-cat-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #6b7280;
+  flex: 0 0 auto;
+  transition: color 0.15s ease;
 }
 
 .mp-cat-btn:hover {
@@ -60,10 +137,18 @@
   border-color: #d7e3ff;
 }
 
+.mp-cat-btn:hover .mp-cat-ico {
+  color: #3b82f6;
+}
+
 .mp-cat-btn.active {
   background: #eaf2ff;
   border-color: #b9d1ff;
   font-weight: 700;
+}
+
+.mp-cat-btn.active .mp-cat-ico {
+  color: #2563eb;
 }
 
 /* LEFT - 기사 목록 */
@@ -142,7 +227,7 @@
 }
 
 .mp-article-item-badge.hot {
-  color: #d11a2a;
+  color: #ff0000;
 }
 
 .mp-article-item-badge.new {

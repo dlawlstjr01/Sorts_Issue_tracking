@@ -2,11 +2,14 @@ import os
 import time
 import random
 import threading
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from email.utils import parsedate_to_datetime
 
 import requests
 import pymysql
+import feedparser
 from fastapi import FastAPI
 
 # -----------------------------
@@ -19,15 +22,13 @@ DB_PASSWORD = os.getenv("DB_PASSWORD", "smhrd3")
 DB_NAME = os.getenv("DB_NAME", "cgi_25K_DA1_p3_3")
 
 CRAWL_INTERVAL_SEC = int(os.getenv("CRAWL_INTERVAL_SEC", "900"))  # 15분
-
-# 소스 URL
 CRAWL_SOURCE_URL = os.getenv("CRAWL_SOURCE_URL", "")
 
-# 크롤러 동시 폭주 방지(컨테이너 여러개 떠도 1개만 실행되게)
 DB_LOCK_NAME = os.getenv("DB_LOCK_NAME", "news_project_crawler_lock")
+GDELT_MIN_INTERVAL_SEC = int(os.getenv("GDELT_MIN_INTERVAL_SEC", "120"))
 
-# 최소 호출 간격(안전장치)
-GDELT_MIN_INTERVAL_SEC = int(os.getenv("GDELT_MIN_INTERVAL_SEC", "120"))  # 기존 60 -> 120 권장
+# ✅ url 컬럼이 VARCHAR(500)이면 500으로 제한 (길면 스킵)
+MAX_URL_LEN = int(os.getenv("MAX_URL_LEN", "500"))
 
 # -----------------------------
 # Runtime state
@@ -38,16 +39,17 @@ _last_call_ts = 0.0
 _backoff_until = 0.0
 _fail_count = 0
 
-# 조건부 요청 캐시
 _last_etag = None
 _last_modified = None
 
-# 세션 재사용
 _session = requests.Session()
 _session.headers.update({
     "User-Agent": "news_project_crawler/1.0",
-    "Accept": "application/json, text/plain, */*",
+    "Accept": "application/json, application/xml, text/xml, text/plain, */*",
 })
+
+# ✅ 중복 실행 방지(/run 연타 방지 + loop 중복 방지)
+_is_running = False
 
 
 def get_conn():
@@ -63,29 +65,44 @@ def get_conn():
     )
 
 
+def normalize_url(u: str) -> str:
+    if not u:
+        return ""
+    return str(u).strip()
+
+
 def parse_dt(raw_dt):
+    """
+    DB의 published_at(DATETIME)으로 넣을 datetime 변환.
+    - ISO8601: 2026-03-04T00:39:40Z 형태
+    - RSS RFC822: Wed, 04 Mar 2026 00:39:40 GMT 형태
+    """
     if not raw_dt:
         return None
+
     s = str(raw_dt).strip()
+
+    # ISO8601 우선
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        pass
+
+    # RFC822 (RSS)
+    try:
+        dt = parsedate_to_datetime(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
 
 def sleep_full_jitter(max_sec: float):
-    """
-    Full jitter: [0, max_sec] 랜덤으로 잠.
-    여러 컨테이너/스레드가 동시에 재시도하는 동시폭주를 줄여줌.
-    """
     time.sleep(max(0.0, random.uniform(0.0, float(max_sec))))
 
 
 def acquire_db_lock() -> bool:
-    """
-    MySQL GET_LOCK으로 분산락 획득.
-    동시에 여러 컨테이너 떠도 실제 크롤링은 1개만 하게 됨.
-    """
     conn = None
     try:
         conn = get_conn()
@@ -95,7 +112,6 @@ def acquire_db_lock() -> bool:
             return bool(row and row.get("got") == 1)
     except Exception as e:
         print("[crawler] db lock error:", repr(e), flush=True)
-        # 락 못 잡아도 안전하게 "실행 안 함" 쪽으로
         return False
     finally:
         if conn:
@@ -116,20 +132,53 @@ def release_db_lock():
 
 
 def calc_backoff_seconds(fail_count: int, base: int, cap: int) -> int:
-    """
-    지수 백오프 기본값 계산(초).
-    fail_count: 1,2,3...
-    """
-    # 1->base, 2->base*2, 3->base*4 ...
     sec = base * (2 ** min(fail_count - 1, 6))
     return int(min(sec, cap))
 
 
+def _rss_to_items(xml_text: str):
+    """
+    Google News RSS(XML) -> 공통 items 리스트로 변환
+    """
+    feed = feedparser.parse(xml_text)
+    items = []
+
+    for e in getattr(feed, "entries", []) or []:
+        url = e.get("link")
+        title = e.get("title", "") or ""
+
+        content = e.get("summary") or e.get("description") or None
+        published = e.get("published") or e.get("updated") or None
+
+        thumb = None
+        media_thumb = e.get("media_thumbnail")
+        if isinstance(media_thumb, list) and media_thumb:
+            thumb = media_thumb[0].get("url")
+
+        if not thumb:
+            media_content = e.get("media_content")
+            if isinstance(media_content, list) and media_content:
+                thumb = media_content[0].get("url")
+
+        # ✅ summary 안에 img가 있는 경우가 있어서 보강
+        if not thumb and content:
+            m = re.search(r'<img[^>]+src="([^"]+)"', str(content))
+            if m:
+                thumb = m.group(1)
+
+        items.append({
+            "url": url,
+            "title": title,
+            "thumbnail": thumb,
+            "content": content,
+            "published_at": published,
+            "category": None,  # ✅ 그대로 None
+        })
+
+    return items
+
+
 def fetch_news_items():
-    """
-    절대 예외를 밖으로 던지지 않게.
-    429/네트워크 오류는 backoff를 걸고 빈 리스트 반환.
-    """
     global _last_call_ts, _backoff_until, _fail_count, _last_etag, _last_modified
 
     if not CRAWL_SOURCE_URL:
@@ -138,70 +187,67 @@ def fetch_news_items():
 
     now = time.time()
 
-    # 1) 백오프 중이면 호출 자체를 스킵
     if now < _backoff_until:
         wait = _backoff_until - now
         print(f"[crawler] backoff active. wait {wait:.1f}s", flush=True)
         sleep_full_jitter(wait)
         return []
 
-    # 2) 최소 호출 간격 유지
     since = now - _last_call_ts
     if since < GDELT_MIN_INTERVAL_SEC:
         sleep_full_jitter(GDELT_MIN_INTERVAL_SEC - since)
 
-    # 3) 조건부 요청 헤더(ETag/Last-Modified)
     headers = {}
     if _last_etag:
         headers["If-None-Match"] = _last_etag
     if _last_modified:
         headers["If-Modified-Since"] = _last_modified
 
-    # 4) 요청
+    headers.setdefault("User-Agent", "news_project_crawler/1.0 (+https://localhost)")
+
     try:
-        r = _session.get(CRAWL_SOURCE_URL, headers=headers, timeout=(15, 60))
+        r = _session.get(
+            CRAWL_SOURCE_URL,
+            headers=headers,
+            timeout=(10, 120),
+            allow_redirects=True,
+        )
         _last_call_ts = time.time()
     except requests.RequestException as e:
         _fail_count += 1
-        backoff = calc_backoff_seconds(_fail_count, base=60, cap=1800)  # 최대 30분
+        backoff = calc_backoff_seconds(_fail_count, base=10, cap=1800)
         _backoff_until = time.time() + backoff
         print("[crawler] request error:", repr(e), f"-> backoff {backoff}s", flush=True)
         return []
 
-    # 5) 304 Not Modified: 변경 없으면 끝(실패 아님)
     if r.status_code == 304:
         _fail_count = 0
         _backoff_until = 0.0
         print("[crawler] 304 Not Modified (no new data)", flush=True)
         return []
 
-    # 6) 429 처리: Retry-After 우선 + 지수 백오프
     if r.status_code == 429:
         _fail_count += 1
         ra = r.headers.get("Retry-After")
-
         if ra:
             try:
                 backoff = int(float(str(ra).strip()))
             except Exception:
-                backoff = calc_backoff_seconds(_fail_count, base=300, cap=1800)
+                backoff = calc_backoff_seconds(_fail_count, base=60, cap=1800)
         else:
-            backoff = calc_backoff_seconds(_fail_count, base=300, cap=1800)
+            backoff = calc_backoff_seconds(_fail_count, base=60, cap=1800)
 
-        # 백오프 설정 + 추가로 Full jitter(동시 재시도 분산)
         _backoff_until = time.time() + backoff
         print(f"[crawler] 429 Too Many Requests -> backoff {backoff}s (Retry-After={ra})", flush=True)
         return []
 
-    # 7) 기타 HTTP 에러도 죽지 않게
     if r.status_code >= 400:
         _fail_count += 1
-        backoff = calc_backoff_seconds(_fail_count, base=60, cap=1800)
+        backoff = calc_backoff_seconds(_fail_count, base=10, cap=1800)
         _backoff_until = time.time() + backoff
         print(f"[crawler] http error status={r.status_code} -> backoff {backoff}s", flush=True)
         return []
 
-    # 8) 성공이면 조건부 캐시 업데이트(서버가 제공할 때만)
     etag = r.headers.get("ETag")
     lm = r.headers.get("Last-Modified")
     if etag:
@@ -209,98 +255,169 @@ def fetch_news_items():
     if lm:
         _last_modified = lm
 
-    # 9) JSON 파싱도 안전하게
+    items = []
     try:
         data = r.json()
-    except Exception as e:
-        _fail_count += 1
-        backoff = calc_backoff_seconds(_fail_count, base=60, cap=1800)
-        _backoff_until = time.time() + backoff
-        print("[crawler] json parse error:", repr(e), f"-> backoff {backoff}s", flush=True)
-        return []
+        items = data.get("articles") or data.get("items") or []
+    except Exception:
+        items = _rss_to_items(r.text)
 
-    # 성공이면 백오프 초기화
     _fail_count = 0
     _backoff_until = 0.0
+    return items
 
-    return data.get("articles") or data.get("items") or []
 
+from typing import List, Dict
 
-def upsert_articles(items):
+def chunked(lst, n: int):
+    for i in range(0, len(lst), n):
+        yield lst[i:i+n]
+
+def upsert_articles(items: List[Dict]):
     global last_items
+
     if not items:
+        last_items = []
         return 0
 
-    sql = """
-    INSERT INTO articles (url, title, thumbnail, content, published_at, category, created_at)
-    VALUES (%s, %s, %s, %s, %s, %s, NOW())
-    ON DUPLICATE KEY UPDATE
-      title=VALUES(title),
-      thumbnail=VALUES(thumbnail),
-      content=VALUES(content),
-      published_at=VALUES(published_at),
-      category=VALUES(category)
-    """
+    # 1) 1차 정리: url 정규화 + 길이 제한 + (이번 배치 안) 중복 제거
+    cleaned = []
+    seen_in_batch = set()
 
-    cnt = 0
-    node_items = []
+    for it in items:
+        url = normalize_url(it.get("url") or it.get("link"))
+        if not url:
+            continue
+        if len(url) > MAX_URL_LEN:
+            continue
 
+        # 이번 배치 내부 중복 제거
+        if url in seen_in_batch:
+            continue
+        seen_in_batch.add(url)
+
+        title = (it.get("title", "") or "").strip()
+        thumb = it.get("thumbnail") or it.get("image") or None
+        content = it.get("content") or it.get("summary") or None
+        raw_dt = it.get("published_at") or it.get("published")
+        pub_dt = parse_dt(raw_dt)
+
+        cleaned.append({
+            "url": url,
+            "title": title,
+            "thumbnail": thumb,
+            "content": content,
+            "pub_dt": pub_dt,
+            "raw_dt": raw_dt,   # 노드로 내려줄 때 원문 유지용
+        })
+
+    if not cleaned:
+        last_items = []
+        return 0
+
+    urls = [c["url"] for c in cleaned]
+
+    # 2) DB에 이미 존재하는 url을 "한 번에" 조회해서 제외
+    existing = set()
     conn = None
     try:
         conn = get_conn()
         with conn.cursor() as cur:
-            for it in items:
-                url = it.get("url") or it.get("link")
-                if not url:
-                    continue
+            # IN 절 너무 길어지면 쪼개기 (500~1000 정도가 안정적)
+            for part in chunked(urls, 500):
+                placeholders = ",".join(["%s"] * len(part))
+                cur.execute(
+                    f"SELECT url FROM articles WHERE url IN ({placeholders})",
+                    tuple(part),
+                )
+                for row in cur.fetchall():
+                    existing.add(row["url"])
 
-                title = it.get("title", "")
-                thumb = it.get("thumbnail") or it.get("image")
-                content = it.get("content") or it.get("summary")
-                raw_dt = it.get("published_at") or it.get("published")
-                pub_dt = parse_dt(raw_dt)
-                category = it.get("category")
+            # 3) 남은 것만 INSERT (빠르게 executemany)
+            to_insert = [c for c in cleaned if c["url"] not in existing]
 
-                cur.execute(sql, (url, title, thumb, content, pub_dt, category))
+            sql = """
+            INSERT INTO articles (url, title, thumbnail, content, published_at, category, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, NOW())
+            """
 
+            params = []
+            node_items = []
+            for c in to_insert:
+                category = "기타"  # ✅ 항상 기타
+                params.append((
+                    c["url"],
+                    c["title"],
+                    c["thumbnail"],
+                    c["content"],
+                    c["pub_dt"],
+                    category,
+                ))
                 node_items.append({
-                    "url": url,
-                    "title": title,
-                    "thumbnail": thumb,
-                    "content": content,
+                    "url": c["url"],
+                    "title": c["title"],
+                    "thumbnail": c["thumbnail"],
+                    "content": c["content"],
                     "category": category,
-                    "published_at": raw_dt,
+                    "published_at": c["raw_dt"],
                 })
-                cnt += 1
+
+            saved = 0
+            if params:
+                cur.executemany(sql, params)
+                saved = len(params)
+
+            last_items = node_items
+            print(
+                f"[crawler] upsert done saved={saved} skipped_existing={len(existing)} "
+                f"batch_total={len(cleaned)}",
+                flush=True
+            )
+            return saved
 
     except Exception as e:
         print("[crawler] db error:", repr(e), flush=True)
+        last_items = []
         return 0
+
     finally:
         if conn:
             conn.close()
 
-    last_items = node_items
-    return cnt
-
 
 def run_once():
-    #  분산락: 여러 컨테이너 떠도 1개만 크롤링
+    global _is_running
+    if _is_running:
+        print("[crawler] run_once already running. skip.", flush=True)
+        return
+
+    _is_running = True
+    print("[crawler] run_once start", flush=True)
+
     got = acquire_db_lock()
+    print(f"[crawler] db lock got={got}", flush=True)
     if not got:
+        _is_running = False
         print("[crawler] another instance holds DB lock. skip.", flush=True)
         return
 
     try:
+        print("[crawler] fetching...", flush=True)
         items = fetch_news_items()
+        print(f"[crawler] fetched items={len(items)}", flush=True)
+
+        print("[crawler] upserting...", flush=True)
         saved = upsert_articles(items)
-        print(f"[crawler] fetched={len(items)} saved={saved}", flush=True)
+        print(f"[crawler] saved={saved}", flush=True)
+    except Exception as e:
+        print("[crawler] run_once error:", repr(e), flush=True)
     finally:
         release_db_lock()
+        print("[crawler] db lock released", flush=True)
+        _is_running = False
 
 
 def crawler_loop():
-    #  초기 랜덤 딜레이: 컨테이너 동시 기동 시 폭주 방지
     initial_delay = random.uniform(10, 60)
     print(f"[crawler] initial delay {initial_delay:.1f}s", flush=True)
     time.sleep(initial_delay)
@@ -311,16 +428,13 @@ def crawler_loop():
         except Exception as e:
             print("[crawler] loop error:", repr(e), flush=True)
 
-        #  주기에도 약간 지터를 줘서 여러 인스턴스가 같은 시각에 치지 않게
         base = CRAWL_INTERVAL_SEC
-        jitter = random.uniform(0, min(30, base * 0.05))  # 최대 30초 또는 5%
+        jitter = random.uniform(0, min(30, base * 0.05))
         time.sleep(base + jitter)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    #  startup에서 run_once() 즉시 호출을 빼고,
-    #    백그라운드 루프가 initial delay 후 알아서 실행하게 함.
     threading.Thread(target=crawler_loop, daemon=True).start()
     yield
 
@@ -331,3 +445,11 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/crawl")
 def get_items():
     return {"items": last_items}
+
+
+# ✅ 수동 트리거: 즉시 응답 + 백그라운드 실행
+@app.get("/run")
+def run_crawl():
+    print("[crawler] /run hit -> start thread", flush=True)
+    threading.Thread(target=run_once, daemon=True).start()
+    return {"ok": True, "message": "crawl started"}

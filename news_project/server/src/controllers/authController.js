@@ -42,19 +42,57 @@ exports.verifyToken = (req, res, next) => {
   }
 };
 
+//  /auth/me 전용: 토큰이 없거나(미로그인) 토큰이 깨져도 401 안 내고 통과
+exports.optionalVerifyToken = (req, res, next) => {
+  try {
+    const bearer =
+      req.headers.authorization?.startsWith("Bearer ")
+        ? req.headers.authorization.slice(7)
+        : null;
+
+    const token = req.cookies?.accessToken || bearer;
+
+    //  토큰이 없으면 미로그인: 그냥 통과
+    if (!token) {
+      req.user = null;
+      return next();
+    }
+
+    // 토큰이 있으면 검증
+    const decoded = authService.verifyToken(token);
+    req.user = { userId: decoded.userId, loginId: decoded.loginId };
+    return next();
+  } catch (err) {
+    //  토큰이 있는데 만료/위조 등이어도 /me에서는 401 금지 → 미로그인 처리
+    req.user = null;
+    return next();
+  }
+};
+
 exports.me = async (req, res) => {
   try {
+    //  미로그인: 200으로 보내서 빨간 401 없애기
+    if (!req.user?.userId) {
+      return res.status(200).json({ id: null });
+      // 또는: return res.sendStatus(204);
+    }
+
     const me = await authService.getMe(req.user.userId);
     return res.json(me);
   } catch (err) {
-    const code = err.statusCode || 401;
-    return res.status(code).json({ message: err.message || "유저 없음" });
+    const code = err.statusCode || 500;
+    return res.status(code).json({ message: err.message || "유저 조회 실패" });
   }
 };
 
 exports.logout = (req, res) => {
-  // setCookie 할 때 옵션과 최대한 동일하게 clear
-  res.clearCookie("accessToken", authService.getClearCookieOptions());
+  console.log("[logout] HIT", { hasCookie: !!req.cookies?.accessToken }); // ✅ 1) 도달 확인
+
+  const opts = authService.getCookieOptions();
+  res.clearCookie("accessToken", opts);
+
+  console.log("[logout] Set-Cookie =>", res.getHeader("Set-Cookie"));     // ✅ 2) 삭제 헤더 붙었는지
+
   return res.status(200).json({ message: "로그아웃 완료" });
 };
 

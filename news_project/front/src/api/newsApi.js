@@ -1,15 +1,14 @@
 import axios from "axios";
 
-//  fetchNews export
-export const fetchNews = ({ page = 1, size = 100, q }, config = {}) => {
-  return axios.get(`/news`, {
-    params: {
-      page,
-      size,
-      q,
-      date_from: dateFrom,
-      date_to: dateTo,
-    },
-    ...config,
-  });
+// fetchNews export
+export const fetchNews = (
+  { page = 1, size = 100, q = "", dateFrom = null, dateTo = null },
+  config = {}
+) => {
+  const params = { page, size, q };
+
+  if (dateFrom) params.date_from = dateFrom;
+  if (dateTo) params.date_to = dateTo;
+
+  return axios.get("/news", { params, ...config });
 };

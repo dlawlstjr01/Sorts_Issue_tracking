@@ -6,7 +6,7 @@ const authController = require("../controllers/authController");
 
 router.post("/signup", authController.signup);
 router.post("/login", authController.login);
-router.get("/me", authController.verifyToken, authController.me);
+router.get("/me", authController.optionalVerifyToken, authController.me);
 router.put("/me", authController.verifyToken, authController.updateMe);
 router.post("/logout", authController.logout);
 router.post("/find-id", authController.findId);

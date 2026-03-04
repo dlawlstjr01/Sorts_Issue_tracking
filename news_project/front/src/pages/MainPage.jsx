@@ -601,59 +601,59 @@ export default function MainPage() {
   };
 
   //  로그 생성
-  const createLog = async (article, action = "view") => {
-    try {
-      const payload = {
-        article_id: Number(article?.id) || null,
-        url: article?.url,
-        stay_time: 0,
-        scroll_depth: 0,
-      };
-      const res = await axios.post("/log", payload);
-      const logId = res.data?.logId ?? res.data?.id ?? res.data?.data?.logId;
+const createLog = async (article, action = "view") => {
+  if (!userId) return { ok: false, skipped: true }; // 로그인 전이면 스킵
+  try {
+    const payload = {
+      article_id: Number(article?.id) || null,
+      url: article?.url,
+      stay_time: 0,
+      scroll_depth: 0,
+    };
+    const res = await axios.post("/log", payload);
+    const logId = res.data?.logId ?? res.data?.id ?? res.data?.data?.logId;
+    if (logId != null) logMapRef.current.set(String(article.id), logId);
+    return { ok: true, status: res.status, logId, data: res.data };
+  } catch (e) {
+    return { ok: false, status: e?.response?.status, message: e?.response?.data?.message || e.message };
+  }
+};
 
-      if (logId != null) logMapRef.current.set(String(article.id), logId);
-
-      return { ok: true, status: res.status, logId, data: res.data };
-    } catch (e) {
-      return {
-        ok: false,
-        status: e?.response?.status,
-        message: e?.response?.data?.message || e.message,
-      };
-    }
-  };
-
-  //  로그 업데이트 (체류시간 등)
-  const updateLog = async (article, extra = {}) => {
-    try {
-      const logId = logMapRef.current.get(String(article?.id));
-      if (!logId) return;
-
-      const payload = {
-        ...extra,
-        updatedAt: new Date().toISOString(),
-      };
-
-      await axios.put(`/log/${logId}`, payload);
-    } catch (e) {
-      console.error("log update failed:", e);
-    }
-  };
+const updateLog = async (article, extra = {}) => {
+  if (!userId) return; // 로그인 전이면 스킵
+  try {
+    const logId = logMapRef.current.get(String(article?.id));
+    if (!logId) return;
+    await axios.put(`/log/${logId}`, { ...extra, updatedAt: new Date().toISOString() });
+  } catch (e) {
+    console.error("log update failed:", e);
+  }
+};
 
   const [userId, setUserId] = useState(null);
 
-  useEffect(() => {
-    const loadMe = async () => {
-      try {
-        const res = await axios.get("/auth/me", { withCredentials: true });
-        setUserId(res.data?.id ?? null);
-      } catch (e) {
+useEffect(() => {
+  const loadMe = async () => {
+    try {
+      const res = await axios.get("/auth/me", { withCredentials: true });
+      setUserId(res.data?.id ?? null);
+    } catch (e) {
+      const status = e?.response?.status;
+
+      // ✅ 로그인 안 한 상태(401)는 정상 흐름 → 조용히 처리
+      if (status === 401) {
         setUserId(null);
+        return;
       }
-    };
-    loadMe();
-  }, []);
+
+      // ✅ 그 외 에러만 로그 찍기
+      console.error("[auth/me] failed:", e);
+      setUserId(null);
+    }
+  };
+
+  loadMe();
+}, []);
 
   // 초기 1페이지 로딩
   const didInitRef = useRef(false);

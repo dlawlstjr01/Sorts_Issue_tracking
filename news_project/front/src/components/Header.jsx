@@ -80,11 +80,6 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const API_BASE = useMemo(
-    () => import.meta?.env?.VITE_API_BASE || "http://localhost:5000",
-    []
-  );
-
   const view = useMemo(() => {
     const sp = new URLSearchParams(location.search);
     return sp.get("view") || "main";
@@ -119,28 +114,29 @@ export default function Header() {
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
-  const refreshAuth = async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/auth/me`, {
-        withCredentials: true,
-      });
-      setAuth({
-        checked: true,
-        loggedIn: true,
-        login_id: res.data?.login_id || "",
-      });
-    } catch (e) {
-      setAuth({
-        checked: true,
-        loggedIn: false,
-        login_id: "",
-      });
+ const refreshAuth = async () => {
+  try {
+    const res = await axios.get("/auth/me", { withCredentials: true });
+
+    const id = res.data?.id ?? null;
+    if (!id) {
+      setAuth({ checked: true, loggedIn: false, login_id: "" });
+      return;
     }
-  };
+
+    setAuth({
+      checked: true,
+      loggedIn: true,
+      login_id: res.data?.login_id || "",
+    });
+  } catch (e) {
+    setAuth({ checked: true, loggedIn: false, login_id: "" });
+  }
+};
 
   useEffect(() => {
     refreshAuth();
-  }, [API_BASE, location.search]);
+  }, [location.search]);
 
   //  약간 지연
   const handleLogout = async () => {
@@ -149,7 +145,7 @@ export default function Header() {
     setLoggingOut(true);
 
     try {
-      await axios.post(`${API_BASE}/auth/logout`, null, {
+      await axios.post(`/auth/logout`, null, {
         withCredentials: true,
       });
 

@@ -305,10 +305,14 @@
 }
 
 .als-press-chip-wrap {
+  margin-top: 12px;            /* 위(1줄 버튼)와 간격 */
+  padding-top: 12px;           /* 선 아래 여백 */
+  border-top: 1px solid #a1b9d4; /* 구분선 */
   max-height: 255px;
   overflow-y: auto;
   padding-right: 4px;
 }
+
 
 .als-date-filter {
   padding: 18px;

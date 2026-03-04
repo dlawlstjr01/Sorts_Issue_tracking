@@ -171,8 +171,8 @@ function formatPublishedDate(raw) {
 export default function ArticleListPage() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("period");
-  const [selectedPressGroup, setSelectedPressGroup] = useState(() => new Set(["종합일간지"]));
-  const [selectedPress, setSelectedPress] = useState(() => new Set(["조선일보"]));
+  const [selectedPressGroup, setSelectedPressGroup] = useState(() => new Set());
+  const [selectedPress, setSelectedPress] = useState(() => new Set());
   const [dateRange, setDateRange] = useState(() => {
     const end = new Date();
     const start = new Date(end);
@@ -419,7 +419,7 @@ export default function ArticleListPage() {
             </div>
 
             <div className="als-lane">
-              <div className="als-lane-title">언론사</div>
+              
               <div className="als-lane-chip-wrap">
                 {PRESS_GROUPS.map((name) => (
                   <button

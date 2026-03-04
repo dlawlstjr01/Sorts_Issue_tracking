@@ -7,13 +7,37 @@ services:
       - ./server/.env
     depends_on:
       - python
+      - crawler
+      - tracking
 
   python:
     build: ./python
     ports:
       - "8000:8000"
+    env_file:
+      - ./python/.env
     environment:
       - ARTIFACT_DIR=/app/reco_artifacts
-    # 모델 파일을 컨테이너에 포함시키거나(추천), 볼륨으로 마운트해도 됨
-    # volumes:
-    #   - ./python/reco_artifacts:/app/reco_artifacts
+    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    restart: unless-stopped
+
+  crawler:
+    build: ./python
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./python/.env
+    command: ["uvicorn", "crawler:app", "--host", "0.0.0.0", "--port", "8001"]
+    restart: unless-stopped
+
+  tracking:
+    build: ./python
+    ports:
+      - "8002:8002"
+    env_file:
+      - ./python/.env
+    volumes:
+    - ./python/data:/app/data
+    - ./python/issue_outputs:/app/issue_outputs
+    command: ["uvicorn", "tracking_summary:app", "--host", "0.0.0.0", "--port", "8002"]
+    restart: unless-stopped

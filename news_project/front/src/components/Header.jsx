@@ -122,7 +122,7 @@ export default function Header() {
 
   const refreshAuth = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/auth/me`, {
+      const res = await axios.get(`/auth/me`, {
         withCredentials: true,
       });
       setAuth({

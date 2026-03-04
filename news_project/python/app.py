@@ -1,9 +1,11 @@
 # python/app.py
 import os, re, math, random
 from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 
 import numpy as np
 import pandas as pd
+import crawler
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -286,3 +288,4 @@ def reco(
     seen_ids = [s.strip() for s in (seen or "").split(",") if s.strip()]
     items = recommend(user_id=userId, k=k, seen_ids=seen_ids)
     return {"items": items}
+

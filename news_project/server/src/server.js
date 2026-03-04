@@ -10,6 +10,7 @@ const initPassport = require("./config/passport");
 const newsRoutes = require("./routes/newsRoutes");
 const recoRoutes = require("./routes/recoRoutes");
 const userLogRoutes = require("./routes/userLogRoutes");
+const { startCrawler } = require("./services/crawlerService");
 
 const app = express();
 
@@ -23,6 +24,7 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
+startCrawler();
 initPassport();
 //  /auth/login, /auth/me, /auth/logout
 app.use("/auth", authRoutes);

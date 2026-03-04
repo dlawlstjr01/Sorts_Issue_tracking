@@ -27,7 +27,7 @@ CRAWL_SOURCE_URL = os.getenv("CRAWL_SOURCE_URL", "")
 DB_LOCK_NAME = os.getenv("DB_LOCK_NAME", "news_project_crawler_lock")
 GDELT_MIN_INTERVAL_SEC = int(os.getenv("GDELT_MIN_INTERVAL_SEC", "120"))
 
-# ✅ url 컬럼이 VARCHAR(500)이면 500으로 제한 (길면 스킵)
+#  url 컬럼이 VARCHAR(500)이면 500으로 제한 (길면 스킵)
 MAX_URL_LEN = int(os.getenv("MAX_URL_LEN", "500"))
 
 # -----------------------------
@@ -48,7 +48,7 @@ _session.headers.update({
     "Accept": "application/json, application/xml, text/xml, text/plain, */*",
 })
 
-# ✅ 중복 실행 방지(/run 연타 방지 + loop 중복 방지)
+#  중복 실행 방지(/run 연타 방지 + loop 중복 방지)
 _is_running = False
 
 
@@ -160,7 +160,7 @@ def _rss_to_items(xml_text: str):
             if isinstance(media_content, list) and media_content:
                 thumb = media_content[0].get("url")
 
-        # ✅ summary 안에 img가 있는 경우가 있어서 보강
+        #  summary 안에 img가 있는 경우가 있어서 보강
         if not thumb and content:
             m = re.search(r'<img[^>]+src="([^"]+)"', str(content))
             if m:
@@ -172,7 +172,7 @@ def _rss_to_items(xml_text: str):
             "thumbnail": thumb,
             "content": content,
             "published_at": published,
-            "category": None,  # ✅ 그대로 None
+            "category": None,  #  그대로 None
         })
 
     return items
@@ -344,7 +344,7 @@ def upsert_articles(items: List[Dict]):
             params = []
             node_items = []
             for c in to_insert:
-                category = "기타"  # ✅ 항상 기타
+                category = "기타"  #  항상 기타
                 params.append((
                     c["url"],
                     c["title"],
@@ -447,7 +447,7 @@ def get_items():
     return {"items": last_items}
 
 
-# ✅ 수동 트리거: 즉시 응답 + 백그라운드 실행
+#  수동 트리거: 즉시 응답 + 백그라운드 실행
 @app.get("/run")
 def run_crawl():
     print("[crawler] /run hit -> start thread", flush=True)

@@ -30,6 +30,16 @@ const CATEGORY_ICON_PATHS = {
   sports: "M3 9h2v6H3V9Zm16 0h2v6h-2V9ZM6 7h2v10H6V7Zm10 0h2v10h-2V7ZM9 10h6v4H9v-4Z",
 };
 
+const OPPOSITE_CATEGORY_MAP = {
+  politics: ["it", "culture", "sports"],
+  economy: ["culture", "world", "sports"],
+  society: ["economy", "it", "sports"],
+  world: ["politics", "culture", "sports"],
+  it: ["politics", "society", "world"],
+  culture: ["economy", "politics", "it"],
+  sports: ["politics", "economy", "world"],
+};
+
 /**  긴 URL 줄이기(채팅/VSCode에서 "오른쪽 잘림" 체감 줄이기) */
 const UQ = "?auto=format&fit=crop&w=1200&q=80";
 const THUMB = {
@@ -773,6 +783,25 @@ useEffect(() => {
     return articles.filter((a) => a.id !== selectedArticle.id).slice(0, 6);
   }, [selectedArticle, articles]);
 
+  const contrastArticles = useMemo(() => {
+    if (!selectedArticle) return [];
+
+    const source = articles.filter((a) => a.id !== selectedArticle.id);
+    const oppositeCategories = OPPOSITE_CATEGORY_MAP[selectedArticle.category] || [];
+    const allCategories = CATEGORIES.map((c) => c.key).filter((k) => k !== "all");
+    const fallbackCategories = allCategories.filter(
+      (k) => k !== selectedArticle.category && !oppositeCategories.includes(k)
+    );
+
+    const primary = source.filter((a) => oppositeCategories.includes(a.category));
+    const secondary = source.filter((a) => fallbackCategories.includes(a.category));
+    const tail = source.filter(
+      (a) => !oppositeCategories.includes(a.category) && !fallbackCategories.includes(a.category)
+    );
+
+    return [...primary, ...secondary, ...tail].slice(0, 6);
+  }, [selectedArticle, articles]);
+
   const latestItems = useMemo(() => {
     const sorted = [...articles].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return sorted.slice(0, 15);
@@ -916,7 +945,13 @@ useEffect(() => {
                 >
                   <div className="mp-article-item-top">
                     <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                    <span className={`mp-article-item-badge new`}>{a.badge}</span>
+                    <span
+                      className={`mp-article-item-badge ${
+                      String(a.badge).trim().toUpperCase() === "HOT" ? "hot" : "new"
+                   }`}
+>
+                      {a.badge}
+                    </span>
                   </div>
                   <div className="mp-article-item-title">{a.title}</div>
                 </button>
@@ -1027,13 +1062,13 @@ useEffect(() => {
         {/* RIGHT */}
         <aside className="mp-right">
           <div className="mp-panel">
-            <div className="mp-panel-title">추천 기사</div>
+            <div className="mp-panel-title">관련 기사</div>
             <div className="mp-related-list">
               {(recoItems.length ? recoItems : relatedArticles).map((a) => (
                 <RelatedItem
                   key={a.id}
                   title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · 추천`}
+                  meta={`${getCategoryLabel(a.category)} · 관련`}
                   onClick={() => {
                     setSelectedCategory(a.category || "all");
                     setSelectedId(a.id);
@@ -1045,11 +1080,20 @@ useEffect(() => {
 
             <div className="mp-divider" />
 
-            <div className="mp-panel-title">과거 연관 이슈</div>
-            <div className="mp-past">
-              <div className="mp-past-item">동일 키워드가 포함된 이슈를 모아 타임라인으로 제공</div>
-              <div className="mp-past-item">주간 리포트/아카이브로 바로 이동할 수 있도록 연결</div>
-              <div className="mp-past-item">(데이터 연동 시) 클릭하면 해당 이슈 상세로 이동</div>
+            <div className="mp-panel-title">반대 관점 기사</div>
+            <div className="mp-related-list">
+              {contrastArticles.map((a) => (
+                <RelatedItem
+                  key={`contrast-${a.id}`}
+                  title={a.title}
+                  meta={`${getCategoryLabel(a.category)} · 대조`}
+                  onClick={() => {
+                    setSelectedCategory(a.category || "all");
+                    setSelectedId(a.id);
+                    createLog(a, "click");
+                  }}
+                />
+              ))}
             </div>
           </div>
 

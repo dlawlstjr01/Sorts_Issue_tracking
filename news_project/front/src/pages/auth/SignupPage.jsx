@@ -9,12 +9,12 @@ export default function SignupPage() {
 
   const [form, setForm] = useState({
     login_id: "",
-    name: "", // 현재 백엔드/DB에 없음(일단 UI 유지용)
+    name: "", 
     email: "",
     password: "",
     password2: "",
     phone: "",
-    birth_date: "", // 현재 백엔드/DB에 없음(일단 UI 유지용)
+    birth_date: "", 
     agreeEmail: false,
     agreeTerms: false,
   });

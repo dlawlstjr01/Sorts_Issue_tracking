@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
+import logoImg from "../assets/logo.png";
 
 function IconBox(props) {
   return (
@@ -165,7 +166,7 @@ export default function Header() {
     <header className="hdr">
       <div className="hdr-inner">
         <button className="hdr-logo" type="button" onClick={() => go("main")}>
-          <img className="hdr-logo-img" src="/logo.png" alt="" aria-hidden="true" />
+          <img className="hdr-logo-img" src={logoImg} alt="" aria-hidden="true" />
           <span className="hdr-logo-text">
             <span className="hdr-mark">NEWS</span>
             <span className="hdr-sub">Issue Tracker</span>

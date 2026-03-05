@@ -70,7 +70,7 @@ const MENU_ITEMS = [
   { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];
 
-export default function SideMenuCard({ onTitleClick, collapsible = false }) {
+export default function SideMenuCard({ collapsible = false, showScrollTop = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const view = new URLSearchParams(location.search).get("view") || "main";
@@ -84,61 +84,75 @@ export default function SideMenuCard({ onTitleClick, collapsible = false }) {
     return view === key || view.startsWith(`${key}-`);
   };
 
-  const handleTitleClick = () => {
-    if (onTitleClick) {
-      onTitleClick();
-      return;
-    }
-    if (collapsible) {
-      setIsCollapsed(true);
-    }
-  };
-
-  if (collapsible && isCollapsed) {
-    return (
-      <div className="side-menu-collapsed">
-        <button
-          type="button"
-          className="als-fab primary side-menu-collapse-fab"
-          aria-label="빠른 메뉴"
-          onClick={() => setIsCollapsed(false)}
-        >
-          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-            <path
-              d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="side-menu-card">
-      {onTitleClick || collapsible ? (
-        <button type="button" className="side-menu-title side-menu-title-btn" onClick={handleTitleClick}>
-          카테고리
-        </button>
-      ) : (
-        <div className="side-menu-title">카테고리</div>
+    <>
+      {collapsible && (
+        <div className="side-menu-floating-toggle">
+          <button
+            type="button"
+            className="als-fab primary"
+            aria-label="빠른 메뉴"
+            onClick={() => setIsCollapsed((prev) => !prev)}
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+              <path
+                d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </div>
       )}
 
-      <div className="side-menu-list">
-        {MENU_ITEMS.map((item) => (
+      {collapsible && showScrollTop && (
+        <div className="side-menu-floating-scroll">
           <button
-            key={item.key}
             type="button"
-            className={`side-menu-btn ${isItemActive(item.key) ? "active" : ""}`}
-            onClick={() => navigate(`/?view=${encodeURIComponent(item.key)}`)}
+            className="als-fab dark"
+            aria-label="맨 위로"
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
           >
-            <span className={`side-menu-icon side-menu-icon-${item.key}`} aria-hidden="true">
-              {item.icon}
-            </span>
-            <span className="side-menu-label">{item.label}</span>
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+              <path d="m12 6 8 8-1.4 1.4L12 8.8l-6.6 6.6L4 14l8-8Z" fill="currentColor" />
+            </svg>
           </button>
-        ))}
-      </div>
-    </div>
+        </div>
+      )}
+
+      {!isCollapsed && (
+        <div className={`side-menu-card ${collapsible ? "is-collapsible" : ""}`}>
+          {collapsible && (
+            <button
+              type="button"
+              className="side-menu-collapse-arrow"
+              aria-label="카테고리 접기"
+              onClick={() => setIsCollapsed(true)}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="m12 18-8-8 1.4-1.4L12 15.2l6.6-6.6L20 10l-8 8Z" fill="currentColor" />
+              </svg>
+            </button>
+          )}
+
+          <div className="side-menu-title">카테고리</div>
+
+          <div className="side-menu-list">
+            {MENU_ITEMS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                className={`side-menu-btn ${isItemActive(item.key) ? "active" : ""}`}
+                onClick={() => navigate(`/?view=${encodeURIComponent(item.key)}`)}
+              >
+                <span className={`side-menu-icon side-menu-icon-${item.key}`} aria-hidden="true">
+                  {item.icon}
+                </span>
+                <span className="side-menu-label">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

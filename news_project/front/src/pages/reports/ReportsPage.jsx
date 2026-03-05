@@ -122,7 +122,7 @@ export default function ReportsPage() {
       </div>
         </section>
         <aside className="reports-side">
-          <SideMenuCard collapsible />
+          <SideMenuCard collapsible showScrollTop />
         </aside>
       </div>
     </div>

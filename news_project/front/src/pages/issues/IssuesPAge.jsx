@@ -154,7 +154,7 @@ export default function IssuesPage() {
 
         <aside className="issues-side">
           
-          <SideMenuCard collapsible />
+          <SideMenuCard collapsible showScrollTop />
 <div className="issue-side-card">
             <div className="issue-side-title">빠른 작업</div>
             <button type="button" className="issue-quick-btn primary">

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fetchNews } from "../../api/newsApi";
 import SideMenuCard from "../../components/SideMenuCard";
 import "../../CSS/common.css";
@@ -188,7 +188,6 @@ export default function ArticleListPage() {
   const [error, setError] = useState("");
 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
-  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
   const helpWrapRef = useRef(null);
 
   const selectedCount =
@@ -341,18 +340,18 @@ export default function ArticleListPage() {
             </label>
 
             <div className="als-help-wrap" ref={helpWrapRef}>
-            <button
-              type="button"
-              className="als-help-btn"
-              onClick={() => setIsHelpOpen((prev) => !prev)}
-              aria-expanded={isHelpOpen}
-              aria-controls="als-help-popover"
-            >
-              <span className="als-help-badge">i</span>
-              검색도움말
-            </button>
+              <button
+                type="button"
+                className="als-help-btn"
+                onClick={() => setIsHelpOpen((prev) => !prev)}
+                aria-expanded={isHelpOpen}
+                aria-controls="als-help-popover"
+              >
+                <span className="als-help-badge">i</span>
+                검색도움말
+              </button>
 
-            {isHelpOpen && (
+              {isHelpOpen && (
                 <div id="als-help-popover" className="als-help-popover" role="dialog" aria-label="검색 도움말">
                   <div className="als-help-popover-title">검색 도움말</div>
                   <ul className="als-help-list">
@@ -363,7 +362,6 @@ export default function ArticleListPage() {
                 </div>
               )}
             </div>
-
           </div>
 
           <div className="als-tab-row">
@@ -421,7 +419,6 @@ export default function ArticleListPage() {
             </div>
 
             <div className="als-lane">
-              
               <div className="als-lane-chip-wrap">
                 {PRESS_GROUPS.map((name) => (
                   <button
@@ -558,27 +555,9 @@ export default function ArticleListPage() {
         )}
       </section>
 
-      <div className="als-floating-tools">
-        {isQuickMenuOpen ? (
-          <div className="als-quick-menu-sheet" role="dialog" aria-label="카테고리 빠른 메뉴">
-            <SideMenuCard onTitleClick={() => setIsQuickMenuOpen(false)} />
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="als-fab primary"
-            aria-label="빠른 메뉴"
-            onClick={() => setIsQuickMenuOpen(true)}
-          >
-            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-              <path
-                d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
-                fill="currentColor"
-              />
-            </svg>
-          </button>
-        )}
+      <SideMenuCard collapsible />
 
+      <div className="als-floating-tools">
         <button
           type="button"
           className="als-fab dark"

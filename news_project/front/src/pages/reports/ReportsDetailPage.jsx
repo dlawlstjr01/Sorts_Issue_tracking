@@ -139,7 +139,7 @@ export default function ReportsPage() {
 
             <aside className="report-detail-side">
               
-              <SideMenuCard collapsible />
+              <SideMenuCard collapsible showScrollTop />
 <div className="report-side-card">
                 <div className="report-side-title">메타 정보</div>
                 <div className="report-side-row">

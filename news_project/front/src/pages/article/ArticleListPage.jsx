@@ -11,13 +11,11 @@ const FILTER_TABS = [
   { key: "press", label: "언론사" },
 ];
 
-const PRESS_GROUPS = [
-  "종합일간지",
-  "경제지",
-  "방송/통신",
-  "디지털/전문지",
-  "지역지",
-];
+const PRESS_INITIALS = ["\u3131", "\u3134", "\u3137", "\u3139", "\u3141", "\u3142", "\u3145", "\u3147", "\u3148", "\u314A", "\u314D", "\u314E"];
+
+const PRESS_ALPHABETS = Array.from({ length: 26 }, (_, index) =>
+  String.fromCharCode(65 + index)
+);
 
 const PRESS_ITEMS = [
   "조선일보",
@@ -171,7 +169,7 @@ function formatPublishedDate(raw) {
 export default function ArticleListPage() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("period");
-  const [selectedPressGroup, setSelectedPressGroup] = useState(() => new Set());
+  const [selectedPressFilter, setSelectedPressFilter] = useState(() => new Set());
   const [selectedPress, setSelectedPress] = useState(() => new Set());
   const [dateRange, setDateRange] = useState(() => {
     const end = new Date();
@@ -190,7 +188,7 @@ export default function ArticleListPage() {
   const helpWrapRef = useRef(null);
 
   const selectedCount =
-    selectedPressGroup.size +
+    selectedPressFilter.size +
     selectedPress.size +
     (query.trim() ? 1 : 0);
 
@@ -260,8 +258,8 @@ export default function ArticleListPage() {
     };
   }, [isHelpOpen]);
 
-  const togglePressGroup = (name) => {
-    setSelectedPressGroup((prev) => {
+  const togglePressFilter = (name) => {
+    setSelectedPressFilter((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -288,7 +286,7 @@ export default function ArticleListPage() {
 
   const resetFilters = async () => {
     setQuery("");
-    setSelectedPressGroup(new Set());
+    setSelectedPressFilter(new Set());
     setSelectedPress(new Set());
     const end = new Date();
     const start = new Date(end);
@@ -421,12 +419,24 @@ export default function ArticleListPage() {
             <div className="als-lane">
               
               <div className="als-lane-chip-wrap">
-                {PRESS_GROUPS.map((name) => (
+                {PRESS_INITIALS.map((name) => (
                   <button
                     key={name}
                     type="button"
-                    className={`als-chip-btn ${selectedPressGroup.has(name) ? "active" : ""}`}
-                    onClick={() => togglePressGroup(name)}
+                    className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
+                    onClick={() => togglePressFilter(name)}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+              <div className="als-lane-chip-wrap">
+                {PRESS_ALPHABETS.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
+                    onClick={() => togglePressFilter(name)}
                   >
                     {name}
                   </button>

@@ -2527,6 +2527,10 @@ body {
   margin-bottom: 16px;
 }
 
+.side-menu-card.is-collapsible {
+  overflow: visible;
+}
+
 .side-menu-title {
   font-size: 19px;
   font-weight: 900;
@@ -2534,6 +2538,34 @@ body {
   color: #0f172a;
   margin: 2px 0 12px;
   text-align: center;
+}
+
+.side-menu-collapse-arrow {
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 32px;
+  border: 1px solid #cfe0ff;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1d4ed8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 14px rgba(37, 99, 235, 0.2);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.side-menu-card.is-collapsible:hover .side-menu-collapse-arrow,
+.side-menu-collapse-arrow:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(-2px);
 }
 
 .side-menu-title-btn {
@@ -2551,7 +2583,14 @@ body {
   color: #1d4ed8;
 }
 
-.side-menu-collapsed {
+.side-menu-floating-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 92px;
+  z-index: 95;
+}
+
+.side-menu-floating-scroll {
   position: fixed;
   right: 18px;
   bottom: 30px;
@@ -2953,7 +2992,12 @@ body {
 }
 
 @media (max-width: 680px) {
-  .side-menu-collapsed {
+  .side-menu-floating-toggle {
+    right: 12px;
+    bottom: 80px;
+  }
+
+  .side-menu-floating-scroll {
     right: 12px;
     bottom: 18px;
   }

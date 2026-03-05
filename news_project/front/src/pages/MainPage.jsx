@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import "../CSS/main.css";
 import axios from "axios";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -171,7 +171,7 @@ function LatestCarousel({ items, onItemClick }) {
     dragRef.current.pointerId = e.pointerId;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch { }
+    } catch {}
 
     dragRef.current.active = true;
     dragRef.current.startX = e.clientX;
@@ -228,7 +228,7 @@ function LatestCarousel({ items, onItemClick }) {
     try {
       if (dragRef.current.pointerId !== null)
         el.releasePointerCapture(dragRef.current.pointerId);
-    } catch { }
+    } catch {}
     dragRef.current.pointerId = null;
 
     const startVelocity = dragRef.current.velocity;
@@ -1095,21 +1095,6 @@ useEffect(() => {
                 />
               ))}
             </div>
-          </div>
-
-          <div style={{ position: "fixed", right: 16, bottom: 16, zIndex: 9999 }}>
-            <button
-              type="button"
-              className="mp-btn"
-              onClick={async () => {
-                const a = selectedArticle || articles[0];
-                const r = await createLog(a, "test");
-                if (r.ok) alert(` LOG OK\nstatus=${r.status}\nlogId=${r.logId ?? "(없음)"}`);
-                else alert(`❌ LOG FAIL\nstatus=${r.status ?? "(없음)"}\n${r.message}`);
-              }}
-            >
-              로그 테스트
-            </button>
           </div>
         </aside>
       </div>

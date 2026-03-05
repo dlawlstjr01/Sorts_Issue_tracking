@@ -129,7 +129,7 @@ export default function IssueDetailPage() {
 
             <aside className="issue-detail-side">
               
-              <SideMenuCard />
+              <SideMenuCard collapsible />
 <div className="issue-side-card">
                 <div className="issue-side-title">키워드</div>
                 <div className="issue-keywords">

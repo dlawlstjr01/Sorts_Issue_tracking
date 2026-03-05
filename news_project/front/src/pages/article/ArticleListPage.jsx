@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { fetchNews } from "../../api/newsApi";
+import SideMenuCard from "../../components/SideMenuCard";
 import "../../CSS/common.css";
 import "../../CSS/main.css";
 import "../../CSS/sub.css";
@@ -185,6 +186,7 @@ export default function ArticleListPage() {
   const [error, setError] = useState("");
 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isQuickMenuOpen, setIsQuickMenuOpen] = useState(false);
   const helpWrapRef = useRef(null);
 
   const selectedCount =
@@ -430,7 +432,7 @@ export default function ArticleListPage() {
                   </button>
                 ))}
               </div>
-              <div className="als-lane-chip-wrap">
+              <div className="als-lane-chip-wrap als-alpha-chip-wrap">
                 {PRESS_ALPHABETS.map((name) => (
                   <button
                     key={name}
@@ -567,14 +569,26 @@ export default function ArticleListPage() {
       </section>
 
       <div className="als-floating-tools">
-        <button type="button" className="als-fab primary" aria-label="빠른 메뉴">
-          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-            <path
-              d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
+        {isQuickMenuOpen ? (
+          <div className="als-quick-menu-sheet" role="dialog" aria-label="카테고리 빠른 메뉴">
+            <SideMenuCard onTitleClick={() => setIsQuickMenuOpen(false)} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            className="als-fab primary"
+            aria-label="빠른 메뉴"
+            onClick={() => setIsQuickMenuOpen(true)}
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+              <path
+                d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        )}
+
         <button
           type="button"
           className="als-fab dark"

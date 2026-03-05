@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function IconHome(props) {
@@ -6,6 +6,17 @@ function IconHome(props) {
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" {...props}>
       <path
         d="M12 3.2 3.6 10h1.9v9h5.5v-5.2h2V19h5.5v-9h1.9L12 3.2Zm0 1.8 6.2 5H17v7h-2.5v-5.2H9.5V17H7v-7H5.8L12 5Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+function IconList(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" {...props}>
+      <path
+        d="M4 6h2v2H4V6Zm4 0h12v2H8V6Zm-4 5h2v2H4v-2Zm4 0h12v2H8v-2Zm-4 5h2v2H4v-2Zm4 0h12v2H8v-2Z"
         fill="currentColor"
       />
     </svg>
@@ -51,29 +62,68 @@ function IconSupport(props) {
 }
 
 const MENU_ITEMS = [
-  { key: "article-list", label: "\uAE30\uC0AC \uBAA9\uB85D", icon: <IconHome /> },
-  { key: "issues", label: "\uC774\uC288 \uCD94\uC801", icon: <IconIssues /> },
-  { key: "reports", label: "\uC694\uC57D/\uB9AC\uD3EC\uD2B8", icon: <IconReports /> },
-  { key: "archive", label: "\uC544\uCE74\uC774\uBE0C", icon: <IconArchive /> },
-  { key: "support", label: "\uACE0\uAC1D\uC13C\uD130", icon: <IconSupport /> },
+  { key: "main", label: "홈", icon: <IconHome /> },
+  { key: "article-list", label: "기사 목록", icon: <IconList /> },
+  { key: "issues", label: "이슈 추적", icon: <IconIssues /> },
+  { key: "reports", label: "요약/리포트", icon: <IconReports /> },
+  { key: "archive", label: "아카이브", icon: <IconArchive /> },
+  { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];
 
-export default function SideMenuCard() {
+export default function SideMenuCard({ onTitleClick, collapsible = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const view = new URLSearchParams(location.search).get("view") || "main";
+  const [isCollapsed, setIsCollapsed] = useState(Boolean(collapsible));
 
   const isItemActive = (key) => {
-    if (view === key || view.startsWith(`${key}-`)) return true;
-    if (key === "article-list" && view === "main") return true;
-    if (key === "issues" && view === "issue") return true;
-    if (key === "reports" && view === "report") return true;
-    return false;
+    if (key === "main") return view === "main";
+    if (key === "article-list") return view === "article-list";
+    if (key === "issues") return view === "issues" || view === "issue";
+    if (key === "reports") return view === "reports" || view === "report";
+    return view === key || view.startsWith(`${key}-`);
   };
+
+  const handleTitleClick = () => {
+    if (onTitleClick) {
+      onTitleClick();
+      return;
+    }
+    if (collapsible) {
+      setIsCollapsed(true);
+    }
+  };
+
+  if (collapsible && isCollapsed) {
+    return (
+      <div className="side-menu-collapsed">
+        <button
+          type="button"
+          className="als-fab primary side-menu-collapse-fab"
+          aria-label="빠른 메뉴"
+          onClick={() => setIsCollapsed(false)}
+        >
+          <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+            <path
+              d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="side-menu-card">
-      <div className="side-menu-title">{"\uCE74\uD14C\uACE0\uB9AC"}</div>
+      {onTitleClick || collapsible ? (
+        <button type="button" className="side-menu-title side-menu-title-btn" onClick={handleTitleClick}>
+          카테고리
+        </button>
+      ) : (
+        <div className="side-menu-title">카테고리</div>
+      )}
+
       <div className="side-menu-list">
         {MENU_ITEMS.map((item) => (
           <button

@@ -821,7 +821,7 @@
 
 /* ===== Article List: Page + News Grid ===== */
 .page.article-search-page {
-  width: min(1760px, calc(100vw - 24px));
+  width: min(1504px, calc(100vw - 64px));
   max-width: none;
   margin: 0 auto;
   padding: 22px 0 64px;

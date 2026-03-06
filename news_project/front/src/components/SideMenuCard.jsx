@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 function IconHome(props) {
@@ -70,11 +70,25 @@ const MENU_ITEMS = [
   { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];
 
+const SIDE_MENU_COLLAPSED_KEY = "side_menu_collapsed";
+
 export default function SideMenuCard({ collapsible = false, showScrollTop = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const view = new URLSearchParams(location.search).get("view") || "main";
-  const [isCollapsed, setIsCollapsed] = useState(Boolean(collapsible));
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (!collapsible) return false;
+    if (typeof window === "undefined") return true;
+    const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
+    if (saved === "true") return true;
+    if (saved === "false") return false;
+    return true;
+  });
+
+  useEffect(() => {
+    if (!collapsible) return;
+    window.localStorage.setItem(SIDE_MENU_COLLAPSED_KEY, String(isCollapsed));
+  }, [collapsible, isCollapsed]);
 
   const isItemActive = (key) => {
     if (key === "main") return view === "main";

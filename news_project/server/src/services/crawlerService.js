@@ -6,6 +6,77 @@ const SOURCE_URL = process.env.CRAWL_SOURCE_URL;
 // 15분
 const INTERVAL_MS = Number(process.env.CRAWL_INTERVAL_MS || 15 * 60 * 1000);
 
+function normalizePublishedAt(value) {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 19).replace("T", " ");
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // Already in MySQL DATETIME format.
+    if (/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/.test(trimmed)) {
+      return trimmed.length === 10 ? `${trimmed} 00:00:00` : trimmed;
+    }
+
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 19).replace("T", " ");
+    }
+    return null;
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 19).replace("T", " ");
+  }
+
+  return null;
+}
+
+function buildSourceUrlCandidates(rawUrl) {
+  const candidates = [];
+  const seen = new Set();
+  const push = (url) => {
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    candidates.push(url);
+  };
+
+  push(rawUrl);
+
+  try {
+    const parsed = new URL(rawUrl);
+    const replaceHost = (hostname, port = parsed.port) => {
+      const next = new URL(rawUrl);
+      next.hostname = hostname;
+      if (port) next.port = String(port);
+      return next.toString();
+    };
+
+    // In docker-compose, crawler API is usually crawler:8001.
+    if (parsed.hostname === "python" && parsed.port === "8001") {
+      push(replaceHost("crawler", "8001"));
+    }
+
+    // In local dev, docker DNS names do not resolve on host OS.
+    if (parsed.hostname === "python" || parsed.hostname === "crawler") {
+      push(replaceHost("localhost", parsed.port));
+    }
+
+    // Some environments resolve 127.0.0.1 more reliably than localhost.
+    if (parsed.hostname === "localhost") {
+      push(replaceHost("127.0.0.1", parsed.port));
+    }
+  } catch (_) {
+    // Keep the original URL only if parsing fails.
+  }
+
+  return candidates;
+}
+
 /**
  * 크롤링 결과를 아래 형태로 맞춰서 반환하면 됩니다.
  * [
@@ -18,17 +89,34 @@ async function fetchArticlesFromSource() {
     return [];
   }
 
-  const res = await axios.get(SOURCE_URL, { timeout: 30000 });
-  const items = Array.isArray(res.data?.items) ? res.data.items : [];
+  const candidates = buildSourceUrlCandidates(SOURCE_URL);
+  let lastError = null;
 
-  return items.map((it) => ({
-    url: it.url,
-    title: it.title || "",
-    thumbnail: it.thumbnail || null,
-    category: it.category || null,
-    content: it.content || null,
-    published_at: it.published_at || null,
-  })).filter((x) => x.url);
+  for (const url of candidates) {
+    try {
+      const res = await axios.get(url, { timeout: 30000 });
+      const items = Array.isArray(res.data?.items) ? res.data.items : [];
+
+      if (url !== SOURCE_URL) {
+        console.warn(`[crawler] fallback source URL used: ${url}`);
+      }
+
+      return items
+        .map((it) => ({
+          url: it.url,
+          title: it.title || "",
+          thumbnail: it.thumbnail || null,
+          category: it.category || null,
+          content: it.content || null,
+          published_at: normalizePublishedAt(it.published_at),
+        }))
+        .filter((x) => x.url);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError;
 }
 
 async function upsertArticles(items) {

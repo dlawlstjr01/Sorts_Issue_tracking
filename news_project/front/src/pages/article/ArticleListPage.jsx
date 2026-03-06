@@ -185,6 +185,7 @@ export default function ArticleListPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const helpWrapRef = useRef(null);
 
@@ -204,6 +205,27 @@ export default function ArticleListPage() {
     for (let i = start; i <= end; i += 1) pages.push(i);
     return pages;
   }, [currentPage, totalPages]);
+
+  const sortedPressItems = useMemo(() => {
+    const isKoreanStart = (value) => /^[가-힣]/.test(value);
+    const isEnglishStart = (value) => /^[A-Za-z]/.test(value);
+    const groupRank = (value) => {
+      if (isKoreanStart(value)) return 0;
+      if (isEnglishStart(value)) return 1;
+      return 2;
+    };
+
+    return [...PRESS_ITEMS].sort((a, b) => {
+      const rankA = groupRank(a);
+      const rankB = groupRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+
+      if (rankA === 1) {
+        return a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
+      }
+      return a.localeCompare(b, "ko", { sensitivity: "base", numeric: true });
+    });
+  }, []);
 
   const loadNews = async (targetPage, keyword, range = dateRange) => {
     try {
@@ -236,6 +258,10 @@ export default function ArticleListPage() {
     loadNews(1, "", dateRange);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!isSearchOpen) setIsHelpOpen(false);
+  }, [isSearchOpen]);
 
   useEffect(() => {
     if (!isHelpOpen) return;
@@ -314,12 +340,20 @@ export default function ArticleListPage() {
   return (
     <div className="page article-search-page">
       <section className="als-step-card">
-        <div className="als-step-head step-1">
+        <button
+          type="button"
+          className="als-step-head step-1"
+          onClick={() => setIsSearchOpen((prev) => !prev)}
+          aria-expanded={isSearchOpen}
+          aria-controls="als-search-body"
+        >
           <span className="als-step-title">뉴스 검색</span>
-        </div>
+          <span className="als-step-toggle">{isSearchOpen ? "-" : "+"}</span>
+        </button>
 
-        <div className="als-step-body">
-          <div className="als-search-row">
+        {isSearchOpen && (
+          <div className="als-step-body" id="als-search-body">
+            <div className="als-search-row">
             <label className="als-search-input">
               <span className="als-search-ico" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="26" height="26">
@@ -378,7 +412,6 @@ export default function ArticleListPage() {
 
           <div className="als-filter-body is-matrix">
             <div className="als-lane">
-              <div className="als-lane-title">기간</div>
               <div className="als-date-filter compact">
                 <div className="als-date-row">
                   <label className="als-date-field">
@@ -442,7 +475,7 @@ export default function ArticleListPage() {
                 ))}
               </div>
               <div className="als-lane-chip-wrap als-press-chip-wrap">
-                {PRESS_ITEMS.map((name) => (
+                {sortedPressItems.map((name) => (
                   <button
                     key={name}
                     type="button"
@@ -485,7 +518,8 @@ export default function ArticleListPage() {
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </section>
 
       <section className="als-news-wrap">

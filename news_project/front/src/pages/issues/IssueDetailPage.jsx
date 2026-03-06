@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getIssueById } from "../../api/issuesApi";
 import SideMenuCard from "../../components/SideMenuCard";
+import { fetchNews } from "../../api/newsApi";
 
 export default function IssueDetailPage() {
   const location = useLocation();

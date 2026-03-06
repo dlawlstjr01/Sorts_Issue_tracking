@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "../CSS/main.css";
 import axios from "axios";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -7,6 +8,7 @@ import "swiper/css";
 import "swiper/css/mousewheel";
 
 import { fetchNews } from "../api/newsApi";
+import { rememberArticleDetail } from "../utils/articleDetail";
 
 const CATEGORIES = [
   { key: "all", label: "전체" },
@@ -517,6 +519,8 @@ function mapRecoItemToArticle(item) {
 }
 
 export default function MainPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [articles, setArticles] = useState(INITIAL_ARTICLES);
   const [recoItems, setRecoItems] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
@@ -864,11 +868,11 @@ useEffect(() => {
     }
   }, [filtered, selectedId]);
 
-  /**  본문 보기 클릭: click 로그 + dwellTime 업데이트 후 새 탭 */
+  /**  본문 보기 클릭: click 로그 + dwellTime 업데이트 후 내부 상세 이동 */
   const openOriginal = async (article) => {
-    const url = article?.raw?.url;
-    if (!url) {
-      alert("원문 링크가 없습니다.");
+    const normalized = rememberArticleDetail(article?.raw || article);
+    if (!normalized) {
+      alert("기사 정보를 확인할 수 없습니다.");
       return;
     }
 
@@ -881,7 +885,12 @@ useEffect(() => {
       await updateLog(article, { dwellMs, opened: true });
     }
 
-    window.open(url, "_blank", "noopener,noreferrer");
+    navigate(`/?view=article&id=${encodeURIComponent(normalized.id)}`, {
+      state: {
+        article: normalized,
+        from: `${location.pathname}${location.search}`,
+      },
+    });
   };
 
   return (

@@ -13,6 +13,7 @@ import PasswordResetPage from "./auth/PasswordResetPage";
 import MyPage from "./user/MyPage";
 import MainPage from "./MainPage";
 import ArticleListPage from "./article/ArticleListPage";
+import ArticleDetailPage from "./article/ArticleDetailPage";
 
 
 export default function ViewRouter() {
@@ -34,6 +35,7 @@ export default function ViewRouter() {
   if (view === "password") return <PasswordResetPage />;
   if (view === "mypage") return <MyPage />;
   if (view === "article-list") return <ArticleListPage />;
+  if (view === "article") return <ArticleDetailPage />;
   if (view === "main") return <MainPage />;
 
 

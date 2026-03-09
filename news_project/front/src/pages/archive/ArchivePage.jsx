@@ -346,7 +346,7 @@ export default function ArchivePage() {
         </section>
 
         <aside className="archive-aside">
-          <SideMenuCard />
+          <SideMenuCard collapsible showScrollTop />
 
           <div className="archive-side-card">
             <div className="archive-side-head">

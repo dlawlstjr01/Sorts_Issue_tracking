@@ -224,7 +224,7 @@
 
 .als-tab-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 0.43fr) minmax(620px, 1.57fr);
   border-top: 1px solid #d7dee6;
   border-bottom: 2px solid #1f456b;
 }
@@ -273,7 +273,7 @@
 
 .als-filter-body.is-matrix {
   min-height: 255px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(220px, 0.43fr) minmax(620px, 1.57fr);
 }
 
 .als-lane {
@@ -304,6 +304,18 @@
   margin-top: 10px;
 }
 
+.als-alpha-chip-wrap {
+  display: grid;
+  grid-template-columns: repeat(26, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.als-alpha-chip-wrap .als-chip-btn {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
 .als-press-chip-wrap {
   margin-top: 12px;            /* 위(1줄 버튼)와 간격 */
   padding-top: 12px;           /* 선 아래 여백 */
@@ -311,6 +323,23 @@
   max-height: 255px;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.article-search-page .als-lane:last-child .als-chip-btn {
+  font-size: 15px;
+  height: 32px;
+}
+
+.article-search-page .als-lane:last-child .als-lane-chip-wrap {
+  gap: 9px;
+}
+
+.article-search-page .als-lane:last-child .als-lane-chip-wrap + .als-lane-chip-wrap {
+  margin-top: 12px;
+}
+
+.article-search-page .als-lane:last-child .als-alpha-chip-wrap {
+  gap: 8px;
 }
 
 
@@ -341,7 +370,7 @@
 }
 
 .als-date-field span {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   color: #415a77;
 }
@@ -350,10 +379,14 @@
   height: 42px;
   border: 1px solid #d7dee6;
   border-radius: 8px;
-  background: #ffffff;
-  padding: 0 12px;
+  background: #ecf6ff;
+  padding: 0 14px;
   color: #1f2937;
-  font-size: 14px;
+  font-size: 16px;
+  font-family: "Bahnschrift", "Segoe UI", sans-serif;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.2px;
 }
 
 .als-date-sep {
@@ -583,6 +616,10 @@
 }
 
 @media (max-width: 1080px) {
+  .als-alpha-chip-wrap {
+    grid-template-columns: repeat(13, minmax(0, 1fr));
+  }
+
   .als-tab-row {
     grid-template-columns: 1fr;
   }
@@ -640,6 +677,10 @@
 }
 
 @media (max-width: 680px) {
+  .als-alpha-chip-wrap {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
   .als-step-head {
     padding: 12px 14px;
   }

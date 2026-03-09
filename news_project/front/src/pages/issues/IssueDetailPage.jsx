@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { getIssueById } from "../../api/issuesApi";
 import SideMenuCard from "../../components/SideMenuCard";
+import { fetchNews } from "../../api/newsApi";
 
 export default function IssueDetailPage() {
   const location = useLocation();
@@ -129,7 +130,7 @@ export default function IssueDetailPage() {
 
             <aside className="issue-detail-side">
               
-              <SideMenuCard />
+              <SideMenuCard collapsible showScrollTop />
 <div className="issue-side-card">
                 <div className="issue-side-title">키워드</div>
                 <div className="issue-keywords">

@@ -170,7 +170,7 @@ export default function SupportPage() {
       )}
         </section>
         <aside className="support-side">
-          <SideMenuCard />
+          <SideMenuCard collapsible showScrollTop />
         </aside>
       </div>
     </div>

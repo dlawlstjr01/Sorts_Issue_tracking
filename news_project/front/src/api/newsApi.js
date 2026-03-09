@@ -12,3 +12,9 @@ export const fetchNews = (
 
   return axios.get("/news", { params, ...config });
 };
+
+export const fetchIssues = ({ category = "", limit = 6 } = {}) => {
+  return axios.get("/tracking/issues", {
+    params: { category, limit }
+  });
+};

@@ -1,6 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import SideMenuCard from "../../components/SideMenuCard";
-import { fetchNews } from "../../api/newsApi"; // ✅ 경로 확인: api 폴더 위치에 맞게
+
+// ✅ (있으면) 아카이브 컨텍스트 사용
+// 없으면 아래 try/catch fallback으로 localStorage에서 읽도록 처리함
+let useArchiveSafe = null;
+try {
+  // 경로는 프로젝트에 맞게 수정하세요
+  // 예: "../../context/ArchiveContext"
+  // 예: "../../contexts/ArchiveContext"
+  // eslint-disable-next-line global-require, import/no-unresolved
+  const m = require("../../context/ArchiveContext");
+  useArchiveSafe = m.useArchive;
+} catch {
+  useArchiveSafe = null;
+}
 
 const tabs = [
   { key: "saved", label: "저장한 기사" },
@@ -8,7 +21,7 @@ const tabs = [
   { key: "keywords", label: "관심 키워드" },
 ];
 
-// ✅ 메인에서 쓰던 카테고리 정규화 (백엔드 category가 politics/economy... 라는 전제)
+// ✅ 메인에서 쓰던 카테고리 정규화
 function normalizeCategory(raw) {
   const v = String(raw || "").toLowerCase();
   if (v.includes("polit")) return "정치";
@@ -31,16 +44,37 @@ function formatYMD(value) {
   return `${y}-${m}-${day}`;
 }
 
-// ✅ 백엔드 /news item -> archive에서 쓰는 형태로 매핑
-function mapNewsToArchiveItem(n) {
+/**
+ * ✅ saved/recent 공통 UI 아이템으로 안전 매핑
+ * - archive 저장 구조(우리가 저장한 구조)
+ * - 또는 news 아이템 구조(n.id, n.title, n.category, n.published_at, n.url 등)
+ * 둘 다 대응
+ */
+function mapAnyToArchiveItem(x) {
+  const raw = x?.raw ?? x ?? {};
+  const id = x?.id ?? raw?.id ?? raw?.article_id ?? raw?.articleId ?? raw?.url ?? raw?.link ?? `${Date.now()}`;
+
+  const title = x?.title ?? raw?.title ?? raw?.headline ?? "(제목 없음)";
+  const categoryRaw = x?.category ?? raw?.category ?? "기타";
+  const dateRaw =
+    x?.date ??
+    raw?.published_at ??
+    raw?.created_at ??
+    raw?.viewed_at ??
+    x?.savedAt ??
+    x?.saved_at;
+
+  const url = x?.url ?? raw?.url ?? raw?.link ?? "";
+
   return {
-    id: n.id,
-    title: n.title ?? "(제목 없음)",
-    category: normalizeCategory(n.category),
-    date: formatYMD(n.published_at ?? n.created_at),
-    // 목록에는 content가 없으니 임시 요약
-    summary: n.url ? "기사를 클릭하면 상세 내용을 확인할 수 있습니다." : "요약 정보가 없습니다.",
-    raw: n, // 필요하면 url/thumbnail 등 사용
+    id: String(id),
+    title,
+    category: normalizeCategory(categoryRaw),
+    date: formatYMD(dateRaw),
+    summary: url
+      ? "기사를 클릭하면 상세 내용을 확인할 수 있습니다."
+      : "요약 정보가 없습니다.",
+    raw: { ...raw, url },
   };
 }
 
@@ -50,7 +84,10 @@ export default function ArchivePage() {
   const [sort, setSort] = useState("latest");
   const [activeKeyword, setActiveKeyword] = useState("AI");
 
-  // ✅ API로부터 가져온 데이터
+  // ✅ 저장한 기사: 컨텍스트(있으면)에서 가져오고, 없으면 localStorage fallback
+  const archiveCtx = useArchiveSafe ? useArchiveSafe() : null;
+  const savedFromCtx = archiveCtx?.archive ?? [];
+
   const [savedItems, setSavedItems] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
 
@@ -58,7 +95,7 @@ export default function ArchivePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // ✅ 페이지네이션(원하면 UI에 버튼 붙일 수 있음)
+  // ✅ 페이지네이션
   const [page, setPage] = useState(1);
   const size = 50;
 
@@ -89,61 +126,76 @@ export default function ArchivePage() {
     { id: "trend-4", title: "기업 클라우드 이전 가속화, 보안 기준 재정립", category: "IT/과학", views: "6.7k" },
   ];
 
-  // ✅ 탭이 saved/recent일 때만 /news 호출 (keywords는 더미 유지)
+  // ✅ saved: 컨텍스트/로컬스토리지에서 가져온 값 반영
   useEffect(() => {
-    if (activeTab === "keywords") return;
+    // 컨텍스트가 있으면 그거 사용
+    if (savedFromCtx && Array.isArray(savedFromCtx) && savedFromCtx.length >= 0) {
+      setSavedItems(savedFromCtx.map(mapAnyToArchiveItem));
+      return;
+    }
 
-    let alive = true;
-    const load = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const res = await fetchNews({
-          page,
-          size,
-          q: query || undefined, // 검색어
-          // category 필터도 붙이고 싶으면 여기 추가 가능
-          // category: ...
-        });
+    // fallback: localStorage("archive")
+    try {
+      const saved = JSON.parse(localStorage.getItem("archive") || "[]");
+      if (Array.isArray(saved)) setSavedItems(saved.map(mapAnyToArchiveItem));
+      else setSavedItems([]);
+    } catch {
+      setSavedItems([]);
+    }
+  }, [savedFromCtx]);
 
-        const list = res.data?.items ?? [];
-        const mapped = list.map(mapNewsToArchiveItem);
+  // ✅ recent: localStorage("recentArticles")에서 읽어서 표시
+  // (나중에 서버 API 생기면 여기만 axios로 바꾸면 됨)
+  useEffect(() => {
+    if (activeTab !== "recent") return;
 
-        if (!alive) return;
+    setLoading(true);
+    setError("");
 
-        // saved/recent를 지금은 동일 데이터로 보여주고 탭에 따라만 구분(추후 저장/최근본 구현 시 분리)
-        setSavedItems(mapped);
-        setRecentItems(mapped);
-      } catch (e) {
-        if (!alive) return;
-        setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
-      } finally {
-        if (alive) setLoading(false);
-      }
-    };
+    try {
+      const recent = JSON.parse(localStorage.getItem("recentArticles") || "[]");
+      const arr = Array.isArray(recent) ? recent : [];
+      setRecentItems(arr.map(mapAnyToArchiveItem));
+    } catch (e) {
+      setRecentItems([]);
+      setError("최근 본 기사를 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab]);
 
-    load();
-    return () => {
-      alive = false;
-    };
-  }, [activeTab, page, size, query]);
-
+  // ✅ 탭별 목록 선택
   const listItems = activeTab === "saved" ? savedItems : recentItems;
 
+  // ✅ 검색/정렬 + 페이지 처리
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
 
-    // ✅ 이미 API에 q 검색을 보내고 있지만, 프론트에서도 한 번 더 필터(안전)
-    const items = listItems.filter((item) => {
+    const items = (listItems || []).filter((item) => {
       if (!q) return true;
-      return item.title.toLowerCase().includes(q) || item.summary.toLowerCase().includes(q);
+      return (
+        String(item.title || "").toLowerCase().includes(q) ||
+        String(item.summary || "").toLowerCase().includes(q)
+      );
     });
 
-    if (sort === "oldest") {
-      return [...items].sort((a, b) => a.date.localeCompare(b.date));
-    }
-    return [...items].sort((a, b) => b.date.localeCompare(a.date));
-  }, [listItems, query, sort]);
+    const sorted =
+      sort === "oldest"
+        ? [...items].sort((a, b) => String(a.date).localeCompare(String(b.date)))
+        : [...items].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
+    // ✅ 간단한 프론트 페이지네이션(slice)
+    const start = (page - 1) * size;
+    const end = start + size;
+    return sorted.slice(start, end);
+  }, [listItems, query, sort, page, size]);
+
+  // ✅ 목록 클릭 시 원문 열기(저장/최근 모두)
+  const openItem = (item) => {
+    const url = item?.raw?.url;
+    if (!url) return;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   return (
     <div className="page archive-page">
@@ -162,7 +214,8 @@ export default function ArchivePage() {
                 className={`archive-tab ${activeTab === t.key ? "active" : ""}`}
                 onClick={() => {
                   setActiveTab(t.key);
-                  setPage(1); // 탭 전환 시 첫 페이지
+                  setPage(1);
+                  setError("");
                 }}
               >
                 {t.label}
@@ -176,7 +229,10 @@ export default function ArchivePage() {
               type="text"
               placeholder="검색어를 입력하세요"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
             />
             <div className="archive-sort">
               <button
@@ -196,16 +252,29 @@ export default function ArchivePage() {
             </div>
           </div>
 
-          {/* ✅ saved/recent 탭: API 결과 렌더링 */}
+          {/* ✅ saved/recent 탭 */}
           {activeTab !== "keywords" && (
             <div className="archive-list">
               {loading && <div className="archive-empty">불러오는 중...</div>}
-              {error && !loading && <div className="archive-empty" style={{ color: "crimson" }}>{error}</div>}
+              {error && !loading && (
+                <div className="archive-empty" style={{ color: "crimson" }}>
+                  {error}
+                </div>
+              )}
 
               {!loading &&
                 !error &&
                 filtered.map((item) => (
-                  <article key={item.id} className="archive-item">
+                  <article
+                    key={item.id}
+                    className="archive-item"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openItem(item)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") openItem(item);
+                    }}
+                  >
                     <div className="archive-item-head">
                       <span className="archive-item-cat">{item.category}</span>
                       <span className="archive-item-date">{item.date}</span>
@@ -216,22 +285,34 @@ export default function ArchivePage() {
                 ))}
 
               {!loading && !error && filtered.length === 0 && (
-                <div className="archive-empty">검색 결과가 없습니다.</div>
+                <div className="archive-empty">
+                  {activeTab === "saved" ? "저장한 기사가 없습니다." : "최근 본 기사가 없습니다."}
+                </div>
               )}
 
-              {/* ✅ (선택) 페이지 버튼 */}
+              {/* ✅ 페이지 버튼 */}
               <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
-                <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                <button
+                  type="button"
+                  className="mp-btn"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => p - 1)}
+                >
                   이전
                 </button>
-                <button type="button" className="mp-btn" disabled={loading} onClick={() => setPage((p) => p + 1)}>
+                <button
+                  type="button"
+                  className="mp-btn"
+                  disabled={loading}
+                  onClick={() => setPage((p) => p + 1)}
+                >
                   다음
                 </button>
               </div>
             </div>
           )}
 
-          {/* ✅ keywords 탭은 기존 더미 유지 */}
+          {/* ✅ keywords 탭 더미 유지 */}
           {activeTab === "keywords" && (
             <div className="archive-keywords-wrap">
               <div className="archive-keywords">

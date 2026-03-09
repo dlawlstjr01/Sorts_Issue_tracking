@@ -20,8 +20,11 @@ export default defineConfig({
       "/reco": {
         target: "http://localhost:5000",
         changeOrigin: true,
-      }
+      },
+      "/tracking": {
+        target: "http://localhost:5000",
+        changeOrigin: true,
+      },
     },
   },
-},
-);
+});

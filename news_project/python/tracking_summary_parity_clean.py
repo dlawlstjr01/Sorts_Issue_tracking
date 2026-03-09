@@ -29,9 +29,24 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Tuple, Optional, Any, Iterable
 from transformers import AutoTokenizer, AutoModel
 from fastapi import FastAPI
+import threading
 import numpy as np
 import pandas as pd
 import traceback
+from datasketch import MinHash, MinHashLSH
+from bs4 import BeautifulSoup
+
+def _ensure_utf8_stdio() -> None:
+    for stream in (getattr(sys, "stdout", None), getattr(sys, "stderr", None)):
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+_ensure_utf8_stdio()
 
 try:
     from tqdm.auto import tqdm
@@ -99,16 +114,6 @@ DB_NAME = os.getenv("DB_NAME", "cgi_25K_DA1_p3_3")
 # Dependency policy (IMPORTANT)
 # - The ONLY allowed installation is: datasketch
 # =============================================================================
-def ensure_datasketch() -> None:
-    try:
-        import datasketch  # noqa: F401
-        return
-    except Exception:
-        print("[INFO] datasketch not found -> installing: pip install -q datasketch")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "datasketch"])
-
-ensure_datasketch()
-from datasketch import MinHash, MinHashLSH  # noqa: E402
 
 _HAVE_TORCH = False
 _TORCH_ERR = None
@@ -450,6 +455,7 @@ def clean_review_keywords(
     picked: List[str] = []
     seen: set = set()
 
+
     def _is_bad_tokens(toks: List[str]) -> bool:
         for t in toks:
             if t in REVIEW_KEYWORD_BLOCKLIST:
@@ -502,6 +508,21 @@ def clean_review_keywords(
                 break
 
     return picked[: int(max_k)]
+
+def clean_html_text(value):
+    if not value:
+        return ""
+
+    text = str(value)
+    text = html.unescape(text)
+
+    try:
+        text = BeautifulSoup(text, "html.parser").get_text(" ", strip=True)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", text)
+
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 def _extract_geo_tokens(text: str) -> set:
     toks = TOKEN_RE.findall((text or "").lower())
@@ -650,10 +671,13 @@ def set_seed(seed: int) -> None:
             pass
 
 def get_device(device: str) -> "torch.device":
-    if device == "cpu":
+    d = (device or "auto").strip().lower()
+    if d == "cpu":
         return torch.device("cpu")
-    if device == "cuda":
+    if d == "cuda":
         return torch.device("cuda")
+    if d not in ("auto", "cuda:0", "cuda:1", "cuda:2", "cuda:3"):
+        print(f"[WARN] unknown DEVICE='{device}', fallback to auto")
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class KoE5Embedder:
@@ -1403,66 +1427,10 @@ def bucket_paths(cfg: PipelineConfig, bucket_key: str) -> Dict[str, Path]:
     cache.mkdir(parents=True, exist_ok=True)
     return {
         "cache_dir": cache,
-        "stage1": cache / "stage1_clean.csv",
-        "stage2_emb": cache / "stage2_emb.npy",
-        "stage2_meta": cache / "stage2_meta.json",
-        "stage3": cache / "stage3_groups.json",
-        "issues_json": out / f"issues_{bucket_key}.json",
-        "issues_csv": out / f"issues_{bucket_key}.csv",
-        "review_json": out / f"review_issues_{bucket_key}.json",
-        "review_csv": out / f"review_issues_{bucket_key}.csv",
-        "map_csv": out / f"issue_articles_map_{bucket_key}.csv",
-        "low_conf_json": out / f"low_confidence_{bucket_key}.json",
-        "low_conf_csv": out / f"low_confidence_{bucket_key}.csv",
-        "single_csv": out / f"singletons_{bucket_key}.csv",
-        "single_json": out / f"singletons_{bucket_key}.json",
-        "done": out / f"done_{bucket_key}.ok",
+     
     }
 
-def write_done(path: Path, cfg: PipelineConfig, stats: Dict[str,Any]) -> None:
-    payload = {"time": now_kst_iso(), "fp": config_fingerprint(cfg), "stats": stats}
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-def issues_to_csv(issues: List[Dict[str,Any]], out_csv: Path) -> None:
-    rows = []
-    for it in issues:
-        rows.append({
-            "issue_id": it.get("issue_id",""),
-            "bucket": it.get("bucket",""),
-            "time_start": it.get("time_start",""),
-            "time_end": it.get("time_end",""),
-            "size": it.get("stats",{}).get("size",0),
-            "domains": it.get("stats",{}).get("domains",0),
-            "centroid_mean": it.get("stats",{}).get("centroid_mean",0.0),
-            "rep_mean": it.get("stats",{}).get("rep_mean",0.0),
-            "intra_sample_mean": it.get("stats",{}).get("intra_sample_mean",0.0),
-            "representative_title": it.get("representative_title",""),
-            "source_representative_title": it.get("source_representative_title", it.get("representative_title","")),
-            "representative_url": it.get("representative_url",""),
-            "keywords": "|".join(it.get("keywords",[]) or []),
-            "summary": "\n".join(it.get("summary_lines",[]) or []),
-        })
-    pd.DataFrame(rows).to_csv(out_csv, index=False, encoding="utf-8-sig")
-
-def low_confidence_to_csv(rows: List[Dict[str,Any]], out_csv: Path) -> None:
-    cols = [
-        "bucket",
-        "rank",
-        "score",
-        "cosine",
-        "title_jaccard",
-        "lead_jaccard",
-        "domain_a",
-        "title_a",
-        "url_a",
-        "domain_b",
-        "title_b",
-        "url_b",
-    ]
-    if not rows:
-        pd.DataFrame(columns=cols).to_csv(out_csv, index=False, encoding="utf-8-sig")
-        return
-    pd.DataFrame(rows, columns=cols).to_csv(out_csv, index=False, encoding="utf-8-sig")
 
 def collect_low_confidence_pairs(
     df: pd.DataFrame,
@@ -1679,91 +1647,35 @@ def build_issue_articles_map(issues: List[Dict[str,Any]], out_csv: Path) -> None
             })
     pd.DataFrame(rows).to_csv(out_csv, index=False, encoding="utf-8-sig")
 
-def print_issue_preview(issues: List[Dict[str,Any]], max_n: int = 10, max_articles: int = 12) -> None:
-    if not issues:
-        print("\n===== PREVIEW(ISSUES) =====\n(no issues)")
-        return
-    print("\n===== PREVIEW(ISSUES) =====")
-    for it in issues[:max_n]:
-        print(f"\n이슈: {it.get('representative_title','')}")
-        print(f"time: {it.get('time_start','')} ~ {it.get('time_end','')}")
-        print(f"keywords: {', '.join(it.get('keywords',[]) or [])}")
-        print(f"stats: {it.get('stats',{})}")
-        print("summary:")
-        for ln in it.get("summary_lines",[]) or []:
-            print(ln)
-        arts = it.get("articles", []) or []
-        if arts:
-            print("merged_articles:")
-            for a in arts[:max_articles]:
-                print(f"  - [{a.get('domain','')}] {a.get('title','')}")
-                print(f"    {a.get('url','')}")
 
-def print_review_issue_preview(review_issues: List[Dict[str,Any]], max_n: int = 3, max_articles: int = 2) -> None:
-    if not review_issues:
-        return
-    print("\n===== PREVIEW(REVIEW-NEEDED) =====")
-    for it in review_issues[:max_n]:
-        print(f"\n검토이슈: {it.get('representative_title','')}")
-        print(f"time: {it.get('time_start','')} ~ {it.get('time_end','')}")
-        print(f"keywords: {', '.join(it.get('keywords',[]) or [])}")
-        print(f"stats: {it.get('stats',{})}")
-        print("summary:")
-        for ln in it.get("summary_lines",[]) or []:
-            print(ln)
-        arts = it.get("articles", []) or []
-        if arts:
-            print("candidate_articles:")
-            for a in arts[:max_articles]:
-                print(f"  - [{a.get('domain','')}] {a.get('title','')}")
-                print(f"    {a.get('url','')}")
-
-def print_singleton_preview(df_single: pd.DataFrame, max_n: int = 10) -> None:
-    print("\n===== PREVIEW(SINGLETONS) =====")
-    if df_single is None or len(df_single) == 0:
-        print("(no singletons)")
-        return
-    for _, r in df_single.head(max_n).iterrows():
-        print(f"- [{r.get('bucket_date','')}] {r.get('title','')}")
-        print(f"  {r.get('url','')}")
-        print(f"  reason: {r.get('reason','')}")
 
 # =============================================================================
 # Build one bucket
 # =============================================================================
+
 def build_bucket_from_df(
     cfg: PipelineConfig,
     bucket_key: str,
     df0: pd.DataFrame,
     embedder: KoE5Embedder,
-) -> Tuple[List[Dict[str,Any]], pd.DataFrame, Dict[str,Any]]:
+) -> Tuple[List[Dict[str, Any]], pd.DataFrame, Dict[str, Any]]:
     """
-     DB에서 미리 로드한 df0를 받아서 build_bucket 로직을 그대로 수행하는 버전
-    - load_bucket_df(cfg, bucket_key, cache_dir) 호출만 제거
-    - scan_stats는 빈 dict로 대체(필요하면 여기서 통계 직접 넣을 수도 있음)
+    - DB에서 로드한 df0로 이슈 생성
+    - 파일(issue_outputs/*) 저장/생성: 전부 제거
+    - low_conf/review 생성: 전부 제거
+    - 반환: (issues, df_single, stats)
     """
+
+    # cache_dir만 만들고 싶으면 호출 (bucket_paths는 {"cache_dir": ...}만 있어도 OK)
     paths = bucket_paths(cfg, bucket_key)
-    out = Path(cfg.OUT_DIR)
-    out.mkdir(parents=True, exist_ok=True)
+    _cache_dir = paths.get("cache_dir")
 
-    # 기존 build_bucket에 있던 cache_dir은 파일 로딩용이라 여기서는 유지해도 되고 안 써도 됨
-    cache_dir = paths["cache_dir"]
-
-    #  여기만 변경: 파일에서 읽지 않고, 입력 df0 그대로 사용
-    scan_stats: Dict[str,Any] = {}
+    scan_stats: Dict[str, Any] = {}
     docs_raw_bucket = int(len(df0))
 
-    if len(df0) == 0:
+    # ---------- empty bucket ----------
+    if df0 is None or len(df0) == 0:
         empty_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
-        empty_single.to_csv(paths["single_csv"], index=False, encoding="utf-8-sig")
-        paths["single_json"].write_text("[]", encoding="utf-8")
-        paths["issues_json"].write_text("[]", encoding="utf-8")
-        paths["review_json"].write_text("[]", encoding="utf-8")
-        issues_to_csv([], paths["review_csv"])
-        paths["low_conf_json"].write_text("[]", encoding="utf-8")
-        low_confidence_to_csv([], paths["low_conf_csv"])
-        issues_to_csv([], paths["issues_csv"])
-        build_issue_articles_map([], paths["map_csv"])
         stats = {
             "status": "ok_empty",
             "bucket": bucket_key,
@@ -1780,45 +1692,38 @@ def build_bucket_from_df(
             "fallback_used": False,
             "tiny_rescue_used": False,
             "max_group_size": 0,
+            "geo_pruned": 0,
             "no_issue_reason": "empty_bucket",
-            **scan_stats
+            **scan_stats,
         }
-        write_done(paths["done"], cfg, stats)
         return [], empty_single, stats
 
     # =========================
-    # 아래부터는 기존 build_bucket 본문을 그대로 복붙한 것 (df0부터 시작)
-    # =========================
-
     # stage1 clean
+    # =========================
     df = df0.copy()
+
+    # REQUIRED_COLS는 기존 코드에 있다고 가정
     for c in REQUIRED_COLS:
+        if c not in df.columns:
+            df[c] = ""
         df[c] = df[c].astype(str).fillna("")
+
     df["title"] = df["title"].astype(str).apply(normalize_text)
     df["content"] = df["content"].astype(str).apply(normalize_text)
     df["domain"] = df["url"].astype(str).apply(safe_domain)
 
+    # =========================
+    # stage2 dedup + suspicious
+    # =========================
     df, strict_drop, mh_drop = dedup_articles(df, cfg)
-    if strict_drop or mh_drop:
-        print(f"[DEDUP] strict={strict_drop}, minhash={mh_drop}")
-
     df, susp_drop = drop_suspicious_rows(df, cfg)
-    if susp_drop:
-        print(f"[SUSP] dropped={susp_drop}")
 
     df1 = df.reset_index(drop=True)
     docs_total = int(len(df1))
+
     if docs_total == 0:
         empty_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
-        empty_single.to_csv(paths["single_csv"], index=False, encoding="utf-8-sig")
-        paths["single_json"].write_text("[]", encoding="utf-8")
-        paths["issues_json"].write_text("[]", encoding="utf-8")
-        paths["review_json"].write_text("[]", encoding="utf-8")
-        issues_to_csv([], paths["review_csv"])
-        paths["low_conf_json"].write_text("[]", encoding="utf-8")
-        low_confidence_to_csv([], paths["low_conf_csv"])
-        issues_to_csv([], paths["issues_csv"])
-        build_issue_articles_map([], paths["map_csv"])
         stats = {
             "status": "ok_filtered_empty",
             "bucket": bucket_key,
@@ -1835,11 +1740,10 @@ def build_bucket_from_df(
             "fallback_used": False,
             "tiny_rescue_used": False,
             "max_group_size": 0,
+            "geo_pruned": 0,
             "no_issue_reason": "all_filtered_before_embed",
-            **scan_stats
+            **scan_stats,
         }
-        write_done(paths["done"], cfg, stats)
-        print("[BUCKET] no documents left after dedup/suspicious filtering")
         return [], empty_single, stats
 
     titles_s = df1["title"].astype(str)
@@ -1849,17 +1753,19 @@ def build_bucket_from_df(
 
     emb = embedder.encode(texts_for_embed, batch_size=int(cfg.EMB_BATCH_SIZE))
 
-
-    # stage3 cluster
+    # =========================
+    # stage3 cluster (+ fallback)
+    # =========================
     fallback_used = False
     tiny_rescue_used = False
     max_group_size = 0
+
     if cfg.CLUSTER_MODE == "lsh" or len(df1) > cfg.KNN_MAX_N:
         groups = cluster_with_lsh_cosine(emb, texts_for_embed, cfg)
-        max_group_size = max((len(v) for v in groups.values()), default=0)
     else:
         bcats = df1["category"].map(broad_category).fillna("unknown").astype(str).tolist()
         domain_keys = (df1["domain"].fillna("").astype(str) + "||" + pd.Series(bcats)).tolist()
+
         groups = cluster_domain_then_merge(
             emb=emb,
             titles=df1["title"].astype(str).tolist(),
@@ -1868,6 +1774,7 @@ def build_bucket_from_df(
             lead_texts=texts_for_embed,
             cfg=cfg
         )
+
         max_group_size = max((len(v) for v in groups.values()), default=0)
         if docs_total < 80 and max_group_size < int(cfg.MIN_ISSUE_SIZE):
             fallback_cfg = PipelineConfig(**asdict(cfg))
@@ -1875,6 +1782,7 @@ def build_bucket_from_df(
             fallback_cfg.TITLE_JACC_TH = min(float(cfg.TITLE_JACC_TH), 0.12)
             fallback_cfg.IN_DOMAIN_TITLE_JACC_TH = min(float(cfg.IN_DOMAIN_TITLE_JACC_TH), 0.05)
             fallback_cfg.CROSS_DOMAIN_ALLOW_UNKNOWN_BCAT = True
+
             groups = cluster_domain_then_merge(
                 emb=emb,
                 titles=df1["title"].astype(str).tolist(),
@@ -1884,34 +1792,32 @@ def build_bucket_from_df(
                 cfg=fallback_cfg
             )
             fallback_used = True
-            print(f"[FALLBACK] relaxed recluster applied (docs={docs_total})")
 
-            # Tiny buckets can still stay all-singleton after domain-merge guards.
-            # In that case, run one lexical+semantic rescue pass without domain/category constraints.
             max_group_size = max((len(v) for v in groups.values()), default=0)
             if max_group_size < int(cfg.MIN_ISSUE_SIZE):
                 lsh_cfg = PipelineConfig(**asdict(cfg))
                 lsh_cfg.MINHASH_TH = min(float(cfg.MINHASH_TH), 0.30)
                 lsh_cfg.COS_TH = min(float(cfg.COS_TH), 0.78)
-                groups = cluster_with_lsh_cosine(emb, texts_for_embed, lsh_cfg)
-                max_group_size = max((len(v) for v in groups.values()), default=0)
-                tiny_rescue_used = True
-                print(f"[FALLBACK] tiny-bucket lsh rescue applied (max_group={max_group_size})")
 
+                groups = cluster_with_lsh_cosine(emb, texts_for_embed, lsh_cfg)
+                tiny_rescue_used = True
+
+                max_group_size = max((len(v) for v in groups.values()), default=0)
                 if max_group_size < int(cfg.MIN_ISSUE_SIZE):
                     uf_tiny = UnionFind(len(df1))
                     idxs_all = np.arange(len(df1), dtype=int)
                     edges_tiny = knn_edges_cos(emb, idxs_all, topk=min(10, len(df1)-1), th=0.80)
                     titles_all = df1["title"].astype(str).tolist()
+
                     for a, b in edges_tiny:
                         tj = title_jaccard(titles_all[a], titles_all[b])
                         lt = text_token_jaccard(texts_for_embed[a], texts_for_embed[b], max_tok=120)
                         if tj >= 0.03 or lt >= 0.04:
                             uf_tiny.union(a, b)
+
                     groups = uf_tiny.groups()
-                    max_group_size = max((len(v) for v in groups.values()), default=0)
                     tiny_rescue_used = True
-                    print(f"[FALLBACK] tiny-bucket knn rescue applied (max_group={max_group_size})")
+
     max_group_size = max((len(v) for v in groups.values()), default=0)
 
     effective_min_rep_min = float(cfg.MIN_REP_MIN)
@@ -1921,19 +1827,21 @@ def build_bucket_from_df(
         effective_min_rep_min = min(effective_min_rep_min, 0.45)
 
     emit_singletons = bool(getattr(cfg, "EMIT_SINGLETONS", False))
-    issues: List[Dict[str,Any]] = []
-    singleton_rows: List[Dict[str,Any]] = []
+
+    issues: List[Dict[str, Any]] = []
+    singleton_rows: List[Dict[str, Any]] = []
     multi_count = 0
     geo_pruned_total = 0
 
     group_items = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
     titles_all = df1["title"].astype(str).tolist()
+
     for gi, (_root, members) in enumerate(group_items, start=1):
         members = sorted(set(int(x) for x in members))
         if not members:
             continue
 
-        # Quality gate for tiny-bucket rescue: avoid forcing weak 2-article, single-source issues.
+        # tiny rescue quality gate(원본 유지)
         if tiny_rescue_used:
             dom_n = len(set(str(df1.loc[i, "domain"]) for i in members))
             if len(members) <= 2 and dom_n < 2:
@@ -1950,6 +1858,7 @@ def build_bucket_from_df(
                             "reason": "tiny_rescue_low_diversity",
                         })
                 continue
+
             if len(members) == 2:
                 a, b = members[0], members[1]
                 tj = title_jaccard(str(df1.loc[a, "title"]), str(df1.loc[b, "title"]))
@@ -1969,7 +1878,7 @@ def build_bucket_from_df(
                             })
                     continue
 
-        # Local incident clusters (e.g., wildfire/accident) should keep geographic consistency.
+        # geo prune(원본 유지)
         tmp_rep = pick_representative(members, emb)
         members, geo_dropped = prune_geo_mismatch_members(
             members=members,
@@ -1994,6 +1903,7 @@ def build_bucket_from_df(
 
         rep = pick_representative(members, emb)
         metrics = compute_cluster_metrics(members, emb, rep_idx=rep, sample_pairs=250)
+
         metric_val = float(metrics.get(cfg.COHESION_METRIC, 0.0))
         if cfg.MIN_COHESION and metric_val < float(cfg.MIN_COHESION):
             if emit_singletons:
@@ -2045,21 +1955,24 @@ def build_bucket_from_df(
         sample_idx = ordered[: min(16, len(ordered))]
         sample_texts = [(str(df1.loc[i,"title"]) + " " + str(df1.loc[i,"content"])) for i in sample_idx]
         kws = extract_keywords(sample_texts, topk=8)
+
         rep_row = df1.loc[rep]
 
-        # summary: rep + top centroid docs
+        # summary
         contents_for_sum = []
         def add_sum(i: int) -> None:
             t = str(df1.loc[i,"title"])
             c = str(df1.loc[i,"content"])
             if c.strip() and not content_suspicious(t, c, cfg):
                 contents_for_sum.append(c)
+
         add_sum(rep)
         for i in sample_idx:
             if i != rep:
                 add_sum(int(i))
         if not contents_for_sum:
             contents_for_sum = [str(df1.loc[rep,"content"])]
+
         sum_lines = extractive_news_style_summary(contents_for_sum, max_lines=7, min_lines=5)
         sum_lines = refine_summary_lines_by_focus(
             sum_lines,
@@ -2068,8 +1981,10 @@ def build_bucket_from_df(
             max_lines=7,
             min_lines=4
         )
+
         source_rep_title_raw = str(rep_row.get("title",""))
         source_rep_title = _clean_title_text(source_rep_title_raw) or source_rep_title_raw
+
         generated_title = source_rep_title
         if bool(getattr(cfg, "GENERATE_ISSUE_TITLE", True)) and (not bool(getattr(cfg, "FORCE_SOURCE_TITLE", False))):
             generated_title = compose_issue_title(
@@ -2086,10 +2001,9 @@ def build_bucket_from_df(
         tmax = pd.to_datetime(dts.max()).to_pydatetime().replace(tzinfo=KST)
 
         issue_id = f"{bucket_key}__{gi:04d}"
-
         related_urls = [str(df1.loc[i, "url"]) for i in ordered]
 
-        issue_obj: Dict[str,Any] = {
+        issue_obj: Dict[str, Any] = {
             "issue_id": issue_id,
             "bucket": bucket_key,
             "time_start": tmin.isoformat(timespec="seconds"),
@@ -2098,13 +2012,9 @@ def build_bucket_from_df(
             "source_representative_title": source_rep_title,
             "representative_url": str(rep_row.get("url","")),
             "keywords": kws,
-
-            #  추가: 이 이슈에 묶인 기사 수/목록을 top-level로도 항상 제공
             "related_count": int(len(members)),
             "related_urls": related_urls,
-
             "stats": {
-                #  기존 그대로 (여기도 동일한 값)
                 "size": int(len(members)),
                 "domains": int(len(set(str(df1.loc[i,"domain"]) for i in members))),
                 "centroid_mean": float(metrics["centroid_mean"]),
@@ -2115,7 +2025,7 @@ def build_bucket_from_df(
             "summary_lines": sum_lines,
         }
 
-        if cfg.INCLUDE_ARTICLES_IN_JSON:
+        if bool(getattr(cfg, "INCLUDE_ARTICLES_IN_JSON", True)):
             arts = []
             for i in ordered:
                 r = df1.loc[i]
@@ -2131,50 +2041,11 @@ def build_bucket_from_df(
         issues.append(issue_obj)
         multi_count += 1
 
+    # singleton df는 "저장"하지 않고 반환만
     if emit_singletons:
         df_single = pd.DataFrame(singleton_rows, columns=["bucket_date","url","title","date","category","domain","reason"])
     else:
         df_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
-    df_single.to_csv(paths["single_csv"], index=False, encoding="utf-8-sig")
-    paths["single_json"].write_text(json.dumps(singleton_rows, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    paths["issues_json"].write_text(json.dumps(issues, ensure_ascii=False, indent=2), encoding="utf-8")
-    issues_to_csv(issues, paths["issues_csv"])
-    build_issue_articles_map(issues, paths["map_csv"])
-
-    low_conf_rows: List[Dict[str,Any]] = []
-    if bool(getattr(cfg, "ENABLE_LOW_CONF_OUTPUT", True)) and docs_total > 1 and int(multi_count) == 0:
-        low_conf_rows = collect_low_confidence_pairs(
-            df=df1,
-            emb=emb,
-            texts_for_embed=texts_for_embed,
-            bucket_key=bucket_key,
-            max_pairs=int(getattr(cfg, "LOW_CONF_PAIR_MAX", 30))
-        )
-        if low_conf_rows:
-            print(f"[LOW-CONF] saved candidate pairs={len(low_conf_rows)}")
-    paths["low_conf_json"].write_text(json.dumps(low_conf_rows, ensure_ascii=False, indent=2), encoding="utf-8")
-    low_confidence_to_csv(low_conf_rows, paths["low_conf_csv"])
-
-    review_issues: List[Dict[str,Any]] = []
-    if int(multi_count) == 0 and bool(getattr(cfg, "ENABLE_LOW_CONF_REVIEW_ISSUES", True)):
-        review_issues = build_review_issues_from_low_conf(
-            df=df1,
-            low_conf_rows=low_conf_rows,
-            bucket_key=bucket_key,
-            max_items=int(getattr(cfg, "LOW_CONF_REVIEW_MAX", 3)),
-            min_score=float(getattr(cfg, "LOW_CONF_REVIEW_MIN_SCORE", 0.66)),
-            same_domain_strong_score=float(getattr(cfg, "LOW_CONF_REVIEW_SAME_DOMAIN_STRONG_SCORE", 0.74)),
-            generate_title=bool(getattr(cfg, "GENERATE_ISSUE_TITLE", True)),
-            title_max_chars=int(getattr(cfg, "GENERATED_TITLE_MAX_CHARS", 64)),
-            force_source_title=bool(getattr(cfg, "FORCE_SOURCE_TITLE", False))
-        )
-        if review_issues:
-            print(f"[REVIEW] promoted review-needed issues={len(review_issues)}")
-    paths["review_json"].write_text(json.dumps(review_issues, ensure_ascii=False, indent=2), encoding="utf-8")
-    issues_to_csv(review_issues, paths["review_csv"])
-    if int(geo_pruned_total) > 0:
-        print(f"[GEO] pruned local-incident geo mismatches={int(geo_pruned_total)}")
 
     docs_in_multi = int(sum(int(it.get("stats", {}).get("size", 0)) for it in issues))
     docs_in_singleton = int(len(df_single))
@@ -2182,19 +2053,14 @@ def build_bucket_from_df(
 
     no_issue_reason = ""
     if int(multi_count) == 0:
-        if len(review_issues) > 0:
-            no_issue_reason = "review_needed_from_low_conf"
-        elif max_group_size < int(cfg.MIN_ISSUE_SIZE):
+        if max_group_size < int(cfg.MIN_ISSUE_SIZE):
             no_issue_reason = "all_singletons_after_clustering"
         elif tiny_rescue_used:
             no_issue_reason = "tiny_bucket_quality_gate_filtered"
         else:
             no_issue_reason = "quality_gate_filtered_all"
-        print(f"[BUCKET] no issues created (reason={no_issue_reason})")
 
-    status = "ok"
-    if int(multi_count) == 0:
-        status = "ok_review_only" if len(review_issues) > 0 else "ok_no_issues"
+    status = "ok" if int(multi_count) > 0 else "ok_no_issues"
 
     stats = {
         "status": status,
@@ -2213,13 +2079,12 @@ def build_bucket_from_df(
         "tiny_rescue_used": bool(tiny_rescue_used),
         "max_group_size": int(max_group_size),
         "geo_pruned": int(geo_pruned_total),
-        "low_conf_candidates": int(len(low_conf_rows)),
-        "review_issue_count": int(len(review_issues)),
         "no_issue_reason": no_issue_reason,
-        **scan_stats
+        **scan_stats,
     }
-    write_done(paths["done"], cfg, stats)
+
     return issues, df_single, stats
+              
 
 # =============================================================================
 # Run pipeline
@@ -2352,6 +2217,84 @@ from fastapi import FastAPI, HTTPException
 
 app = FastAPI()
 
+TRACKING_INTERVAL_SEC = int(os.getenv("TRACKING_INTERVAL_SEC", "900"))  # 15분
+TRACKING_RUN_ON_STARTUP = os.getenv("TRACKING_RUN_ON_STARTUP", "true").lower() in ("1", "true", "yes", "y", "on")
+TRACKING_DB_LOCK_NAME = os.getenv("TRACKING_DB_LOCK_NAME", "tracking_issue_summary_job")
+
+_scheduler_started = False
+_scheduler_guard = threading.Lock()
+_run_guard = threading.Lock()
+
+
+def _acquire_db_lock(lock_name: str, timeout: int = 1) -> bool:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT GET_LOCK(%s, %s) AS ok", (lock_name, timeout))
+            row = cur.fetchone() or {}
+            return int(row.get("ok") or 0) == 1
+    finally:
+        conn.close()
+
+
+def _release_db_lock(lock_name: str) -> None:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT RELEASE_LOCK(%s) AS ok", (lock_name,))
+            cur.fetchone()
+    except Exception as e:
+        print(f"[SCHEDULER] RELEASE_LOCK failed: {repr(e)}")
+    finally:
+        conn.close()
+
+
+def _run_pipeline_job(trigger: str = "scheduler") -> dict:
+    # 같은 프로세스 안에서 중복 실행 방지
+    if not _run_guard.acquire(blocking=False):
+        print(f"[SCHEDULER] skip - pipeline already running ({trigger})")
+        return {"ok": False, "skipped": True, "reason": "already_running_in_process"}
+
+    db_locked = False
+    try:
+        # 여러 컨테이너/워커에서 동시에 돌 수 있는 상황까지 방지
+        db_locked = _acquire_db_lock(TRACKING_DB_LOCK_NAME, timeout=1)
+        if not db_locked:
+            print(f"[SCHEDULER] skip - db lock busy ({trigger})")
+            return {"ok": False, "skipped": True, "reason": "db_lock_busy"}
+
+        print(f"[SCHEDULER] pipeline start - trigger={trigger} time={datetime.now().isoformat(timespec='seconds')}")
+        cfg = make_cfg()
+        result = run_pipeline_db(cfg)
+        print(f"[SCHEDULER] pipeline done - trigger={trigger} result={json.dumps(result, ensure_ascii=False)}")
+        return result
+
+    except Exception as e:
+        print(f"[SCHEDULER] pipeline error - trigger={trigger} error={repr(e)}")
+        print(traceback.format_exc())
+        return {"ok": False, "error": repr(e), "trace": traceback.format_exc()[-2000:]}
+
+    finally:
+        if db_locked:
+            _release_db_lock(TRACKING_DB_LOCK_NAME)
+        _run_guard.release()
+
+
+def _scheduler_loop():
+    print(f"[SCHEDULER] started | interval={TRACKING_INTERVAL_SEC}s | run_on_startup={TRACKING_RUN_ON_STARTUP}")
+
+    if TRACKING_RUN_ON_STARTUP:
+        _run_pipeline_job("startup")
+
+    while True:
+        try:
+            time.sleep(TRACKING_INTERVAL_SEC)
+            _run_pipeline_job("interval")
+        except Exception as e:
+            print(f"[SCHEDULER] loop error: {repr(e)}")
+            print(traceback.format_exc())
+            time.sleep(10)
+
 # =========================
 # DB 연결
 # =========================
@@ -2359,8 +2302,8 @@ app = FastAPI()
 DEFAULT_OUT_DIR = os.getenv("OUT_DIR", "/app/issue_outputs")
 DEFAULT_BUCKET = os.getenv("BUCKET", "day")
 DEFAULT_MAX_BUCKETS = int(os.getenv("MAX_BUCKETS", "2"))
-DEFAULT_E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-base")
-DEFAULT_DEVICE = os.getenv("DEVICE", "cpu")  # cuda 쓰면 "cuda"
+DEFAULT_E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-large")
+DEFAULT_DEVICE = os.getenv("DEVICE", "auto")  # cuda 쓰면 "cuda", auto는 사용 가능 장치 자동 선택
 DEFAULT_MODEL_DIR = os.getenv("MODEL_DIR", "")  # 로컬 모델 경로 쓸 때만
 
 
@@ -2378,15 +2321,22 @@ def get_conn():
 
 def make_cfg() -> "PipelineConfig":
     cfg = PipelineConfig(
-        CSV_PATH="",                 # DB 사용하므로 의미 없음
+        CSV_PATH=os.getenv("CSV_PATH", "").strip(),
         OUT_DIR=DEFAULT_OUT_DIR,
         BUCKET=DEFAULT_BUCKET,
         MAX_BUCKETS=DEFAULT_MAX_BUCKETS,
     )
-    #  PipelineConfig에 해당 필드가 "원래" 없을 수도 있으니 동적으로 주입
-    cfg.E5_MODEL = DEFAULT_E5_MODEL
-    cfg.DEVICE = DEFAULT_DEVICE
-    cfg.MODEL_DIR = DEFAULT_MODEL_DIR
+
+    # 모델/장치
+    cfg.E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-base")
+    cfg.DEVICE = os.getenv("DEVICE", DEFAULT_DEVICE)
+
+    # 너무 무겁지 않게 테스트용 제한
+    cfg.MAX_DOCS_PER_BUCKET = int(os.getenv("MAX_DOCS_PER_BUCKET", "150"))
+    cfg.EMB_BATCH_SIZE = int(os.getenv("EMB_BATCH_SIZE", "8"))
+    cfg.KNN_MAX_NEIGHBORS = int(os.getenv("KNN_MAX_NEIGHBORS", "30"))
+    cfg.KNN_MAX_N = int(os.getenv("KNN_MAX_N", "2000"))
+
     return cfg
 
 import json  # 파일 상단에 없으면 추가
@@ -2449,19 +2399,86 @@ def _resolve_article_id(issue: dict) -> int | None:
     return None
 
 
-def upsert_issue_summary(issue: dict) -> None:
+def upsert_issue_summary(issue: dict) -> bool:
     article_id = _resolve_article_id(issue)
     if not article_id:
-        return
+        print("[UPSERT] skipped - article_id not resolved")
+        print("[UPSERT] representative_url =", str(issue.get("representative_url", "")).strip())
+        return False
 
-    short_summary = "\n".join(issue.get("summary_lines", []) or [])
-    ultra_short = str(issue.get("representative_title", "") or "").strip()
-    keywords_json = json.dumps(issue.get("keywords", []) or [], ensure_ascii=False)
+    raw_lines = issue.get("summary_lines", []) or []
+
+    cleaned_lines = [
+        clean_html_text(x)
+        for x in raw_lines
+        if clean_html_text(x)
+    ]
+
+    short_summary = "\n".join(cleaned_lines)
+
+    ultra_short = clean_html_text(
+        issue.get("representative_title", "") or ""
+    )
+
+    keywords_json = json.dumps(
+        issue.get("keywords", []) or [],
+        ensure_ascii=False
+    )
 
     rep_url = str(issue.get("representative_url", "")).strip()
-    background = f"{issue.get('source_representative_title','')}\n{rep_url}"
+
+    background = clean_html_text(
+        f"{issue.get('source_representative_title','')}\n{rep_url}"
+    )
 
     related_count = _infer_related_count(issue)
+
+    raw_article_ids = issue.get("article_ids", []) or []
+
+    if raw_article_ids:
+        article_ids = []
+        for x in raw_article_ids:
+            try:
+                article_ids.append(int(x))
+            except Exception:
+                pass
+    else:
+        article_ids = []
+        arts = issue.get("articles", []) or []
+
+        for a in arts:
+            if not isinstance(a, dict):
+                continue
+
+            candidate_id = (
+                a.get("id")
+                or a.get("article_id")
+                or a.get("doc_id")
+            )
+
+            if candidate_id is not None:
+                try:
+                    article_ids.append(int(candidate_id))
+                    continue
+                except Exception:
+                    pass
+
+            u = str(a.get("url", "")).strip()
+            if u:
+                found_id = find_article_id_by_url(u)
+                if found_id:
+                    article_ids.append(int(found_id))
+
+    article_ids = list(dict.fromkeys(article_ids))
+
+    if article_ids:
+        related_count = len(article_ids)
+
+    article_ids_json = json.dumps(article_ids, ensure_ascii=False)
+
+    print("[UPSERT] related_count =", related_count)
+    print("[UPSERT] len(issue.articles) =", len(issue.get("articles", []) or []))
+    print("[UPSERT] article_ids =", article_ids)
 
     conn = get_conn()
     try:
@@ -2469,19 +2486,37 @@ def upsert_issue_summary(issue: dict) -> None:
             cur.execute(
                 """
                 INSERT INTO issue_summaries
-                  (article_id, related_count, short_summary, ultra_short, background, keywords, created_at)
+                  (article_id, related_count, short_summary, ultra_short, background, keywords, article_ids_json, created_at)
                 VALUES
-                  (%s, %s, %s, %s, %s, %s, NOW())
+                  (%s, %s, %s, %s, %s, %s, %s, NOW())
                 ON DUPLICATE KEY UPDATE
                   related_count=VALUES(related_count),
                   short_summary=VALUES(short_summary),
                   ultra_short=VALUES(ultra_short),
                   background=VALUES(background),
                   keywords=VALUES(keywords),
+                  article_ids_json=VALUES(article_ids_json),
                   created_at=NOW()
                 """,
-                (article_id, related_count, short_summary, ultra_short, background, keywords_json),
+                (
+                    article_id,
+                    related_count,
+                    short_summary,
+                    ultra_short,
+                    background,
+                    keywords_json,
+                    article_ids_json,
+                ),
             )
+ 
+        print(f"[UPSERT] success article_id={article_id} related_count={related_count}")
+        return True
+
+    except Exception as e:
+        print(f"[UPSERT] error: {repr(e)}")
+        print(traceback.format_exc())
+        return False
+
     finally:
         conn.close()
 
@@ -2546,57 +2581,216 @@ def load_articles_from_db(cfg: PipelineConfig) -> pd.DataFrame:
 
     return df[["url","title","thumbnail","content","date","category","_dt","domain"]]
 
-def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
-    df_all = load_articles_from_db(cfg)
-    total = int(len(df_all))
+def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
+    counts: Dict[str, int] = {}
+    dropped_no_date = 0
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if cfg.BUCKET == "week":
+                cur.execute(
+                    """
+                    SELECT DATE_FORMAT(published_at, %s) AS bucket, COUNT(*) AS cnt
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                    GROUP BY DATE_FORMAT(published_at, %s)
+                    ORDER BY bucket DESC
+                    """,
+                    ("%x-W%v", "%x-W%v"),
+                )
+            elif cfg.BUCKET == "none":
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS cnt
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                    """
+                )
+                one = cur.fetchone() or {}
+                counts["all"] = int(one.get("cnt", 0))
+                return counts, dropped_no_date
+            else:
+                cur.execute(
+                    """
+                    SELECT DATE(published_at) AS bucket, COUNT(*) AS cnt
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                    GROUP BY DATE(published_at)
+                    ORDER BY bucket DESC
+                    """
+                )
+            for row in cur.fetchall():
+                b = row.get("bucket")
+                if b is None:
+                    dropped_no_date += int(row.get("cnt", 0))
+                    continue
+                counts[str(b)] = int(row.get("cnt", 0))
+    finally:
+        conn.close()
+    return counts, dropped_no_date
 
-    if total == 0:
+
+def _load_bucket_articles_db(cfg: PipelineConfig, bucket_key: str) -> pd.DataFrame:
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            if cfg.BUCKET == "week":
+                cur.execute(
+                    """
+                    SELECT
+                      url, title, thumbnail, content,
+                      published_at, category
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                      AND DATE_FORMAT(published_at, %s) = %s
+                    ORDER BY published_at DESC
+                    LIMIT %s
+                    """,
+                    ("%x-W%v", str(bucket_key), int(cfg.MAX_DOCS_PER_BUCKET)),
+                )
+            elif cfg.BUCKET == "none":
+                cur.execute(
+                    """
+                    SELECT
+                      url, title, thumbnail, content,
+                      published_at, category
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                    ORDER BY published_at DESC
+                    LIMIT %s
+                    """,
+                    (int(cfg.MAX_DOCS_PER_BUCKET),),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT
+                      url, title, thumbnail, content,
+                      published_at, category
+                    FROM articles
+                    WHERE published_at IS NOT NULL
+                      AND published_at > '2000-01-01 00:00:00'
+                      AND DATE(published_at) = %s
+                    ORDER BY published_at DESC
+                    LIMIT %s
+                    """,
+                    (str(bucket_key), int(cfg.MAX_DOCS_PER_BUCKET)),
+                )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    print(f"[DB] bucket={bucket_key} | fetched_rows={len(rows)}")
+    if not rows:
+        return pd.DataFrame(columns=["url","title","thumbnail","content","date","category","_dt","domain"])
+
+    df = pd.DataFrame(rows)
+    df["date"] = df["published_at"].astype(str)
+    df["_dt"] = pd.to_datetime(df["published_at"], errors="coerce")
+    df["domain"] = df["url"].astype(str).apply(safe_domain)
+    for col in ["thumbnail", "category", "title", "content", "url"]:
+        if col in df.columns:
+            df[col] = df[col].where(df[col].notna(), "")
+    return df[["url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]]
+
+
+def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
+    counts, dropped_no_date = _count_buckets_db(cfg)
+    buckets = select_target_buckets(counts, cfg)
+
+    print("[SCAN] counting buckets ...")
+    print(f"[SCAN] BUCKET={cfg.BUCKET} | MAX_BUCKETS={cfg.MAX_BUCKETS}")
+    print(f"[SCAN] selected buckets: {buckets}")
+    print(f"[SCAN] dropped(no date): {dropped_no_date}")
+
+    if not buckets:
         return {
             "ok": True,
-            "message": "no articles loaded",
-            "issues_saved": 0,
-            "debug": {
-                "hint": "articles에서 최신 published_at 기준으로 가져왔는데도 0이면, published_at 값이 비정상(0/NULL/문자열)일 가능성이 큼"
-            },
-            "buckets": []
+            "bucket_mode": cfg.BUCKET,
+            "buckets": [],
+            "docs_loaded_total": 0,
+            "issues_saved_total": 0,
+            "model": str(getattr(cfg, "E5_MODEL", "")),
+            "device": str(getattr(cfg, "DEVICE", "")),
         }
 
-    latest_dt = df_all["_dt"].max()
-    latest_day = latest_dt.date()
-    bucket_key = str(latest_day)
-    df_bucket = df_all[df_all["_dt"].dt.date == latest_day].copy()
-
-    #  핵심: KoE5Embedder는 model_name, device가 필수
-    device = get_device(getattr(cfg, "DEVICE", "cpu"))
+    device = get_device(getattr(cfg, "DEVICE", "auto"))
     model_name = getattr(cfg, "E5_MODEL", "intfloat/multilingual-e5-base")
-    model_dir = getattr(cfg, "MODEL_DIR", "") or None
 
-    #  model_dir을 지원하는 구현/안하는 구현 둘 다 안전하게 처리
-    try:
-        if model_dir:
-            embedder = KoE5Embedder(model_name, device=device, max_length=512, model_dir=model_dir)
-        else:
-            embedder = KoE5Embedder(model_name, device=device, max_length=512)
-    except TypeError:
-        # KoE5Embedder가 model_dir 인자를 안 받는 버전일 때
-        embedder = KoE5Embedder(model_name, device=device, max_length=512)
+    print(f"[MODEL] loading embedder model={model_name} device={device}")
+    embedder = KoE5Embedder(model_name, device=device, max_length=512)
+    print("[MODEL] embedder loaded")
 
-    issues, df_single, stats = build_bucket_from_df(cfg, bucket_key, df_bucket, embedder)
+    bucket_rows: List[Dict[str, Any]] = []
+    failed_buckets: List[Dict[str, str]] = []
+    docs_loaded_total = 0
+    issues_saved_total = 0
 
-    saved = 0
-    for issue in issues:
-        upsert_issue_summary(issue)   
-        saved += 1
+    for b in buckets:
+        try:
+            df_bucket = _load_bucket_articles_db(cfg, b)
+            docs_loaded = int(len(df_bucket))
+            docs_loaded_total += docs_loaded
+
+            print(f"[BUILD] start bucket={b} rows={docs_loaded}")
+
+            if docs_loaded == 0:
+                print(f"[BUILD] skip bucket={b} rows=0")
+                bucket_rows.append({
+                    "bucket": b,
+                    "docs_in_bucket": 0,
+                    "issues_saved": 0,
+                    "stats": {"status": "empty_bucket"},
+                })
+                continue
+
+            issues, _df_single, stats = build_bucket_from_df(cfg, b, df_bucket, embedder)
+
+            print(f"[BUILD] done bucket={b} issues={len(issues)}")
+            print(f"[BUILD] stats bucket={b} stats={json.dumps(stats, ensure_ascii=False)}")
+
+            saved = 0
+            for idx, issue in enumerate(issues, start=1):
+                print(
+                    f"[SAVE] bucket={b} issue_index={idx}/{len(issues)} "
+                    f"rep_url={str(issue.get('representative_url', '')).strip()}"
+                )
+                ok = upsert_issue_summary(issue)
+                if ok:
+                    saved += 1
+
+            print(f"[SAVE] done bucket={b} saved={saved}")
+
+            issues_saved_total += saved
+            bucket_rows.append({
+                "bucket": b,
+                "docs_in_bucket": docs_loaded,
+                "issues_saved": saved,
+                "stats": stats,
+            })
+
+        except Exception as e:
+            err = repr(e)
+            failed_buckets.append({"bucket": str(b), "error": err})
+            print(f"[BUCKET-ERROR] bucket={b} | error={err}")
+            print(traceback.format_exc())
 
     return {
-        "ok": True,
-        "bucket": bucket_key,
-        "docs_loaded": total,
-        "latest_dt": str(latest_dt),
-        "docs_used_in_bucket": int(len(df_bucket)),
-        "issues_saved": saved,
-        "stats": stats,
+        "ok": len(failed_buckets) == 0,
+        "bucket_mode": cfg.BUCKET,
+        "buckets": bucket_rows,
+        "docs_loaded_total": docs_loaded_total,
+        "issues_saved_total": issues_saved_total,
+        "model": model_name,
+        "device": str(device),
+        "failed_buckets": failed_buckets,
     }
+
 
 @app.get("/health")
 def health():
@@ -2619,6 +2813,99 @@ def health():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from typing import Optional
+
+from typing import Optional
+
+@app.get("/issues")
+def get_issues(
+    category: Optional[str] = None,
+    article_id: Optional[int] = None,
+    limit: int = 6
+):
+    limit = max(1, min(int(limit or 6), 50))
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            sql = """
+            SELECT
+              s.article_id,
+              s.related_count,
+              s.short_summary,
+              s.ultra_short,
+              s.background,
+              s.keywords,
+              s.article_ids_json,
+              s.created_at,
+              a.url,
+              a.title,
+              a.category,
+              a.published_at
+            FROM issue_summaries s
+            JOIN articles a ON a.id = s.article_id
+            """
+            params = []
+            where_clauses = []
+
+            if article_id is not None:
+                where_clauses.append("s.article_id = %s")
+                params.append(article_id)
+
+            if category and category != "all":
+                where_clauses.append("a.category = %s")
+                params.append(category)
+
+            if where_clauses:
+                sql += " WHERE " + " AND ".join(where_clauses)
+
+            sql += " ORDER BY s.created_at DESC LIMIT %s "
+            params.append(limit)
+
+            print("[/issues] SQL =", sql)
+            print("[/issues] params =", params)
+
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+
+            print("[/issues] rows =", len(rows))
+
+        items = []
+   
+        for r in rows:
+            items.append({
+                "id": r.get("article_id"),
+                "article_id": r.get("article_id"),
+                "category": r.get("category") or "기타",
+                "title": clean_html_text(r.get("title") or ""),
+                "url": r.get("url") or "",
+                "summary": clean_html_text(r.get("ultra_short") or ""),
+                "short_summary": clean_html_text(r.get("short_summary") or ""),
+                "related_count": int(r.get("related_count") or 1),
+                "article_ids": json.loads(r.get("article_ids_json") or "[]"),
+                "keywords": clean_html_text(r.get("keywords") or ""),
+                "created_at": str(r.get("created_at") or ""),
+            })
+
+        return {"items": items}
+
+    finally:
+        conn.close()
+
+@app.on_event("startup")
+def start_tracking_scheduler():
+    global _scheduler_started
+
+    with _scheduler_guard:
+        if _scheduler_started:
+            print("[SCHEDULER] already started")
+            return
+
+        th = threading.Thread(target=_scheduler_loop, daemon=True)
+        th.start()
+        _scheduler_started = True
+        print("[SCHEDULER] background thread launched")
+
 @app.get("/run")
 def run():
     try:
@@ -2630,6 +2917,14 @@ def run():
 
 #  로컬에서 python tracking_summary.py로 실행할 때도 돌아가게 (선택)
 if __name__ == "__main__":
-    # 로컬 실행 시에도 환경변수로 바꿀 수 있음
+    # 로컬 실행 시 CSV_PATH가 있으면 CSV 모드, 없으면 DB 모드
     cfg = make_cfg()
-    run_pipeline(cfg)
+    if cfg.CSV_PATH:
+        run_pipeline(cfg)
+    else:
+        try:
+            result = run_pipeline_db(cfg)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except Exception as e:
+            print(repr(e))
+            print(json.dumps({"ok": False, "error": repr(e), "trace": traceback.format_exc()[-2000:]}, ensure_ascii=False))

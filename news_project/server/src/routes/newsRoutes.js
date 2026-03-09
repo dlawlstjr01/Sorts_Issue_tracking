@@ -8,7 +8,7 @@ router.get("/", newsController.list);
 
 // /news/categories
 router.get("/categories", newsController.categories);
-
+router.post("/summary", newsController.summary);
 // /news/123
 router.get("/:id", newsController.detail);
 

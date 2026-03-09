@@ -6,11 +6,11 @@ services:
     env_file:
       - ./server/.env
     depends_on:
-      - python
+      - reco
       - crawler
       - tracking
 
-  python:
+  reco:
     build: ./python
     ports:
       - "8000:8000"
@@ -18,7 +18,7 @@ services:
       - ./python/.env
     environment:
       - ARTIFACT_DIR=/app/reco_artifacts
-    command: ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+    command: ["uvicorn", "reco:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
   crawler:
@@ -27,6 +27,8 @@ services:
       - "8001:8001"
     env_file:
       - ./python/.env
+    volumes:
+      - ./python/data:/app/data
     command: ["uvicorn", "crawler:app", "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
@@ -37,7 +39,7 @@ services:
     env_file:
       - ./python/.env
     volumes:
-    - ./python/data:/app/data
-    - ./python/issue_outputs:/app/issue_outputs
-    command: ["uvicorn", "tracking_summary:app", "--host", "0.0.0.0", "--port", "8002"]
+      - ./python/data:/app/data
+      - ./python/issue_outputs:/app/issue_outputs
+    command: ["uvicorn", "tracking_summary_parity_clean:app", "--host", "0.0.0.0", "--port", "8002"]
     restart: unless-stopped

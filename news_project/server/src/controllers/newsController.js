@@ -32,3 +32,23 @@ exports.categories = async (req, res) => {
     return res.status(err.statusCode || 500).json({ message: err.message || "서버 오류" });
   }
 };
+
+exports.summary = async (req, res) => {
+  try {
+    const articleId = Number(req.body?.articleId);
+    if (!articleId) {
+      return res.status(400).json({ message: "articleId가 필요합니다." });
+    }
+
+    const result = await newsService.getIssueSummaryByArticleId(articleId);
+
+    if (!result) {
+      return res.status(404).json({ message: "요약을 불러오지 못했습니다." });
+    }
+
+    return res.json(result); // { lines: [...], related_count, keywords, created_at }
+  } catch (e) {
+    console.error("[news/summary] failed:", e);
+    return res.status(500).json({ message: "요약을 불러오지 못했습니다." });
+  }
+};

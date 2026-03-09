@@ -10,6 +10,7 @@ const initPassport = require("./config/passport");
 const newsRoutes = require("./routes/newsRoutes");
 const recoRoutes = require("./routes/recoRoutes");
 const userLogRoutes = require("./routes/userLogRoutes");
+const trackingRoutes = require("./routes/trackingRoutes");
 const { startCrawler } = require("./services/crawlerService");
 
 const app = express();
@@ -32,6 +33,7 @@ app.use("/news", newsRoutes);
 app.use("/reco", recoRoutes);
 app.use("/log", userLogRoutes);
 app.get("/health", (req, res) => res.json({ ok: true }));
+app.use("/tracking", trackingRoutes);
 
 const PORT = process.env.PORT || 5000;
 

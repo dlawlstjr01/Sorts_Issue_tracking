@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
 import { getNewsById } from "../../api/newsApi";
 import {
@@ -90,15 +91,55 @@ export default function ArticleDetailPage() {
   const [detailError, setDetailError] = useState("");
   const fetchedArticleIdRef = useRef("");
 
+  const [userId, setUserId] = useState(null);
+  const logIdRef = useRef(null);
+  const enterTimeRef = useRef(null);
+  const scrollCountRef = useRef(0);
+  const lastCountedYRef = useRef(0);
+  const createdLogForArticleRef = useRef("");
+  const updatedLogRef = useRef(false);
+
   useEffect(() => {
     setArticle(initialArticle);
   }, [initialArticle]);
 
   useEffect(() => {
+    const loadMe = async () => {
+      try {
+        const res = await axios.get("/auth/me", { withCredentials: true });
+        setUserId(res.data?.id ?? null);
+      } catch (e) {
+        if (e?.response?.status === 401) {
+          setUserId(null);
+          return;
+        }
+        console.error("[auth/me] failed:", e);
+        setUserId(null);
+      }
+    };
+
+    loadMe();
+  }, []);
+
+ useEffect(() => {
+  const handleWheel = (e) => {
+    if (e.deltaY > 0) {
+      scrollCountRef.current += 1;
+    }
+  };
+
+  window.addEventListener("wheel", handleWheel, { passive: true });
+
+  return () => {
+    window.removeEventListener("wheel", handleWheel);
+  };
+}, []);
+
+  useEffect(() => {
     let mounted = true;
 
-    if (!isNumericArticleId(articleId)) return () => {};
-    if (fetchedArticleIdRef.current === articleId) return () => {};
+    if (!isNumericArticleId(articleId)) return () => { };
+    if (fetchedArticleIdRef.current === articleId) return () => { };
     fetchedArticleIdRef.current = articleId;
 
     const loadDetail = async () => {
@@ -131,6 +172,98 @@ export default function ArticleDetailPage() {
     };
   }, [articleId, initialArticle]);
 
+  useEffect(() => {
+    const createLog = async () => {
+      if (!userId) return;
+      if (!article) return;
+
+      const currentArticleKey = String(article?.id || articleId || "").trim();
+      if (!currentArticleKey) return;
+      if (createdLogForArticleRef.current === currentArticleKey) return;
+
+      try {
+        const payload = {
+          article_id: Number(article?.id) || null,
+          url: article?.url || article?.raw?.url || null,
+          stay_time: 0,
+          scroll_depth: 0,
+          action: "view",
+        };
+
+        const res = await axios.post("/log", payload, {
+          withCredentials: true,
+        });
+
+        const savedLogId =
+          res.data?.logId ?? res.data?.id ?? res.data?.data?.logId ?? null;
+
+        logIdRef.current = savedLogId;
+        enterTimeRef.current = Date.now();
+        scrollCountRef.current = 0;
+        lastCountedYRef.current =
+          window.scrollY ||
+          document.documentElement.scrollTop ||
+          document.body.scrollTop ||
+          0;
+        updatedLogRef.current = false;
+        createdLogForArticleRef.current = currentArticleKey;
+      } catch (e) {
+        console.error("log create failed:", e);
+      }
+    };
+
+    createLog();
+  }, [userId, article, articleId]);
+
+  useEffect(() => {
+    const sendUpdateLog = () => {
+      const logId = logIdRef.current;
+      const enterTime = enterTimeRef.current;
+
+      if (!logId || !enterTime) return;
+      if (updatedLogRef.current) return;
+
+      updatedLogRef.current = true;
+
+      const dwellMs = Date.now() - enterTime;
+      const payload = {
+        dwellMs,
+        stay_time: Math.max(1, Math.round(dwellMs / 1000)),
+        scroll_depth: scrollCountRef.current,
+        updatedAt: new Date().toISOString(),
+      };
+
+      fetch(`/log/${logId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        keepalive: true,
+        body: JSON.stringify(payload),
+      }).catch((e) => {
+        console.error("log update failed:", e);
+      });
+    };
+
+    const handlePageHide = () => {
+      sendUpdateLog();
+    };
+
+    const handleBeforeUnload = () => {
+      sendUpdateLog();
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      sendUpdateLog();
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, []);
+
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
   const backTarget = useMemo(
@@ -141,7 +274,11 @@ export default function ArticleDetailPage() {
   return (
     <div className="page article-detail-page">
       <div className="article-detail-top">
-        <button type="button" className="article-detail-back" onClick={() => navigate(backTarget)}>
+        <button
+          type="button"
+          className="article-detail-back"
+          onClick={() => navigate(backTarget)}
+        >
           기사 목록으로
         </button>
       </div>

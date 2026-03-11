@@ -63,19 +63,6 @@ function getCategoryLabel(key) {
   return CATEGORIES.find((c) => c.key === key)?.label || "기타";
 }
 
-function formatRelativeTime(ts) {
-  if (!ts) return "";
-  const diff = Date.now() - ts;
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return "방금";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}분 전`;
-  const hour = Math.floor(min / 60);
-  if (hour < 24) return `${hour}시간 전`;
-  const day = Math.floor(hour / 24);
-  return `${day}일 전`;
-}
-
 function Badge({ type }) {
   const isHot = String(type).toUpperCase() === "HOT";
   return (
@@ -158,7 +145,7 @@ function LatestIssuesCarousel({ items, count, onItemClick }) {
     dragRef.current.pointerId = e.pointerId;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
-    } catch {}
+    } catch { }
 
     dragRef.current.active = true;
     dragRef.current.startX = e.clientX;
@@ -216,7 +203,7 @@ function LatestIssuesCarousel({ items, count, onItemClick }) {
       if (dragRef.current.pointerId !== null) {
         el.releasePointerCapture(dragRef.current.pointerId);
       }
-    } catch {}
+    } catch { }
     dragRef.current.pointerId = null;
 
     const startVelocity = dragRef.current.velocity;
@@ -450,9 +437,9 @@ function mapNewsToArticle(n) {
     thumbnailUrl: thumb,
     summary: [
       n.summary ||
-        n.short_summary ||
-        n.ultra_short ||
-        "요약은 상세 페이지에서 확인할 수 있습니다.",
+      n.short_summary ||
+      n.ultra_short ||
+      "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요.",
     ],
     createdAt,
     raw: n,
@@ -515,9 +502,6 @@ export default function MainPage() {
   const MAX_AUTO_PAGES = 6;
 
   const q = "";
-
-  const viewStartRef = useRef(null);
-  const logMapRef = useRef(new Map());
 
   const fetchPageAndAppend = async (targetPage) => {
     const cacheKey = `${targetPage}:${size}:${q}`;
@@ -596,48 +580,6 @@ export default function MainPage() {
     loadMe();
   }, []);
 
-  const createLog = async (article, action = "view") => {
-    if (!userId) return { ok: false, skipped: true };
-
-    try {
-      const payload = {
-        article_id: Number(article?.id) || null,
-        url: article?.raw?.url || article?.url || null,
-        stay_time: 0,
-        scroll_depth: 0,
-        action,
-      };
-
-      const res = await axios.post("/log", payload);
-      const logId = res.data?.logId ?? res.data?.id ?? res.data?.data?.logId;
-
-      if (logId != null) logMapRef.current.set(String(article.id), logId);
-
-      return { ok: true, status: res.status, logId, data: res.data };
-    } catch (e) {
-      return {
-        ok: false,
-        status: e?.response?.status,
-        message: e?.response?.data?.message || e.message,
-      };
-    }
-  };
-
-  const updateLog = async (article, extra = {}) => {
-    if (!userId) return;
-
-    try {
-      const logId = logMapRef.current.get(String(article?.id));
-      if (!logId) return;
-      await axios.put(`/log/${logId}`, {
-        ...extra,
-        updatedAt: new Date().toISOString(),
-      });
-    } catch (e) {
-      console.error("log update failed:", e);
-    }
-  };
-
   const didInitRef = useRef(false);
 
   useEffect(() => {
@@ -708,8 +650,8 @@ export default function MainPage() {
         const items = Array.isArray(res.data?.items)
           ? res.data.items
           : Array.isArray(res.data)
-          ? res.data
-          : [];
+            ? res.data
+            : [];
 
         const mapped = items.map(mapRecoItemToArticle);
         setRecoItems(mapped);
@@ -899,26 +841,6 @@ export default function MainPage() {
     }
   }, [displayedArticles, selectedCategory, articleListMode, selectedId]);
 
-  const prevArticleRef = useRef(null);
-
-  useEffect(() => {
-    const now = Date.now();
-
-    if (prevArticleRef.current && viewStartRef.current) {
-      const dwellMs = now - viewStartRef.current;
-      updateLog(prevArticleRef.current, { dwellMs });
-    }
-
-    if (selectedArticle) {
-      createLog(selectedArticle, "view");
-      viewStartRef.current = now;
-      prevArticleRef.current = selectedArticle;
-    } else {
-      viewStartRef.current = null;
-      prevArticleRef.current = null;
-    }
-  }, [selectedArticle?.id]);
-
   useEffect(() => {
     if (!swiperRef.current) return;
     const idx = displayedArticles.findIndex((a) => String(a.id) === String(selectedId));
@@ -927,18 +849,11 @@ export default function MainPage() {
     }
   }, [displayedArticles, selectedId]);
 
-  const openOriginal = async (article) => {
+  const openOriginal = (article) => {
     const normalized = rememberArticleDetail(article?.raw || article);
     if (!normalized) {
       alert("기사 정보를 확인할 수 없습니다.");
       return;
-    }
-
-    await createLog(article, "open");
-
-    if (viewStartRef.current) {
-      const dwellMs = Date.now() - viewStartRef.current;
-      await updateLog(article, { dwellMs, opened: true });
     }
 
     navigate(`/?view=article&id=${encodeURIComponent(normalized.id)}`, {
@@ -1003,7 +918,6 @@ export default function MainPage() {
                     className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
                     onClick={() => {
                       setSelectedId(String(a.id));
-                      createLog(a, "click");
                     }}
                   >
                     <div className="mp-article-item-top">
@@ -1145,8 +1059,8 @@ export default function MainPage() {
               {(relatedRecoItems.length
                 ? relatedRecoItems
                 : recoItems.length
-                ? recoItems
-                : relatedArticles
+                  ? recoItems
+                  : relatedArticles
               ).map((a) => (
                 <RelatedItem
                   key={a.id}
@@ -1155,7 +1069,6 @@ export default function MainPage() {
                   onClick={() => {
                     setSelectedCategory(a.category || "all");
                     setSelectedId(String(a.id));
-                    createLog(a, "click");
                   }}
                 />
               ))}
@@ -1179,7 +1092,6 @@ export default function MainPage() {
                   onClick={() => {
                     setSelectedCategory(a.category || "all");
                     setSelectedId(String(a.id));
-                    createLog(a, "click");
                   }}
                 />
               ))}

@@ -41,6 +41,3 @@ export const fetchIssues = ({ category = "", limit = 6 } = {}) => {
   });
 };
 
-export const getNewsById = (id, config = {}) => {
-  return axios.get(`/news/${id}`, config);
-};

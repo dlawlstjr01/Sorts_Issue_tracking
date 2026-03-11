@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
 import logoImg from "../assets/logo.png";
@@ -78,8 +78,22 @@ function IconLogout(props) {
 }
 
 export default function Header() {
+  const NAV_DRAG_ACTIVATION_PX = 14;
+  const NAV_DRAG_ACTIVATION_ON_ITEM_PX = 24;
+  const NAV_CLICK_SUPPRESS_MS = 120;
   const navigate = useNavigate();
   const location = useLocation();
+  const navRef = useRef(null);
+  const navClickSuppressUntilRef = useRef(0);
+  const navDragRef = useRef({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    startScrollLeft: 0,
+    startedOnItem: false,
+    isDragging: false,
+  });
 
   const view = useMemo(() => {
     const sp = new URLSearchParams(location.search);
@@ -114,6 +128,73 @@ export default function Header() {
   // 로그아웃 진행 상태(버튼 잠금 + 텍스트 변경)
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [isNavDragging, setIsNavDragging] = useState(false);
+
+  const stopNavDrag = (pointerId) => {
+    const nav = navRef.current;
+    if (!navDragRef.current.active) return;
+    if (navDragRef.current.isDragging) {
+      navClickSuppressUntilRef.current = Date.now() + NAV_CLICK_SUPPRESS_MS;
+    }
+    const capturedPointerId =
+      pointerId ?? navDragRef.current.pointerId;
+    navDragRef.current.active = false;
+    navDragRef.current.pointerId = null;
+    navDragRef.current.isDragging = false;
+    if (capturedPointerId != null && nav?.hasPointerCapture?.(capturedPointerId)) {
+      nav.releasePointerCapture(capturedPointerId);
+    }
+    setIsNavDragging(false);
+  };
+
+  const handleNavPointerDown = (e) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    const nav = navRef.current;
+    if (!nav) return;
+    if (nav.scrollWidth <= nav.clientWidth + 2) return;
+    navDragRef.current.active = true;
+    navDragRef.current.pointerId = e.pointerId;
+    navDragRef.current.startX = e.clientX;
+    navDragRef.current.startY = e.clientY;
+    navDragRef.current.startScrollLeft = nav.scrollLeft;
+    navDragRef.current.startedOnItem = Boolean(
+      e.target?.closest?.(".hdr-item")
+    );
+    navDragRef.current.isDragging = false;
+    setIsNavDragging(false);
+  };
+
+  const handleNavPointerMove = (e) => {
+    if (!navDragRef.current.active) return;
+    const nav = navRef.current;
+    if (!nav) return;
+    const dx = e.clientX - navDragRef.current.startX;
+    const dy = e.clientY - navDragRef.current.startY;
+    const activationPx = navDragRef.current.startedOnItem
+      ? NAV_DRAG_ACTIVATION_ON_ITEM_PX
+      : NAV_DRAG_ACTIVATION_PX;
+
+    if (!navDragRef.current.isDragging) {
+      if (
+        Math.abs(dx) < activationPx ||
+        Math.abs(dx) <= Math.abs(dy)
+      ) {
+        return;
+      }
+      navDragRef.current.isDragging = true;
+      setIsNavDragging(true);
+      nav.setPointerCapture?.(e.pointerId);
+    }
+
+    nav.scrollLeft = navDragRef.current.startScrollLeft - dx;
+    e.preventDefault();
+  };
+
+  const handleNavClickCapture = (e) => {
+    if (Date.now() >= navClickSuppressUntilRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
  const refreshAuth = async () => {
   try {
@@ -173,7 +254,22 @@ export default function Header() {
           </span>
         </button>
 
-        <nav className="hdr-nav" aria-label="Primary">
+        <nav
+          ref={navRef}
+          className={`hdr-nav hdr-nav-draggable ${isNavDragging ? "is-dragging" : ""}`}
+          aria-label="Primary"
+          onPointerDown={handleNavPointerDown}
+          onPointerMove={handleNavPointerMove}
+          onPointerUp={(e) => stopNavDrag(e.pointerId)}
+          onPointerCancel={(e) => stopNavDrag(e.pointerId)}
+          onPointerLeave={() => {
+            if (navDragRef.current.active && !navDragRef.current.isDragging) {
+              stopNavDrag(null);
+            }
+          }}
+          onLostPointerCapture={() => stopNavDrag(null)}
+          onClickCapture={handleNavClickCapture}
+        >
           {menu.map((m) => (
             <button
               key={m.to}

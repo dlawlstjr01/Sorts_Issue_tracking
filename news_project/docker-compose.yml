@@ -21,6 +21,17 @@ services:
     command: ["uvicorn", "reco:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
+  counter_python:
+    build: ./python
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./python/.env
+    environment:
+      - ARTIFACT_DIR=/app/reco_artifacts
+    command: ["uvicorn", "counter_reco_app:app", "--host", "0.0.0.0", "--port", "8003"]
+    restart: unless-stopped
+
   crawler:
     build: ./python
     ports:

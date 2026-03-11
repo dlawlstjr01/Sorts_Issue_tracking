@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import SideMenuCard from "../../components/SideMenuCard";
@@ -20,6 +20,29 @@ export default function SignupPage() {
   });
 
   const [loading, setLoading] = useState(false);
+  const [noticeModal, setNoticeModal] = useState({
+    open: false,
+    message: "",
+    redirectTo: "",
+  });
+
+  const openNotice = (message, redirectTo = "") => {
+    setNoticeModal({
+      open: true,
+      message: String(message || "").trim() || "요청을 처리하지 못했습니다. 다시 시도해주세요.",
+      redirectTo,
+    });
+  };
+
+  const closeNotice = () => {
+    const redirectTo = noticeModal.redirectTo;
+    setNoticeModal({
+      open: false,
+      message: "",
+      redirectTo: "",
+    });
+    if (redirectTo) go(redirectTo);
+  };
 
   //  아이디 중복확인 
   const [idCheck, setIdCheck] = useState({
@@ -69,7 +92,7 @@ export default function SignupPage() {
   //  아이디 중복확인 실제 호출
   const handleCheckDup = async () => {
     if (!form.login_id.trim()) {
-      alert("아이디를 입력해주세요.");
+      openNotice("아이디를 입력해주세요.");
       return;
     }
 
@@ -89,11 +112,11 @@ export default function SignupPage() {
         message,
       });
 
-      alert(message);
+      openNotice(message);
     } catch (err) {
       const msg = err.response?.data?.message || "중복확인 실패";
       setIdCheck({ checked: true, available: false, message: msg });
-      alert(msg);
+      openNotice(msg);
     } finally {
       setLoading(false);
     }
@@ -102,7 +125,7 @@ export default function SignupPage() {
   const handleSignup = async () => {
     const msg = validate();
     if (msg) {
-      alert(msg);
+      openNotice(msg);
       return;
     }
 
@@ -123,11 +146,10 @@ export default function SignupPage() {
         withCredentials: true,
       });
 
-      alert(res.data?.message || "회원가입 성공");
-      go("login");
+      openNotice(res.data?.message || "회원가입이 완료되었습니다.", "login");
     } catch (err) {
       const serverMsg = err.response?.data?.message;
-      alert(serverMsg || "회원가입 실패");
+      openNotice(serverMsg || "회원가입에 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -321,6 +343,20 @@ export default function SignupPage() {
           </aside>
         </div>
       </div>
+
+      {noticeModal.open && (
+        <div className="my-notice-modal-backdrop" onClick={closeNotice}>
+          <div className="my-notice-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h4 className="my-notice-title">알림</h4>
+            <p className="my-notice-message">{noticeModal.message}</p>
+            <div className="my-notice-actions">
+              <button className="login-btn primary" type="button" onClick={closeNotice}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

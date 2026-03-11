@@ -27,6 +27,14 @@ export const fetchNews = (
   return axios.get("/news", { params, ...config });
 };
 
+export const getNewsById = (id, config = {}) => {
+  const articleId = String(id ?? "").trim();
+  if (!articleId) {
+    return Promise.reject(new Error("article id is required"));
+  }
+  return axios.get(`/news/${encodeURIComponent(articleId)}`, config);
+};
+
 export const fetchIssues = ({ category = "", limit = 6 } = {}) => {
   return axios.get("/tracking/issues", {
     params: { category, limit }

@@ -88,7 +88,7 @@ export default function MyPage() {
         setUser(next);
         setOrigin(next); // 취소 시 복원용
       } catch (err) {
-        alert(err.response?.data?.message || "로그인이 필요합니다.");
+        openNotice(err.response?.data?.message || "로그인이 필요합니다.");
         navigate("/?view=login");
       } finally {
         setLoading(false);
@@ -121,14 +121,14 @@ export default function MyPage() {
 
   //  저장(name/email/phone/birth_date)
   const handleSave = async () => {
-    if (!user.name.trim()) return alert("이름을 입력해주세요.");
-    if (!user.email.trim()) return alert("이메일을 입력해주세요.");
-    if (!user.phone.trim()) return alert("휴대폰 번호를 입력해주세요.");
+    if (!user.name.trim()) return openNotice("이름을 입력해주세요.");
+    if (!user.email.trim()) return openNotice("이메일을 입력해주세요.");
+    if (!user.phone.trim()) return openNotice("휴대폰 번호를 입력해주세요.");
 
     //  birth_date는 선택값이면 빈문자열 -> null로 보냄 (백엔드에서 null 허용 시)
     const bd = user.birth_date ? String(user.birth_date).trim() : "";
     if (bd && !/^\d{4}-\d{2}-\d{2}$/.test(bd)) {
-      return alert("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)");
+      return openNotice("생년월일 형식이 올바르지 않습니다. (YYYY-MM-DD)");
     }
 
     setSaving(true);
@@ -170,16 +170,16 @@ export default function MyPage() {
         setOrigin(next);
       }
     } catch (err) {
-      alert(err.response?.data?.message || "저장 실패");
+      openNotice(err.response?.data?.message || "저장 실패");
     } finally {
       setSaving(false);
     }
   };
 
   const handleSaveName = async () => {
-    if (!user.name.trim()) return alert("\uC774\uB984\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
-    if (!user.email.trim()) return alert("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uC774\uBA54\uC77C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
-    if (!user.phone.trim()) return alert("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uD734\uB300\uD3F0 \uBC88\uD638\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
+    if (!user.name.trim()) return openNotice("\uC774\uB984\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+    if (!user.email.trim()) return openNotice("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uC774\uBA54\uC77C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.");
+    if (!user.phone.trim()) return openNotice("\uC774\uB984 \uC800\uC7A5\uC744 \uC704\uD574 \uD734\uB300\uD3F0 \uBC88\uD638\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4.");
 
     setNameSaving(true);
     try {
@@ -189,7 +189,8 @@ export default function MyPage() {
         phone: normalizePhone(user.phone.trim()),
       };
 
-      const res = await axios.put(`${API_BASE}/auth/me`, payload, {
+      // MyPage 내 axios 기본 baseURL을 사용하도록 상대 경로로 통일한다.
+      const res = await axios.put(`/auth/me`, payload, {
         withCredentials: true,
       });
 
@@ -212,7 +213,7 @@ export default function MyPage() {
       setNameEditing(false);
       openNotice(res.data?.message || "수정 완료");
     } catch (err) {
-      alert(err.response?.data?.message || "\uC774\uB984 \uC800\uC7A5 \uC2E4\uD328");
+      openNotice(err.response?.data?.message || "\uC774\uB984 \uC800\uC7A5 \uC2E4\uD328");
     } finally {
       setNameSaving(false);
     }
@@ -223,7 +224,7 @@ export default function MyPage() {
     if (origin) setUser(origin);
     setNameEditing(false);
     setPwForm({ currentPassword: "", newPassword: "", newPassword2: "" });
-    alert("변경사항을 취소했습니다.");
+    openNotice("변경사항을 취소했습니다.");
   };
 
   // 비밀번호 변경
@@ -235,7 +236,7 @@ export default function MyPage() {
 
     setPwSaving(true);
     try {
-      const res = await axios.post(
+      await axios.post(
         `/auth/password/change`,
         {
           currentPassword: pwForm.currentPassword,

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import SideMenuCard from "../../components/SideMenuCard";
 
 const reports = [
@@ -31,6 +32,7 @@ const reports = [
 
 export default function ReportsPage() {
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
   const open = (id) => navigate(`/?view=report&id=${encodeURIComponent(id)}`);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("전체");
@@ -85,14 +87,27 @@ export default function ReportsPage() {
         </div>
         <div className="reports-filters">
           {["전체", "주간 브리핑", "이슈 리포트"].map((item) => (
-            <button
+            <motion.button
               key={item}
               type="button"
               className={`reports-chip ${filter === item ? "active" : ""}`}
               onClick={() => setFilter(item)}
+              // 이슈 추적 필터와 동일한 모션으로 인터랙션을 통일한다.
+              whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+              whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+              transition={
+                reduceMotion
+                  ? undefined
+                  : {
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 28,
+                      mass: 0.55,
+                    }
+              }
             >
               {item}
-            </button>
+            </motion.button>
           ))}
         </div>
       </div>

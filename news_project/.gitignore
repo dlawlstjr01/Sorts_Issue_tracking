@@ -15,3 +15,7 @@ Thumbs.db
 
 # docker
 .env.*
+
+# python cache
+__pycache__/
+*.py[cod]

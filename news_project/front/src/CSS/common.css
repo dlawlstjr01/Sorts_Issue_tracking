@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   --primary: #111827;
   --accent: #2563eb;
@@ -146,6 +148,9 @@ body {
 
 .hdr {
   width: 100%;
+  position: sticky;
+  top: 0;
+  z-index: 1200;
   height: 94px !important;
   background:
     radial-gradient(1200px 140px at 12% -20%, rgba(56, 189, 248, 0.2), rgba(56, 189, 248, 0) 68%),
@@ -385,6 +390,155 @@ body {
   cursor: not-allowed;
 }
 
+@media (max-width: 1400px) {
+  .hdr-nav {
+    max-width: calc(100% - 420px);
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hdr-nav::-webkit-scrollbar {
+    height: 0;
+  }
+
+  .hdr-item {
+    flex: 0 0 auto;
+    padding: 0 14px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .hdr {
+    height: 94px !important;
+    overflow: hidden;
+  }
+
+  .hdr-inner {
+    height: 80px;
+    padding: 0 16px !important;
+    display: flex;
+    justify-content: flex-start;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .hdr-logo {
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .hdr-right {
+    justify-self: auto;
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .hdr-nav {
+    position: static;
+    left: auto;
+    transform: none;
+    width: max-content;
+    max-width: calc(100% - 300px);
+    min-width: 0;
+    flex: 0 1 auto;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 0 0 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .hdr-nav.hdr-nav-draggable {
+    cursor: grab;
+    touch-action: pan-x;
+  }
+
+  .hdr-nav.hdr-nav-draggable.is-dragging {
+    cursor: grabbing;
+    user-select: none;
+  }
+
+  .hdr-nav.hdr-nav-draggable.is-dragging .hdr-item {
+    pointer-events: none;
+  }
+
+  .hdr-nav::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .hdr-nav::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.45);
+    border-radius: 999px;
+  }
+
+  .hdr-item {
+    flex: 0 0 auto;
+    padding: 0 14px;
+  }
+}
+
+@media (max-width: 760px) {
+  .hdr-inner {
+    padding: 8px 12px 10px !important;
+  }
+
+  .hdr-logo-img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .hdr-mark {
+    font-size: 24px;
+  }
+
+  .hdr-sub {
+    font-size: 11px;
+    letter-spacing: 1.2px;
+  }
+
+  .hdr-right {
+    gap: 8px;
+  }
+
+  .hdr-btn {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .hdr-item {
+    height: 34px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 520px) {
+  .hdr-mark {
+    font-size: 20px;
+  }
+
+  .hdr-sub {
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+
+  .hdr-btn {
+    min-width: 34px;
+    padding: 0 8px;
+  }
+
+  .hdr-btn span {
+    display: none;
+  }
+}
+
 @keyframes hdrLogoFlow {
   0% {
     background-position: 0% 50%;
@@ -476,7 +630,45 @@ body {
   min-width: 0;
 }
 
+/* login-page 전용: 브리핑 카드 제거 후 폼 중앙 정렬 */
+.login-page .login-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
 
+.login-page .login-grid {
+  grid-template-columns: minmax(320px, 580px);
+  justify-content: center;
+}
+
+/* 로그인 카드도 비밀번호 재설정 카드와 톤을 맞춰 hover/focus 강조를 준다. */
+.login-page .login-card {
+  width: 100%;
+  margin: 0 auto;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, transform 0.18s ease;
+}
+
+.login-page .login-card:hover {
+  border-color: rgba(43, 76, 255, 0.34);
+  box-shadow: 0 12px 28px rgba(36, 67, 230, 0.14);
+  transform: translateY(-1px);
+}
+
+.login-page .login-card:focus-within {
+  border-color: #2b4cff;
+  box-shadow: 0 14px 32px rgba(36, 67, 230, 0.2);
+  background: #fcfdff;
+}
+
+/* 주요 액션 버튼 가독성과 클릭 타깃을 조금 키워 로그인 집중도를 높인다. */
+.login-page .login-btn.primary {
+  height: 46px;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.login-page .login-btn.primary:hover {
+  box-shadow: 0 8px 20px rgba(36, 67, 230, 0.24);
+}
 
 
 .signup-page .login-layout {
@@ -493,8 +685,34 @@ body {
 }
 
 .password-page .login-grid {
-  grid-template-columns: minmax(550px, 760px);
-  justify-content: center;
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+  max-width: 1180px;
+  width: 100%;
+  margin: 0 auto;
+  align-items: start;
+}
+
+.password-page .password-card {
+  height: auto;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.password-page .password-card:hover {
+  border-color: rgba(43, 76, 255, 0.34);
+  box-shadow: 0 12px 28px rgba(36, 67, 230, 0.14);
+}
+
+.password-page .password-card:focus-within {
+  border-color: #2b4cff;
+  box-shadow: 0 14px 32px rgba(36, 67, 230, 0.2);
+  background: #fcfdff;
+}
+
+@media (max-width: 1100px) {
+  .password-page .login-grid {
+    grid-template-columns: minmax(0, 760px);
+    justify-content: center;
+  }
 }
 
 .login-side-card {
@@ -713,6 +931,53 @@ body {
   font-size: 15px;
   font-weight: 800;
   color: #111827;
+}
+
+/* password reset method buttons: bigger tap target + clearer selected state */
+.reset-method-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reset-method-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.reset-method-btn {
+  height: 48px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  box-shadow: none;
+}
+
+.reset-method-btn.active {
+  border-color: #2b4cff;
+  color: #1e40e8;
+  background: linear-gradient(180deg, #eef3ff 0%, #e7efff 100%);
+}
+
+.reset-method-btn:not(.active):hover {
+  border-color: #ced9ff;
+  background: #f8faff;
+}
+
+.reset-method-hint {
+  margin: 0;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 560px) {
+  .reset-method-btn {
+    height: 44px;
+    font-size: 15px;
+  }
 }
 
 .login-result {
@@ -1520,6 +1785,8 @@ body {
   border-radius: 999px;
   font-size: 14px;
   cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+  will-change: transform;
 }
 
 .issues-chip.active {
@@ -2059,6 +2326,23 @@ body {
   background: #ffffff;
 }
 
+/* 실시간 이슈 카드 키보드 포커스 표시 */
+.archive-side-item:focus-visible {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.55);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+/* 상세 없는 카드는 3번 요구사항대로 비활성 + 안내 상태로 고정 */
+.archive-side-item.is-disabled,
+.archive-side-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+  transform: none;
+  box-shadow: none;
+  background: #f3f4f6;
+}
+
 .archive-side-rank {
   display: inline-flex;
   align-items: center;
@@ -2112,6 +2396,98 @@ body {
   font-size: 12px;
   color: #9ca3af;
   text-align: right;
+}
+
+/* 실시간 이슈 상세 모달 */
+.archive-trend-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.36);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  z-index: 1200;
+}
+
+.archive-trend-modal {
+  width: min(660px, 100%);
+  max-height: min(82vh, 760px);
+  overflow: auto;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 22px 44px rgba(15, 23, 42, 0.2);
+  padding: 18px 18px 14px;
+}
+
+.archive-trend-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.archive-trend-modal-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.archive-trend-modal-views {
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.archive-trend-modal-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.archive-trend-modal-summary {
+  margin: 14px 0 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+
+.archive-trend-modal-points {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.archive-trend-modal-points li + li {
+  margin-top: 6px;
+}
+
+.archive-trend-modal-foot {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+@media (max-width: 720px) {
+  .archive-trend-modal {
+    padding: 14px 14px 12px;
+  }
+
+  .archive-trend-modal-title {
+    font-size: 18px;
+  }
 }
 
 @media (max-width: 1080px) {
@@ -2482,6 +2858,17 @@ body {
   padding: 20px;
 }
 
+.password-reset-modal {
+  width: min(92vw, 520px);
+}
+
+.password-reset-hint {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
 .my-notice-title {
   margin: 0 0 10px;
   font-size: 18px;
@@ -2528,7 +2915,14 @@ body {
 }
 
 .side-menu-card.is-collapsible {
-  overflow: visible;
+  width: min(206px, calc(100vw - 28px));
+  max-height: min(calc(100vh - 200px), 500px);
+  margin-bottom: 0;
+  padding: 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .side-menu-title {
@@ -2542,9 +2936,9 @@ body {
 
 .side-menu-collapse-arrow {
   position: absolute;
-  left: 50%;
-  top: -16px;
-  transform: translateX(-50%);
+  right: 10px;
+  top: 10px;
+  transform: translateY(0);
   width: 32px;
   height: 32px;
   border: 1px solid #cfe0ff;
@@ -2561,11 +2955,25 @@ body {
   transition: opacity 0.12s ease, transform 0.12s ease;
 }
 
-.side-menu-card.is-collapsible:hover .side-menu-collapse-arrow,
-.side-menu-collapse-arrow:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) translateY(-2px);
+@media (hover: hover) and (pointer: fine) {
+  .side-menu-card.is-collapsible:hover .side-menu-collapse-arrow,
+  .side-menu-collapse-arrow:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-2px);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .side-menu-collapse-arrow {
+    display: none;
+  }
+
+  .side-menu-card.is-collapsible {
+    width: min(190px, calc(100vw - 20px));
+    max-height: min(calc(100vh - 212px), 460px);
+    padding: 10px;
+  }
 }
 
 .side-menu-title-btn {
@@ -2585,16 +2993,16 @@ body {
 
 .side-menu-floating-toggle {
   position: fixed;
-  right: 18px;
+  right: 14px;
   bottom: 92px;
-  z-index: 95;
+  z-index: 110;
 }
 
 .side-menu-floating-scroll {
   position: fixed;
-  right: 18px;
+  right: 14px;
   bottom: 30px;
-  z-index: 95;
+  z-index: 109;
 }
 
 .side-menu-list {

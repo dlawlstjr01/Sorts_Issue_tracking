@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { getIssues } from "../../api/issuesApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
@@ -7,6 +8,7 @@ const FILTERS = ["전체", "정책", "산업", "경제", "규제"];
 
 export default function IssuesPage() {
   const navigate = useNavigate();
+  const reduceMotion = useReducedMotion();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("전체");
   const [issues, setIssues] = useState([]);
@@ -21,7 +23,7 @@ export default function IssuesPage() {
         setError("");
         const data = await getIssues();
         if (mounted) setIssues(data);
-      } catch (err) {
+      } catch {
         if (mounted) setError("이슈 데이터를 불러오지 못했습니다.");
       } finally {
         if (mounted) setLoading(false);
@@ -44,7 +46,7 @@ export default function IssuesPage() {
         issue.id.toLowerCase().includes(q);
       return categoryMatch && textMatch;
     });
-  }, [query, filter]);
+  }, [issues, query, filter]);
 
   return (
     <div className="page issues-page">
@@ -85,14 +87,26 @@ export default function IssuesPage() {
         </div>
         <div className="issues-filters">
           {FILTERS.map((item) => (
-            <button
+            <motion.button
               key={item}
               type="button"
               className={`issues-chip ${filter === item ? "active" : ""}`}
               onClick={() => setFilter(item)}
+              whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+              whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+              transition={
+                reduceMotion
+                  ? undefined
+                  : {
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 28,
+                      mass: 0.55,
+                    }
+              }
             >
               {item}
-            </button>
+            </motion.button>
           ))}
         </div>
       </div>

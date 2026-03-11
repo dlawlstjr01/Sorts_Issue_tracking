@@ -12,6 +12,8 @@ const recoRoutes = require("./routes/recoRoutes");
 const userLogRoutes = require("./routes/userLogRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
 const { startCrawler } = require("./services/crawlerService");
+const ENABLE_CRAWLER =
+  String(process.env.ENABLE_CRAWLER || "true").toLowerCase() === "true";
 
 const app = express();
 
@@ -25,7 +27,11 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
-startCrawler();
+if (ENABLE_CRAWLER) {
+  startCrawler();
+} else {
+  console.log("[crawler] disabled by ENABLE_CRAWLER=false");
+}
 initPassport();
 //  /auth/login, /auth/me, /auth/logout
 app.use("/auth", authRoutes);

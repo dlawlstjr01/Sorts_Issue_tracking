@@ -9,6 +9,7 @@ import "swiper/css/mousewheel";
 
 import { fetchNews } from "../api/newsApi";
 import { rememberArticleDetail } from "../utils/articleDetail";
+import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
 
 const CATEGORIES = [
   { key: "all", label: "전체" },
@@ -438,7 +439,8 @@ function mapNewsToArticle(n) {
 
   const category = inferCategoryFromNews(n);
   const title = n.title ?? "(제목 없음)";
-  const thumb = n.thumbnail ? n.thumbnail : `${THUMB[category] || THUMB.it}${UQ}`;
+  const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
+  const thumb = resolveThumbnailUrl(n.thumbnail, fallbackThumb);
   const rawTime = n.published_at ?? n.created_at;
   const createdAt = rawTime ? new Date(rawTime).getTime() : Date.now();
 
@@ -459,6 +461,55 @@ function mapNewsToArticle(n) {
   };
 }
 
+function buildArticleDedupKey(article) {
+  const title = String(article?.title || "").trim();
+  const published = String(
+    article?.raw?.published_at ||
+      article?.raw?.created_at ||
+      article?.published_at ||
+      article?.createdAt ||
+      ""
+  ).trim();
+
+  if (title && published) return `title:${title}|published:${published}`;
+
+  const url = String(article?.raw?.url || article?.url || "").trim();
+  if (url) return `url:${url}`;
+
+  if (title || published) return `title:${title}|published:${published}`;
+  return `id:${String(article?.id || "")}`;
+}
+
+function pickPreferredArticle(current, incoming) {
+  if (!current) return incoming;
+
+  const currentTs = Number(current?.createdAt || 0);
+  const incomingTs = Number(incoming?.createdAt || 0);
+  if (incomingTs > currentTs) return incoming;
+  if (incomingTs < currentTs) return current;
+
+  const currentId = Number(current?.id);
+  const incomingId = Number(incoming?.id);
+  if (Number.isFinite(currentId) && Number.isFinite(incomingId)) {
+    return incomingId >= currentId ? incoming : current;
+  }
+
+  return incoming;
+}
+
+function mergeUniqueArticles(items) {
+  const dedup = new Map();
+  for (const item of items) {
+    const key = buildArticleDedupKey(item);
+    const current = dedup.get(key);
+    dedup.set(key, pickPreferredArticle(current, item));
+  }
+
+  return Array.from(dedup.values()).sort(
+    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
+}
+
 function mapRecoItemToArticle(item) {
   const raw = item?.raw ?? item ?? {};
   const url = raw.url || raw.link || raw.news_url || "";
@@ -477,12 +528,14 @@ function mapRecoItemToArticle(item) {
     `${title}-${raw.published_at || Date.now()}`;
   const createdAt = raw.published_at ? new Date(raw.published_at).getTime() : Date.now();
 
+  const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
+
   return {
     id: String(id),
     category,
     badge: "추천",
     title,
-    thumbnailUrl: raw.thumbnail ? raw.thumbnail : `${THUMB[category] || THUMB.it}${UQ}`,
+    thumbnailUrl: resolveThumbnailUrl(raw.thumbnail, fallbackThumb),
     summary: ["추천 기사입니다. 상세는 본문에서 확인하세요."],
     createdAt,
     raw: { ...raw, url },
@@ -525,12 +578,7 @@ export default function MainPage() {
     if (cacheRef.current.has(cacheKey)) {
       const cached = cacheRef.current.get(cacheKey);
       setArticles((prev) => {
-        const dedup = new Map();
-        for (const a of prev) dedup.set(String(a.id), a);
-        for (const a of cached) dedup.set(String(a.id), a);
-        return Array.from(dedup.values()).sort(
-          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-        );
+        return mergeUniqueArticles([...prev, ...cached]);
       });
       return cached.length;
     }
@@ -553,12 +601,7 @@ export default function MainPage() {
       cacheRef.current.set(cacheKey, mapped);
 
       setArticles((prev) => {
-        const dedup = new Map();
-        for (const a of prev) dedup.set(String(a.id), a);
-        for (const a of mapped) dedup.set(String(a.id), a);
-        return Array.from(dedup.values()).sort(
-          (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
-        );
+        return mergeUniqueArticles([...prev, ...mapped]);
       });
 
       return mapped.length;
@@ -1083,6 +1126,7 @@ export default function MainPage() {
                         src={article.thumbnailUrl}
                         alt="article thumbnail"
                         loading="lazy"
+                        onError={withImageFallback}
                       />
                       <div className="mp-thumb-label">AI 생성 썸네일</div>
                     </div>

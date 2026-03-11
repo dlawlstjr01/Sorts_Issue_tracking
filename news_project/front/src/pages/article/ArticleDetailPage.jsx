@@ -7,6 +7,7 @@ import {
   rememberArticleDetail,
   toArticleDetailPayload,
 } from "../../utils/articleDetail";
+import { withImageFallback } from "../../utils/imageUrl";
 
 function formatPublishedDateTime(raw) {
   if (!raw) return "-";
@@ -195,6 +196,7 @@ export default function ArticleDetailPage() {
                     src={article.thumbnail}
                     alt="article thumbnail"
                     loading="lazy"
+                    onError={withImageFallback}
                   />
                 </div>
               )}

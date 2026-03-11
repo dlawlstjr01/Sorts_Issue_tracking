@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import SideMenuCard from "../../components/SideMenuCard";
@@ -15,6 +15,24 @@ export default function LoginPage() {
 
   const [loading, setLoading] = useState(false);
   const [loginSuccessOpen, setLoginSuccessOpen] = useState(false);
+  const [noticeModal, setNoticeModal] = useState({
+    open: false,
+    message: "",
+  });
+
+  const openNotice = (message) => {
+    setNoticeModal({
+      open: true,
+      message: String(message || "").trim() || "요청을 처리하지 못했습니다. 다시 시도해주세요.",
+    });
+  };
+
+  const closeNotice = () => {
+    setNoticeModal({
+      open: false,
+      message: "",
+    });
+  };
 
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -33,7 +51,7 @@ export default function LoginPage() {
   const handleLogin = async () => {
     const msg = validate();
     if (msg) {
-      alert(msg);
+      openNotice(msg);
       return;
     }
 
@@ -50,7 +68,7 @@ export default function LoginPage() {
       setLoginSuccessOpen(true);
     } catch (err) {
       const serverMsg = err.response?.data?.message;
-      alert(serverMsg || "로그인 실패");
+      openNotice(serverMsg || "로그인에 실패했습니다. 아이디와 비밀번호를 확인해주세요.");
     } finally {
       setLoading(false);
     }
@@ -177,7 +195,7 @@ export default function LoginPage() {
               </form>
             </section>
 
-            <section className="login-side">
+            {/* <section className="login-side">
               <div className="login-side-card">
                 <div className="login-side-badge">NEWS Issue Tracker</div>
                 <h2 className="login-side-title">맞춤 이슈 브리핑을 시작하세요</h2>
@@ -190,7 +208,7 @@ export default function LoginPage() {
                   <li>저장/공유로 팀 협업</li>
                 </ul>
               </div>
-            </section>
+            </section> */}
           </div>
 
           <aside className="login-side-menu">
@@ -198,6 +216,20 @@ export default function LoginPage() {
           </aside>
         </div>
       </div>
+
+      {noticeModal.open && (
+        <div className="my-notice-modal-backdrop" onClick={closeNotice}>
+          <div className="my-notice-modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <h4 className="my-notice-title">알림</h4>
+            <p className="my-notice-message">{noticeModal.message}</p>
+            <div className="my-notice-actions">
+              <button className="login-btn primary" type="button" onClick={closeNotice}>
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loginSuccessOpen && (
         <div

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 function IconHome(props) {
   return (
@@ -75,6 +76,7 @@ const SIDE_MENU_COLLAPSED_KEY = "side_menu_collapsed";
 export default function SideMenuCard({ collapsible = false, showScrollTop = false }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const reduceMotion = useReducedMotion();
   const view = new URLSearchParams(location.search).get("view") || "main";
   const [isCollapsed, setIsCollapsed] = useState(() => {
     if (!collapsible) return false;
@@ -109,10 +111,17 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
             onClick={() => setIsCollapsed((prev) => !prev)}
           >
             <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
-              <path
-                d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
-                fill="currentColor"
-              />
+              {isCollapsed ? (
+                <path
+                  d="M3 3h8v8H3V3Zm10 0h8v8h-8V3ZM3 13h8v8H3v-8Zm10 0h8v8h-8v-8Z"
+                  fill="currentColor"
+                />
+              ) : (
+                <path
+                  d="M6.22 6.22a1 1 0 0 1 1.41 0L12 10.59l4.37-4.37a1 1 0 0 1 1.41 1.41L13.41 12l4.37 4.37a1 1 0 0 1-1.41 1.41L12 13.41l-4.37 4.37a1 1 0 0 1-1.41-1.41L10.59 12 6.22 7.63a1 1 0 0 1 0-1.41Z"
+                  fill="currentColor"
+                />
+              )}
             </svg>
           </button>
         </div>
@@ -133,8 +142,16 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
         </div>
       )}
 
-      {!isCollapsed && (
-        <div className={`side-menu-card ${collapsible ? "is-collapsible" : ""}`}>
+      <AnimatePresence initial={false}>
+        {!isCollapsed && (
+          <motion.div
+            key="side-menu-card"
+            className={`side-menu-card ${collapsible ? "is-collapsible" : ""}`}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.98 }}
+            animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98 }}
+            transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+          >
           {collapsible && (
             <button
               type="button"
@@ -165,8 +182,9 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
               </button>
             ))}
           </div>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

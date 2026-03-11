@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { fetchNews } from "../../api/newsApi";
 import SideMenuCard from "../../components/SideMenuCard";
 import { rememberArticleDetail } from "../../utils/articleDetail";
+import { resolveThumbnailUrl, withImageFallback } from "../../utils/imageUrl";
 import "../../CSS/common.css";
 import "../../CSS/main.css";
 import "../../CSS/sub.css";
@@ -375,6 +376,36 @@ function formatPublishedDate(raw) {
   return formatDate(parsed);
 }
 
+function buildNewsDedupKey(item) {
+  const title = String(item?.title || "").trim();
+  const published = String(item?.published_at || item?.created_at || "").trim();
+  if (title && published) return `title:${title}|published:${published}`;
+
+  const url = String(item?.url || "").trim();
+  if (url) return `url:${url}`;
+
+  if (title || published) return `title:${title}|published:${published}`;
+
+  return `id:${String(item?.id || "")}`;
+}
+
+function dedupeNewsItems(items) {
+  const dedup = new Map();
+  for (const item of items || []) {
+    const key = buildNewsDedupKey(item);
+    const current = dedup.get(key);
+    if (!current) {
+      dedup.set(key, item);
+      continue;
+    }
+
+    const currentTs = new Date(current.published_at || current.created_at || 0).getTime() || 0;
+    const nextTs = new Date(item.published_at || item.created_at || 0).getTime() || 0;
+    if (nextTs >= currentTs) dedup.set(key, item);
+  }
+  return Array.from(dedup.values());
+}
+
 function getHangulInitial(char) {
   const first = String(char || "").trim().charAt(0);
   if (!first) return "";
@@ -625,14 +656,16 @@ export default function ArticleListPage() {
         const inferredByText = resolvePressByText(item?.title, item?.content);
         return {
           ...item,
+          thumbnail: resolveThumbnailUrl(item?.thumbnail, THUMB_FALLBACK),
           press_name: item?.press_name || inferredByUrl || inferredByText || null,
         };
       });
-      setNewsItems(normalizedItems);
+      const dedupedItems = dedupeNewsItems(normalizedItems);
+      setNewsItems(dedupedItems);
       if (includePresses) {
         const pressesFromApi = Array.isArray(data.presses) ? data.presses : [];
         const pressesFromRenderedItems = Array.from(
-          new Set(normalizedItems.map((item) => item.press_name).filter(Boolean))
+          new Set(dedupedItems.map((item) => item.press_name).filter(Boolean))
         );
         setAvailablePresses(
           pressesFromApi.length > 0 ? pressesFromApi : pressesFromRenderedItems
@@ -996,7 +1029,12 @@ export default function ArticleListPage() {
                   onClick={() => openArticleDetail(item)}
                 >
                   <div className="als-news-thumb-wrap">
-                    <img src={item.thumbnail || THUMB_FALLBACK} alt="" loading="lazy" />
+                    <img
+                      src={item.thumbnail || THUMB_FALLBACK}
+                      alt=""
+                      loading="lazy"
+                      onError={withImageFallback}
+                    />
                   </div>
                   <div className="als-news-body">
                     <div className="als-news-meta">

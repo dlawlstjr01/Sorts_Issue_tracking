@@ -1,3 +1,5 @@
+import { resolveThumbnailUrl } from "./imageUrl";
+
 const ARTICLE_DETAIL_CACHE_KEY = "tz_article_detail_cache_v1";
 const ARTICLE_DETAIL_CACHE_LIMIT = 80;
 
@@ -92,7 +94,10 @@ export function toArticleDetailPayload(raw) {
     summary: summaryText.trim(),
     description: toStringSafe(merged.description).trim(),
     url: toStringSafe(merged.url || merged.link).trim(),
-    thumbnail: toStringSafe(merged.thumbnail || merged.thumbnailUrl).trim(),
+    thumbnail: resolveThumbnailUrl(
+      toStringSafe(merged.thumbnail || merged.thumbnailUrl).trim(),
+      ""
+    ),
     category: toStringSafe(merged.category).trim(),
     pressName: toStringSafe(merged.press_name || merged.press).trim(),
     publishedAt: normalizePublishedAt(merged),

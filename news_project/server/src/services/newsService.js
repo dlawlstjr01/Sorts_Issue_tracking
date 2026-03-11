@@ -338,14 +338,36 @@ exports.listArticles = async ({
   appendPressWhere(where, params, selectedPresses);
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const dedupeKeySql = `
+    CASE
+      WHEN TRIM(COALESCE(title, '')) <> ''
+        AND COALESCE(published_at, created_at) IS NOT NULL
+      THEN CONCAT(
+        '__TITLE_TS__',
+        TRIM(COALESCE(title, '')),
+        '__PUBLISHED__',
+        COALESCE(DATE_FORMAT(COALESCE(published_at, created_at), '%Y-%m-%d %H:%i:%s'), '')
+      )
+      WHEN TRIM(COALESCE(url, '')) <> '' THEN TRIM(COALESCE(url, ''))
+      WHEN TRIM(COALESCE(title, '')) <> '' THEN CONCAT('__TITLE__', TRIM(COALESCE(title, '')))
+      ELSE CONCAT(
+        '__ID__',
+        CAST(id AS CHAR)
+      )
+    END
+  `;
+  const dedupedIdsSql = `
+    SELECT MAX(id) AS id
+    FROM articles
+    ${whereSql}
+    GROUP BY ${dedupeKeySql}
+  `;
 
   const [countRows] = await db.query(
     `
     SELECT COUNT(*) AS cnt
     FROM (
-      SELECT id
-      FROM articles
-      ${whereSql}
+      ${dedupedIdsSql}
       LIMIT ?
     ) AS capped
     `,
@@ -355,10 +377,13 @@ exports.listArticles = async ({
 
   const [rows] = await db.query(
     `
-    SELECT id, url, title, thumbnail, category, published_at, created_at
-    FROM articles
-    ${whereSql}
-    ORDER BY (published_at IS NULL), published_at DESC, id DESC
+    SELECT a.id, a.url, a.title, a.thumbnail, a.category, a.published_at, a.created_at
+    FROM articles a
+    JOIN (
+      ${dedupedIdsSql}
+    ) AS dedup
+      ON dedup.id = a.id
+    ORDER BY (a.published_at IS NULL), a.published_at DESC, a.id DESC
     LIMIT ? OFFSET ?
     `,
     [...params, s, offset]
@@ -373,10 +398,13 @@ exports.listArticles = async ({
   if (includePresses) {
     const [scopeRows] = await db.query(
       `
-      SELECT url, title
-      FROM articles
-      ${whereSql}
-      ORDER BY (published_at IS NULL), published_at DESC, id DESC
+      SELECT a.url, a.title
+      FROM articles a
+      JOIN (
+        ${dedupedIdsSql}
+      ) AS dedup
+        ON dedup.id = a.id
+      ORDER BY (a.published_at IS NULL), a.published_at DESC, a.id DESC
       LIMIT ?
       `,
       [...params, cappedTotalLimit]

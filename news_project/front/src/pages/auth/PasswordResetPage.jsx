@@ -213,8 +213,8 @@ export default function PasswordResetPage() {
       openNotice("새 비밀번호를 입력해주세요.");
       return;
     }
-    if (resetForm.newPassword.length < 8) {
-      openNotice("비밀번호는 8자 이상 입력해주세요.");
+    if (resetForm.newPassword.length < 4) {
+      openNotice("비밀번호는 4자 이상 입력해주세요.");
       return;
     }
     if (resetForm.newPassword !== resetForm.newPassword2) {
@@ -426,7 +426,7 @@ export default function PasswordResetPage() {
           </div>
 
           <aside className="login-side-menu">
-            <SideMenuCard />
+            <SideMenuCard mobileCollapsible />
           </aside>
         </div>
       </div>

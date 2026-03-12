@@ -72,13 +72,26 @@ const MENU_ITEMS = [
 ];
 
 const SIDE_MENU_COLLAPSED_KEY = "side_menu_collapsed";
+const MOBILE_COLLAPSIBLE_QUERY = "(max-width: 960px)";
 
-export default function SideMenuCard({ collapsible = false, showScrollTop = false }) {
+const getIsMobileViewport = () => {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+  return window.matchMedia(MOBILE_COLLAPSIBLE_QUERY).matches;
+};
+
+export default function SideMenuCard({
+  collapsible = false,
+  mobileCollapsible = false,
+  showScrollTop = false,
+}) {
   const navigate = useNavigate();
   const location = useLocation();
   const reduceMotion = useReducedMotion();
   const view = new URLSearchParams(location.search).get("view") || "main";
+  const [isMobileViewport, setIsMobileViewport] = useState(() => getIsMobileViewport());
+  const isCollapsible = collapsible || (mobileCollapsible && isMobileViewport);
   const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (mobileCollapsible && !collapsible) return getIsMobileViewport();
     if (!collapsible) return false;
     if (typeof window === "undefined") return true;
     const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
@@ -88,9 +101,57 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
   });
 
   useEffect(() => {
-    if (!collapsible) return;
+    if (!mobileCollapsible) return undefined;
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return undefined;
+
+    const mediaQuery = window.matchMedia(MOBILE_COLLAPSIBLE_QUERY);
+    const handleChange = (event) => {
+      setIsMobileViewport(event.matches);
+    };
+
+    setIsMobileViewport(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => mediaQuery.removeEventListener("change", handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, [mobileCollapsible]);
+
+  useEffect(() => {
+    if (!isCollapsible) {
+      setIsCollapsed(false);
+      return;
+    }
+
+    if (mobileCollapsible && !collapsible) {
+      setIsCollapsed(isMobileViewport);
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      setIsCollapsed(true);
+      return;
+    }
+
+    const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
+    if (saved === "true") {
+      setIsCollapsed(true);
+      return;
+    }
+    if (saved === "false") {
+      setIsCollapsed(false);
+      return;
+    }
+    setIsCollapsed(true);
+  }, [collapsible, isCollapsible, isMobileViewport, mobileCollapsible]);
+
+  useEffect(() => {
+    if (!isCollapsible || !collapsible) return;
     window.localStorage.setItem(SIDE_MENU_COLLAPSED_KEY, String(isCollapsed));
-  }, [collapsible, isCollapsed]);
+  }, [collapsible, isCollapsible, isCollapsed]);
 
   const isItemActive = (key) => {
     if (key === "main") return view === "main";
@@ -102,7 +163,7 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
 
   return (
     <>
-      {collapsible && (
+      {isCollapsible && (
         <div className="side-menu-floating-toggle">
           <button
             type="button"
@@ -127,7 +188,7 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
         </div>
       )}
 
-      {collapsible && showScrollTop && (
+      {isCollapsible && showScrollTop && (
         <div className="side-menu-floating-scroll">
           <button
             type="button"
@@ -146,13 +207,13 @@ export default function SideMenuCard({ collapsible = false, showScrollTop = fals
         {!isCollapsed && (
           <motion.div
             key="side-menu-card"
-            className={`side-menu-card ${collapsible ? "is-collapsible" : ""}`}
+            className={`side-menu-card ${isCollapsible ? "is-collapsible" : ""}`}
             initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 10, scale: 0.98 }}
             animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.98 }}
             transition={{ duration: reduceMotion ? 0.12 : 0.2, ease: [0.22, 1, 0.36, 1] }}
           >
-          {collapsible && (
+          {isCollapsible && (
             <button
               type="button"
               className="side-menu-collapse-arrow"

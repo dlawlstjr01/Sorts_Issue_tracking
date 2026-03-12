@@ -212,7 +212,7 @@ export default function LoginPage() {
           </div>
 
           <aside className="login-side-menu">
-            <SideMenuCard />
+            <SideMenuCard mobileCollapsible />
           </aside>
         </div>
       </div>

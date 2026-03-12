@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import SideMenuCard from "../../components/SideMenuCard";
 
+const GENERATED_REPORTS_KEY = "generatedReports";
+
 const reports = [
   {
     id: "REP-001",
@@ -37,18 +39,30 @@ export default function ReportsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("전체");
 
+  const generatedReports = useMemo(() => {
+    // ✅ 이슈 페이지에서 생성한 AI 리포트 초안을 함께 보여준다.
+    try {
+      const parsed = JSON.parse(localStorage.getItem(GENERATED_REPORTS_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const allReports = useMemo(() => [...generatedReports, ...reports], [generatedReports]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return reports.filter((r) => {
+    return allReports.filter((r) => {
       const typeMatch = filter === "전체" || r.type === filter;
       const textMatch =
         !q ||
-        r.title.toLowerCase().includes(q) ||
-        r.desc.toLowerCase().includes(q) ||
-        r.id.toLowerCase().includes(q);
+        String(r.title || "").toLowerCase().includes(q) ||
+        String(r.desc || "").toLowerCase().includes(q) ||
+        String(r.id || "").toLowerCase().includes(q);
       return typeMatch && textMatch;
     });
-  }, [query, filter]);
+  }, [allReports, query, filter]);
 
   return (
     <div className="page reports-page">
@@ -62,7 +76,7 @@ export default function ReportsPage() {
         <div className="reports-summary">
           <div className="reports-stat">
             <div className="reports-stat-label">등록된 리포트</div>
-            <div className="reports-stat-value">{reports.length}건</div>
+            <div className="reports-stat-value">{allReports.length}건</div>
           </div>
           <div className="reports-stat">
             <div className="reports-stat-label">최근 업데이트</div>

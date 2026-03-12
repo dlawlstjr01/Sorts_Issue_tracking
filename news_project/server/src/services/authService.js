@@ -340,8 +340,8 @@ exports.resetPassword = async ({ login_id, email, phone, method, code, newPasswo
   if (!codeT || !newPassword) {
     throw makeError("code / newPassword는 필수입니다.", 400);
   }
-  if (String(newPassword).length < 8) {
-    throw makeError("비밀번호는 8자 이상이어야 합니다.", 400);
+  if (String(newPassword).length < 4) {
+    throw makeError("비밀번호는 4자 이상이어야 합니다.", 400);
   }
 
   const resetUser = await getResetUserByMethod({ login_id, method: resetMethod, email, phone });
@@ -424,7 +424,7 @@ exports.updateMe = async (userId, { name, email, phone, birth_date }) => {
 exports.changePassword = async (userId, { currentPassword, newPassword }) => {
   if (!userId) throw makeError("유저를 찾을 수 없습니다.", 401);
   if (!currentPassword || !newPassword) throw makeError("비밀번호 입력이 필요합니다.", 400);
-  if (String(newPassword).length < 8) throw makeError("새 비밀번호는 8자 이상이어야 합니다.", 400);
+  if (String(newPassword).length < 4) throw makeError("새 비밀번호는 4자 이상이어야 합니다.", 400);
 
   const [rows] = await db.query(`SELECT id, password FROM users WHERE id = ? LIMIT 1`, [userId]);
   if (!rows.length) throw makeError("유저를 찾을 수 없습니다.", 401);

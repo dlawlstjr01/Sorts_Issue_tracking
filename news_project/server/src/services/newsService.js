@@ -195,6 +195,52 @@ const HOST_SQL =
   "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(url, '//', -1), '/', 1), ':', 1))";
 const MAX_VISIBLE_PAGES = 3000;
 const MAX_KEYWORD_PRESS_DOMAINS = 40;
+const NEWS_LIST_CACHE_TTL_MS = Math.max(
+  0,
+  Number(process.env.NEWS_LIST_CACHE_TTL_MS || 30000)
+);
+const NEWS_LIST_CACHE_MAX = Math.max(
+  1,
+  Number(process.env.NEWS_LIST_CACHE_MAX || 200)
+);
+const newsListCache = new Map();
+
+function makeNewsListCacheKey(payload) {
+  return JSON.stringify(payload);
+}
+
+function cloneListResponse(value) {
+  return {
+    ...value,
+    items: Array.isArray(value?.items)
+      ? value.items.map((item) => ({ ...item }))
+      : [],
+    presses: Array.isArray(value?.presses) ? [...value.presses] : [],
+  };
+}
+
+function getCachedListResponse(key) {
+  if (!NEWS_LIST_CACHE_TTL_MS) return null;
+  const cached = newsListCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    newsListCache.delete(key);
+    return null;
+  }
+  return cloneListResponse(cached.value);
+}
+
+function setCachedListResponse(key, value) {
+  if (!NEWS_LIST_CACHE_TTL_MS) return;
+  if (newsListCache.size >= NEWS_LIST_CACHE_MAX) {
+    const oldestKey = newsListCache.keys().next().value;
+    if (oldestKey) newsListCache.delete(oldestKey);
+  }
+  newsListCache.set(key, {
+    value: cloneListResponse(value),
+    expiresAt: Date.now() + NEWS_LIST_CACHE_TTL_MS,
+  });
+}
 
 function resolvePressByHost(rawHost) {
   const host = normalizeHost(rawHost);
@@ -244,15 +290,15 @@ function appendPressWhere(where, params, pressNames) {
     if (!pressName) continue;
     const domains = PRESS_TO_DOMAINS.get(pressName);
     if (!domains || domains.length === 0) {
-      pressGroups.push("(title LIKE ? OR content LIKE ?)");
-      params.push(`%${pressName}%`, `%${pressName}%`);
+      pressGroups.push("title LIKE ?");
+      params.push(`%${pressName}%`);
       continue;
     }
 
     const domainGroups = [];
     for (const domain of domains) {
-      domainGroups.push(`(${HOST_SQL} = ? OR ${HOST_SQL} LIKE ?)`);
-      params.push(domain, `%.${domain}`);
+      domainGroups.push("url LIKE ?");
+      params.push(`%${domain}%`);
     }
 
     if (domainGroups.length) {
@@ -269,8 +315,8 @@ function appendKeywordWhere(where, params, rawKeyword) {
   const keyword = String(rawKeyword || "").trim();
   if (!keyword) return;
 
-  const searchGroups = ["title LIKE ?", "content LIKE ?"];
-  params.push(`%${keyword}%`, `%${keyword}%`);
+  const searchGroups = ["title LIKE ?"];
+  params.push(`%${keyword}%`);
 
   const keywordLower = keyword.toLowerCase();
   const matchedDomains = new Set();
@@ -291,8 +337,8 @@ function appendKeywordWhere(where, params, rawKeyword) {
   }
 
   for (const domain of matchedDomains) {
-    searchGroups.push(`(${HOST_SQL} = ? OR ${HOST_SQL} LIKE ?)`);
-    params.push(domain, `%.${domain}`);
+    searchGroups.push("url LIKE ?");
+    params.push(`%${domain}%`);
   }
 
   where.push(`(${searchGroups.join(" OR ")})`);
@@ -307,12 +353,14 @@ exports.listArticles = async ({
   date_to,
   press,
   include_presses,
+  include_total,
 }) => {
   const p = Math.max(1, parseInt(page, 10) || 1);
   const s = Math.min(100, Math.max(1, parseInt(size, 10) || 20));
   const offset = (p - 1) * s;
   const cappedTotalLimit = MAX_VISIBLE_PAGES * s;
-  const includePresses = String(include_presses || "0") === "1";
+  const includePresses = String(include_presses ?? "0") === "1";
+  const includeTotal = String(include_total ?? "1") !== "0";
 
   const where = [];
   const params = [];
@@ -325,69 +373,60 @@ exports.listArticles = async ({
   appendKeywordWhere(where, params, q);
 
   if (date_from && isDateString(date_from)) {
-    where.push("DATE(COALESCE(published_at, created_at)) >= ?");
-    params.push(String(date_from));
+    where.push("published_at >= ?");
+    params.push(`${String(date_from)} 00:00:00`);
   }
 
   if (date_to && isDateString(date_to)) {
-    where.push("DATE(COALESCE(published_at, created_at)) <= ?");
+    where.push("published_at < DATE_ADD(?, INTERVAL 1 DAY)");
     params.push(String(date_to));
   }
 
   const selectedPresses = parseCsv(press);
   appendPressWhere(where, params, selectedPresses);
 
+  const cacheKey = makeNewsListCacheKey({
+    p,
+    s,
+    category: String(category || ""),
+    q: String(q || "").trim(),
+    date_from: String(date_from || ""),
+    date_to: String(date_to || ""),
+    selectedPresses,
+    includePresses,
+    includeTotal,
+  });
+  const cached = getCachedListResponse(cacheKey);
+  if (cached) return cached;
+
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const dedupeKeySql = `
-    CASE
-      WHEN TRIM(COALESCE(title, '')) <> ''
-        AND COALESCE(published_at, created_at) IS NOT NULL
-      THEN CONCAT(
-        '__TITLE_TS__',
-        TRIM(COALESCE(title, '')),
-        '__PUBLISHED__',
-        COALESCE(DATE_FORMAT(COALESCE(published_at, created_at), '%Y-%m-%d %H:%i:%s'), '')
+  const rowsPromise = offset >= cappedTotalLimit
+    ? Promise.resolve([[]])
+    : db.query(
+        `
+        SELECT id, url, title, thumbnail, category, published_at, created_at
+        FROM articles
+        ${whereSql}
+        ORDER BY published_at DESC, id DESC
+        LIMIT ? OFFSET ?
+        `,
+        [...params, s, offset]
+      );
+  const countPromise = includeTotal
+    ? db.query(
+        `
+        SELECT COUNT(*) AS cnt
+        FROM articles
+        ${whereSql}
+        `,
+        params
       )
-      WHEN TRIM(COALESCE(url, '')) <> '' THEN TRIM(COALESCE(url, ''))
-      WHEN TRIM(COALESCE(title, '')) <> '' THEN CONCAT('__TITLE__', TRIM(COALESCE(title, '')))
-      ELSE CONCAT(
-        '__ID__',
-        CAST(id AS CHAR)
-      )
-    END
-  `;
-  const dedupedIdsSql = `
-    SELECT MAX(id) AS id
-    FROM articles
-    ${whereSql}
-    GROUP BY ${dedupeKeySql}
-  `;
+    : Promise.resolve([[{ cnt: null }]]);
 
-  const [countRows] = await db.query(
-    `
-    SELECT COUNT(*) AS cnt
-    FROM (
-      ${dedupedIdsSql}
-      LIMIT ?
-    ) AS capped
-    `,
-    [...params, cappedTotalLimit + 1]
-  );
-  const total = Math.min(Number(countRows?.[0]?.cnt) || 0, cappedTotalLimit);
-
-  const [rows] = await db.query(
-    `
-    SELECT a.id, a.url, a.title, a.thumbnail, a.category, a.published_at, a.created_at
-    FROM articles a
-    JOIN (
-      ${dedupedIdsSql}
-    ) AS dedup
-      ON dedup.id = a.id
-    ORDER BY (a.published_at IS NULL), a.published_at DESC, a.id DESC
-    LIMIT ? OFFSET ?
-    `,
-    [...params, s, offset]
-  );
+  const [[rows], [countRows]] = await Promise.all([rowsPromise, countPromise]);
+  const total = includeTotal
+    ? Math.min(Number(countRows?.[0]?.cnt) || 0, cappedTotalLimit)
+    : null;
 
   const items = rows.map((row) => {
     const pressName = resolvePressByHost(extractHostFromUrl(row.url));
@@ -396,37 +435,21 @@ exports.listArticles = async ({
 
   let presses = [];
   if (includePresses) {
-    const [scopeRows] = await db.query(
-      `
-      SELECT a.url, a.title
-      FROM articles a
-      JOIN (
-        ${dedupedIdsSql}
-      ) AS dedup
-        ON dedup.id = a.id
-      ORDER BY (a.published_at IS NULL), a.published_at DESC, a.id DESC
-      LIMIT ?
-      `,
-      [...params, cappedTotalLimit]
-    );
-
-    const pressSet = new Set();
-    for (const row of scopeRows) {
-      const pressName =
-        resolvePressByHost(extractHostFromUrl(row?.url)) ||
-        extractPressFromTitleTail(row?.title);
-      if (pressName) pressSet.add(pressName);
-    }
-    presses = sortPressNames(Array.from(pressSet));
+    const source = selectedPresses.length
+      ? selectedPresses
+      : Array.from(PRESS_TO_DOMAINS.keys());
+    presses = sortPressNames(Array.from(new Set(source.filter(Boolean))));
   }
 
-  return {
+  const response = {
     page: p,
     size: s,
     total,
     items,
     presses,
   };
+  setCachedListResponse(cacheKey, response);
+  return response;
 };
 
 exports.getArticle = async (id) => {

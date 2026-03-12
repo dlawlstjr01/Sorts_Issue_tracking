@@ -553,7 +553,7 @@ export default function ArticleListPage() {
   const [selectedPress, setSelectedPress] = useState(
     () => new Set(initialSearchState.selectedPress)
   );
-  const [availablePresses, setAvailablePresses] = useState([]);
+  const [availablePresses] = useState(() => [...new Set(PRESS_ITEMS)]);
   const [dateRange, setDateRange] = useState(initialSearchState.dateRange);
 
   const [newsItems, setNewsItems] = useState([]);
@@ -633,8 +633,7 @@ export default function ArticleListPage() {
     targetPage,
     keyword,
     range = dateRange,
-    presses = selectedPress,
-    includePresses = false
+    presses = selectedPress
   ) => {
     try {
       setLoading(true);
@@ -646,7 +645,6 @@ export default function ArticleListPage() {
         dateFrom: range?.start,
         dateTo: range?.end,
         presses: Array.from(presses),
-        includePresses,
       });
 
       const data = response?.data || {};
@@ -662,21 +660,11 @@ export default function ArticleListPage() {
       });
       const dedupedItems = dedupeNewsItems(normalizedItems);
       setNewsItems(dedupedItems);
-      if (includePresses) {
-        const pressesFromApi = Array.isArray(data.presses) ? data.presses : [];
-        const pressesFromRenderedItems = Array.from(
-          new Set(dedupedItems.map((item) => item.press_name).filter(Boolean))
-        );
-        setAvailablePresses(
-          pressesFromApi.length > 0 ? pressesFromApi : pressesFromRenderedItems
-        );
-      }
       setTotal(Number(data.total) || 0);
       setCurrentPage(targetPage);
     } catch (err) {
       setError(err?.response?.data?.message || "뉴스 기사를 불러오지 못했습니다.");
       setNewsItems([]);
-      if (includePresses) setAvailablePresses([]);
       setTotal(0);
       setCurrentPage(1);
     } finally {
@@ -689,8 +677,7 @@ export default function ArticleListPage() {
       initialSearchState.page,
       initialSearchState.query,
       initialSearchState.dateRange,
-      initialSearchState.selectedPress,
-      true
+      initialSearchState.selectedPress
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -783,7 +770,7 @@ export default function ArticleListPage() {
     setSelectedPress(emptySet);
     setDateRange(nextRange);
     syncListUrl(1, "", nextRange, emptySet, emptySet);
-    await loadNews(1, "", nextRange, emptySet, true);
+    await loadNews(1, "", nextRange, emptySet);
   };
 
   const runSearch = async () => {
@@ -793,7 +780,7 @@ export default function ArticleListPage() {
     }
     const keyword = query.trim();
     syncListUrl(1, keyword, dateRange, selectedPressFilter, selectedPress);
-    await loadNews(1, keyword, dateRange, selectedPress, true);
+    await loadNews(1, keyword, dateRange, selectedPress);
   };
 
   const handlePageChange = async (targetPage) => {
@@ -801,7 +788,7 @@ export default function ArticleListPage() {
     if (targetPage < 1 || targetPage > totalPages) return;
     const keyword = query.trim();
     syncListUrl(targetPage, keyword, dateRange, selectedPressFilter, selectedPress);
-    await loadNews(targetPage, keyword, dateRange, selectedPress, false);
+    await loadNews(targetPage, keyword, dateRange, selectedPress);
   };
 
   const openArticleDetail = (item) => {

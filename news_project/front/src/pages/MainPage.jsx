@@ -571,6 +571,7 @@ export default function MainPage() {
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
+  const [manualSelectedArticle, setManualSelectedArticle] = useState(null);
   const [articleListMode, setArticleListMode] = useState("daily");
   const swiperRef = useRef(null);
   const [recoLoading, setRecoLoading] = useState(false);
@@ -850,13 +851,21 @@ export default function MainPage() {
   const displayedArticles =
     articleListMode === "weekly" ? articleLists.weekly : articleLists.daily;
 
+  const centerArticles = useMemo(() => {
+    if (manualSelectedArticle) return [manualSelectedArticle];
+    return displayedArticles;
+  }, [manualSelectedArticle, displayedArticles]);
+
   const selectedArticle = useMemo(() => {
+    if (manualSelectedArticle) return manualSelectedArticle;
     if (!displayedArticles.length) return null;
     const fromDisplayed = displayedArticles.find(
       (a) => String(a.id) === String(selectedId)
     );
     return fromDisplayed || displayedArticles[0];
-  }, [displayedArticles, selectedId]);
+  }, [displayedArticles, selectedId, manualSelectedArticle]);
+
+  const listActiveId = manualSelectedArticle ? selectedId : selectedArticle?.id;
 
   useEffect(() => {
     const loadSelectedIssue = async () => {
@@ -992,7 +1001,11 @@ export default function MainPage() {
   }, [displayedArticles, selectedId]);
 
   const openOriginal = (article) => {
-    const normalized = rememberArticleDetail(article?.raw || article);
+    const merged =
+      article?.raw && typeof article.raw === "object"
+        ? { ...article.raw, ...article }
+        : article;
+    const normalized = rememberArticleDetail(merged);
     if (!normalized) {
       alert("기사 정보를 확인할 수 없습니다.");
       return;
@@ -1014,17 +1027,18 @@ export default function MainPage() {
             <div className="mp-panel-title">카테고리</div>
             <div className="mp-cat-list">
               {CATEGORIES.map((c) => (
-                <CategoryButton
-                  key={c.key}
-                  label={c.label}
-                  categoryKey={c.key}
-                  active={selectedCategory === c.key}
-                  onClick={() => {
-                    setSelectedCategory(c.key);
-                    setSelectedId(null);
-                    if (swiperRef.current) swiperRef.current.slideTo(0, 0);
-                  }}
-                />
+                  <CategoryButton
+                    key={c.key}
+                    label={c.label}
+                    categoryKey={c.key}
+                    active={selectedCategory === c.key}
+                    onClick={() => {
+                      setManualSelectedArticle(null);
+                      setSelectedCategory(c.key);
+                      setSelectedId(null);
+                      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
+                    }}
+                  />
               ))}
             </div>
 
@@ -1036,7 +1050,10 @@ export default function MainPage() {
                   <button
                     type="button"
                     className={`mp-article-tab ${articleListMode === "daily" ? "active" : ""}`}
-                    onClick={() => setArticleListMode("daily")}
+                    onClick={() => {
+                      setManualSelectedArticle(null);
+                      setArticleListMode("daily");
+                    }}
                     aria-pressed={articleListMode === "daily"}
                   >
                     일간
@@ -1044,7 +1061,10 @@ export default function MainPage() {
                   <button
                     type="button"
                     className={`mp-article-tab ${articleListMode === "weekly" ? "active" : ""}`}
-                    onClick={() => setArticleListMode("weekly")}
+                    onClick={() => {
+                      setManualSelectedArticle(null);
+                      setArticleListMode("weekly");
+                    }}
                     aria-pressed={articleListMode === "weekly"}
                   >
                     주간
@@ -1057,8 +1077,11 @@ export default function MainPage() {
                   <button
                     key={a.id}
                     type="button"
-                    className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
+                    className={`mp-article-item ${
+                      listActiveId != null && String(a.id) === String(listActiveId) ? "active" : ""
+                    }`}
                     onClick={() => {
+                      setManualSelectedArticle(null);
                       setSelectedId(String(a.id));
                     }}
                   >
@@ -1110,7 +1133,11 @@ export default function MainPage() {
             </div>
           ) : (
             <Swiper
-              key={`${selectedCategory}-${articleListMode}`}
+              key={
+                manualSelectedArticle
+                  ? `manual-${manualSelectedArticle.id}`
+                  : `${selectedCategory}-${articleListMode}`
+              }
               direction="vertical"
               slidesPerView={1}
               mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
@@ -1120,12 +1147,13 @@ export default function MainPage() {
                 swiperRef.current = s;
               }}
               onSlideChange={(s) => {
-                const next = displayedArticles[s.activeIndex];
-                if (next) setSelectedId(String(next.id));
+                const next = centerArticles[s.activeIndex];
+                if (!next || manualSelectedArticle) return;
+                setSelectedId(String(next.id));
               }}
               className="mp-center-swiper"
             >
-              {displayedArticles.map((article) => (
+              {centerArticles.map((article) => (
                 <SwiperSlide key={article.id}>
                   <div className="mp-center-inner">
                     <div className="mp-head">
@@ -1214,8 +1242,7 @@ export default function MainPage() {
                     title={a.title}
                     meta={`${getCategoryLabel(a.category)} · 관련`}
                     onClick={() => {
-                      setSelectedCategory(a.category || "all");
-                      setSelectedId(String(a.id));
+                      openOriginal(a);
                     }}
                   />
                 ))
@@ -1226,8 +1253,7 @@ export default function MainPage() {
                     title={a.title}
                     meta={`${getCategoryLabel(a.category)} · 관련`}
                     onClick={() => {
-                      setSelectedCategory(a.category || "all");
-                      setSelectedId(String(a.id));
+                      openOriginal(a);
                     }}
                   />
                 ))
@@ -1248,8 +1274,7 @@ export default function MainPage() {
                   title={a.title}
                   meta={`${getCategoryLabel(a.category)} · 대조`}
                   onClick={() => {
-                    setSelectedCategory(a.category || "all");
-                    setSelectedId(String(a.id));
+                    openOriginal(a);
                   }}
                 />
               ))}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
@@ -42,6 +42,31 @@ function splitParagraphs(article) {
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderHighlightedText(text, query, keyPrefix) {
+  if (!query) return text;
+  const safeQuery = escapeRegExp(query);
+  if (!safeQuery) return text;
+  const regex = new RegExp(safeQuery, "gi");
+  const matches = text.match(regex);
+  if (!matches) return text;
+  const parts = text.split(regex);
+  return parts.reduce((acc, part, idx) => {
+    if (part) acc.push(part);
+    if (idx < matches.length) {
+      acc.push(
+        <mark key={`${keyPrefix}-m-${idx}`} className="article-detail-mark">
+          {matches[idx]}
+        </mark>
+      );
+    }
+    return acc;
+  }, []);
 }
 
 function resolveBackTarget(location, fallback) {
@@ -90,6 +115,8 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState(initialArticle);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const fetchedArticleIdRef = useRef("");
 
   const [userId, setUserId] = useState(null);
@@ -103,6 +130,11 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     setArticle(initialArticle);
   }, [initialArticle]);
+
+  useEffect(() => {
+    setSearchInput("");
+    setSearchQuery("");
+  }, [article?.id]);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -266,11 +298,24 @@ export default function ArticleDetailPage() {
   }, []);
 
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
+  const trimmedQuery = searchQuery.trim();
+  const matchCount = useMemo(() => {
+    if (!trimmedQuery) return 0;
+    return paragraphs.reduce((sum, line) => {
+      const regex = new RegExp(escapeRegExp(trimmedQuery), "gi");
+      const matches = line.match(regex);
+      return sum + (matches ? matches.length : 0);
+    }, 0);
+  }, [trimmedQuery, paragraphs]);
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
   const backTarget = useMemo(
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
   );
+
+  const handleSearchSubmit = () => {
+    setSearchQuery(searchInput.trim());
+  };
 
   return (
     <div className="page article-detail-page">
@@ -351,12 +396,18 @@ export default function ArticleDetailPage() {
                 {paragraphs.length > 0 ? (
                   <div className="article-detail-content">
                     {paragraphs.map((line, index) => (
-                      <p key={`${article.id}-line-${index}`}>{line}</p>
+                      <p key={`${article.id}-line-${index}`}>
+                        {renderHighlightedText(
+                          line,
+                          trimmedQuery,
+                          `${article.id}-line-${index}`
+                        )}
+                      </p>
                     ))}
                   </div>
                 ) : (
                   <p className="article-detail-empty-content">
-                    본문 텍스트가 없어 요약 정보만 제공됩니다.
+                    본문 텍스트가 없어 요약 정보만 제공합니다.
                   </p>
                 )}
               </article>
@@ -386,6 +437,39 @@ export default function ArticleDetailPage() {
                 >
                   {article.url ? "원문 사이트로 이동" : "원문 링크 없음"}
                 </button>
+                
+                <div className="article-detail-search">
+                  <label className="article-detail-search-label" htmlFor="article-detail-search">
+                    본문 단어 검색
+                  </label>
+                  <div className="article-detail-search-controls">
+                    <div className="article-detail-search-input">
+                      <input
+                        id="article-detail-search"
+                        type="text"
+                        placeholder="본문에서 찾을 단어를 입력하세요."
+                        value={searchInput}
+                        onChange={(event) => setSearchInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") handleSearchSubmit();
+                        }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="article-detail-search-btn"
+                      onClick={handleSearchSubmit}
+                      disabled={!searchInput.trim()}
+                    >
+                      검색
+                    </button>
+                  </div>
+                  {trimmedQuery && (
+                    <div className="article-detail-search-count">
+                      {matchCount > 0 ? `검색 결과 ${matchCount}건` : "검색 결과 없음"}
+                    </div>
+                  )}
+                </div>
               </div>
             </aside>
           </div>
@@ -394,3 +478,6 @@ export default function ArticleDetailPage() {
     </div>
   );
 }
+
+
+

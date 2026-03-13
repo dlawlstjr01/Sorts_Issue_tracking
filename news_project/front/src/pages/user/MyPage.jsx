@@ -231,7 +231,7 @@ export default function MyPage() {
   const handleChangePassword = async () => {
     if (!pwForm.currentPassword) return openNotice("비밀번호 입력해주세요");
     if (!pwForm.newPassword) return openNotice("새 비밀번호를 입력해주세요.");
-    if (pwForm.newPassword.length < 8) return openNotice("새 비밀번호는 8자 이상 입력해주세요.");
+    if (pwForm.newPassword.length < 4) return openNotice("새 비밀번호는 4자 이상 입력해주세요.");
     if (pwForm.newPassword !== pwForm.newPassword2) return openNotice("새 비밀번호가 일치하지 않습니다.");
 
     setPwSaving(true);
@@ -264,7 +264,7 @@ export default function MyPage() {
           <div className="pageTitle">마이페이지</div>
           <div className="pageDesc">로딩 중...</div>
         </div>
-        <SideMenuCard />
+        <SideMenuCard mobileCollapsible />
       </div>
     );
   }
@@ -284,7 +284,7 @@ export default function MyPage() {
         <div className="pageDesc">개인 정보를 확인하고 수정할 수 있습니다.</div>
       </div>
 
-      <SideMenuCard />
+      <SideMenuCard mobileCollapsible />
 
       <div className="my-grid">
         <section className="my-card">
@@ -396,7 +396,7 @@ export default function MyPage() {
                 name="newPassword"
                 value={pwForm.newPassword}
                 onChange={onChangePw}
-                placeholder="새 비밀번호 (8자 이상)"
+                placeholder="새 비밀번호 (4자 이상)"
                 autoComplete="new-password"
               />
             </label>

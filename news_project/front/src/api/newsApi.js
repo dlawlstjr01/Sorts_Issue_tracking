@@ -10,6 +10,7 @@ export const fetchNews = (
     dateTo = null,
     presses = [],
     includePresses = false,
+    includeTotal = true,
   },
   config = {}
 ) => {
@@ -22,6 +23,9 @@ export const fetchNews = (
   }
   if (includePresses) {
     params.include_presses = 1;
+  }
+  if (!includeTotal) {
+    params.include_total = 0;
   }
 
   return axios.get("/news", { params, ...config });

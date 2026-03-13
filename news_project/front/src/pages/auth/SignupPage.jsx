@@ -339,7 +339,7 @@ export default function SignupPage() {
           </div>
 
           <aside className="login-side-menu">
-            <SideMenuCard />
+            <SideMenuCard mobileCollapsible />
           </aside>
         </div>
       </div>

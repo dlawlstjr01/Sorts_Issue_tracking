@@ -2,6 +2,8 @@ import React, { useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import SideMenuCard from "../../components/SideMenuCard";
 
+const GENERATED_REPORTS_KEY = "generatedReports";
+
 const reports = [
   {
     id: "REP-001",
@@ -68,6 +70,17 @@ const reports = [
   },
 ];
 
+function normalizeReportShape(raw) {
+  return {
+    ...raw,
+    summary: raw?.summary || raw?.desc || "요약 정보가 없습니다.",
+    highlights: Array.isArray(raw?.highlights) ? raw.highlights : [],
+    timeline: Array.isArray(raw?.timeline) ? raw.timeline : [],
+    related: Array.isArray(raw?.related) ? raw.related : [],
+    metrics: raw?.metrics || { coverage: "-", volatility: "-", sentiment: "-" },
+  };
+}
+
 export default function ReportsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -76,7 +89,22 @@ export default function ReportsPage() {
     return sp.get("id");
   }, [location.search]);
 
-  const report = useMemo(() => reports.find((item) => item.id === reportId) || null, [reportId]);
+  const generatedReports = useMemo(() => {
+    // ✅ 이슈 페이지에서 생성된 리포트도 상세 페이지에서 조회할 수 있게 한다.
+    try {
+      const parsed = JSON.parse(localStorage.getItem(GENERATED_REPORTS_KEY) || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const report = useMemo(() => {
+    const fromGenerated = generatedReports.find((item) => item.id === reportId);
+    const fromSeed = reports.find((item) => item.id === reportId);
+    const found = fromGenerated || fromSeed || null;
+    return found ? normalizeReportShape(found) : null;
+  }, [generatedReports, reportId]);
 
   return (
     <div className="page report-detail-page">

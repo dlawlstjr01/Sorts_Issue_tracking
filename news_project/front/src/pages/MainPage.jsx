@@ -591,7 +591,7 @@ export default function MainPage() {
 
   const q = "";
 
-  const fetchPageAndAppend = async (targetPage) => {
+  const fetchPageAndAppend = async (targetPage, { background = false } = {}) => {
     const cacheKey = `${targetPage}:${size}:${q}`;
 
     if (cacheRef.current.has(cacheKey)) {
@@ -599,29 +599,38 @@ export default function MainPage() {
       setArticles((prev) => {
         return mergeUniqueArticles([...prev, ...cached]);
       });
+      setPage((prev) => Math.max(prev, targetPage));
       return cached.length;
     }
 
     if (fetchedPagesRef.current.has(cacheKey)) return 0;
+    fetchedPagesRef.current.add(cacheKey);
 
     const controller = new AbortController();
-    abortRef.current = controller;
+    if (!background) {
+      abortRef.current = controller;
+    }
 
     try {
-      setLoading(true);
-      setError("");
+      if (!background) {
+        setLoading(true);
+        setError("");
+      }
 
-      const res = await fetchNews({ page: targetPage, size, q }, { signal: controller.signal });
+      const res = await fetchNews(
+        { page: targetPage, size, q, includeTotal: false },
+        { signal: controller.signal }
+      );
       const data = res.data;
       const list = Array.isArray(data?.items) ? data.items : [];
       const mapped = list.map(mapNewsToArticle);
 
-      fetchedPagesRef.current.add(cacheKey);
       cacheRef.current.set(cacheKey, mapped);
 
       setArticles((prev) => {
         return mergeUniqueArticles([...prev, ...mapped]);
       });
+      setPage((prev) => Math.max(prev, targetPage));
 
       return mapped.length;
     } catch (e) {
@@ -631,10 +640,15 @@ export default function MainPage() {
       }
 
       fetchedPagesRef.current.delete(cacheKey);
-      setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
+      if (!background) {
+        setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
+      }
       return 0;
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
     }
   };
 
@@ -665,10 +679,13 @@ export default function MainPage() {
     didInitRef.current = true;
 
     const loadInitial = async () => {
-      await fetchPageAndAppend(1);
-      await fetchPageAndAppend(2);
-      await fetchPageAndAppend(3);
-      setPage(3);
+      const loaded = await fetchPageAndAppend(1);
+      if (!loaded) return;
+
+      void (async () => {
+        await fetchPageAndAppend(2, { background: true });
+        await fetchPageAndAppend(3, { background: true });
+      })();
     };
 
     loadInitial();

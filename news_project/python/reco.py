@@ -2,6 +2,8 @@ import os
 import re
 import math
 import random
+import threading
+import time
 from typing import List, Dict, Any, Optional
 
 import numpy as np
@@ -40,10 +42,12 @@ STAY_TIME_WEIGHT = 1.0
 SCROLL_DEPTH_WEIGHT = 0.18
 VIEW_COUNT_BASE_WEIGHT = 2.5
 
+RELOAD_INTERVAL_SEC = int(os.getenv("RELOAD_INTERVAL_SEC", "300"))  # 5분마다 기사 재적재
+
 # -----------------------------
 # FastAPI
 # -----------------------------
-app = FastAPI(title="Reco API", version="2.0.0")
+app = FastAPI(title="Reco API", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +72,10 @@ X_NORM: Optional[np.ndarray] = None
 ITEM_CAT: Optional[np.ndarray] = None
 N_CATS: int = 0
 CAT_LABELS: List[str] = []
+
+LAST_ARTICLE_COUNT: int = 0
+LAST_LOAD_TS: float = 0.0
+LOAD_LOCK = threading.Lock()
 
 # -----------------------------
 # Helpers
@@ -129,6 +137,24 @@ def calc_recency_score(raw_published_at) -> float:
         return 0.04
     return 0.0
 
+def calc_behavior_recency_bonus(last_seen_at) -> float:
+    dt = parse_datetime(last_seen_at)
+    if dt is None:
+        return 0.0
+
+    now = pd.Timestamp.now().to_pydatetime()
+    diff_hours = (now - dt).total_seconds() / 3600.0
+
+    if diff_hours <= 6:
+        return 1.2
+    if diff_hours <= 24:
+        return 0.8
+    if diff_hours <= 72:
+        return 0.45
+    if diff_hours <= 168:
+        return 0.2
+    return 0.0
+
 def _build_category(df: pd.DataFrame, topic_id: np.ndarray):
     if "source" not in df.columns:
         df["source"] = df["category"].fillna("etc").astype(str)
@@ -168,8 +194,10 @@ def fetch_articles_from_db() -> pd.DataFrame:
             published_at
         FROM articles
         WHERE title IS NOT NULL
-          AND TRIM(title) <> ''
+        AND TRIM(title) <> ''
+        AND published_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
         ORDER BY published_at DESC, id DESC
+        LIMIT 10000
     """
 
     conn = get_conn()
@@ -201,75 +229,106 @@ def fetch_articles_from_db() -> pd.DataFrame:
 
     return df.reset_index(drop=True)
 
+def get_article_count() -> int:
+    sql = "SELECT COUNT(*) AS cnt FROM articles"
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+            return int((row or {}).get("cnt") or 0)
+    finally:
+        conn.close()
+
 def load_all():
     global DF, ITEMS, ID2IDX, VECT, SVD, KM, X_NORM, ITEM_CAT, N_CATS, CAT_LABELS
+    global LAST_ARTICLE_COUNT, LAST_LOAD_TS
 
-    print("[RecoAPI] load_all start")
-    df = fetch_articles_from_db()
-    print(f"[RecoAPI] fetched rows={len(df)}")
+    with LOAD_LOCK:
+        print("[RecoAPI] load_all start")
+        df = fetch_articles_from_db()
+        print(f"[RecoAPI] fetched rows={len(df)}")
 
-    if df.empty:
-        DF = pd.DataFrame()
-        ITEMS = []
-        ID2IDX = {}
-        VECT = None
-        SVD = None
-        KM = None
-        X_NORM = None
-        ITEM_CAT = np.array([], dtype=np.int32)
-        N_CATS = 0
-        CAT_LABELS = []
-        print("[RecoAPI] articles table is empty")
-        return
+        if df.empty:
+            DF = pd.DataFrame()
+            ITEMS = []
+            ID2IDX = {}
+            VECT = None
+            SVD = None
+            KM = None
+            X_NORM = None
+            ITEM_CAT = np.array([], dtype=np.int32)
+            N_CATS = 0
+            CAT_LABELS = []
+            LAST_ARTICLE_COUNT = 0
+            LAST_LOAD_TS = time.time()
+            print("[RecoAPI] articles table is empty")
+            return
 
-    texts = (df["title"].fillna("") + " " + df["content"].fillna("").str[:2200]).tolist()
-    texts = [clean_text(t) for t in texts]
-    print("[RecoAPI] text preprocessing done")
+        texts = (df["title"].fillna("") + " " + df["content"].fillna("").str[:2200]).tolist()
+        texts = [clean_text(t) for t in texts]
+        print("[RecoAPI] text preprocessing done")
 
-    VECT = TfidfVectorizer(max_features=80000, ngram_range=(1, 2), min_df=2)
-    X = VECT.fit_transform(texts)
-    print(f"[RecoAPI] tfidf done shape={X.shape}")
+        VECT = TfidfVectorizer(max_features=80000, ngram_range=(1, 2), min_df=2)
+        X = VECT.fit_transform(texts)
+        print(f"[RecoAPI] tfidf done shape={X.shape}")
 
-    if X.shape[1] <= 2:
-        svd_dim = 2
-    else:
-        svd_dim = min(SVD_DIM, X.shape[1] - 1)
+        if X.shape[1] <= 2:
+            svd_dim = 2
+        else:
+            svd_dim = min(SVD_DIM, X.shape[1] - 1)
 
-    SVD = TruncatedSVD(n_components=svd_dim, random_state=SEED)
-    Xr = SVD.fit_transform(X).astype(np.float32)
-    print(f"[RecoAPI] svd done shape={Xr.shape}")
+        SVD = TruncatedSVD(n_components=svd_dim, random_state=SEED)
+        Xr = SVD.fit_transform(X).astype(np.float32)
+        print(f"[RecoAPI] svd done shape={Xr.shape}")
 
-    X_NORM = Xr / (np.linalg.norm(Xr, axis=1, keepdims=True) + 1e-12)
+        X_NORM = Xr / (np.linalg.norm(Xr, axis=1, keepdims=True) + 1e-12)
 
-    n_items = len(df)
+        n_items = len(df)
 
-    if n_items < 2:
-        topic_id = np.zeros(n_items, dtype=np.int32)
-        KM = None
-        n_topics = 1
-    else:
-        desired = min(N_TOPICS_TARGET, max(6, int(math.sqrt(n_items)) // 3))
-        n_topics = max(2, min(desired, n_items))
-        print(f"[RecoAPI] kmeans start n_topics={n_topics}")
-        KM = KMeans(n_clusters=n_topics, random_state=SEED, n_init=10)
-        topic_id = KM.fit_predict(X_NORM).astype(np.int32)
-        print("[RecoAPI] kmeans done")
+        if n_items < 2:
+            topic_id = np.zeros(n_items, dtype=np.int32)
+            KM = None
+            n_topics = 1
+        else:
+            desired = min(N_TOPICS_TARGET, max(6, int(math.sqrt(n_items)) // 3))
+            n_topics = max(2, min(desired, n_items))
+            print(f"[RecoAPI] kmeans start n_topics={n_topics}")
+            KM = KMeans(n_clusters=n_topics, random_state=SEED, n_init=10)
+            topic_id = KM.fit_predict(X_NORM).astype(np.int32)
+            print("[RecoAPI] kmeans done")
 
-    df["topic_id"] = topic_id
-    item_cat, uniq_cats = _build_category(df, topic_id)
-    df["category_for_model"] = (
-        df["source"].astype(str) + "/T" + df["topic_id"].astype(str)
-    )
+        df["topic_id"] = topic_id
+        item_cat, uniq_cats = _build_category(df, topic_id)
+        df["category_for_model"] = (
+            df["source"].astype(str) + "/T" + df["topic_id"].astype(str)
+        )
 
-    DF = df
-    ITEM_CAT = item_cat
-    CAT_LABELS = uniq_cats
-    N_CATS = len(uniq_cats)
+        DF = df
+        ITEM_CAT = item_cat
+        CAT_LABELS = uniq_cats
+        N_CATS = len(uniq_cats)
 
-    ITEMS = [_map_item(df.iloc[i], i) for i in range(n_items)]
-    ID2IDX = {ITEMS[i]["id"]: i for i in range(n_items)}
+        ITEMS = [_map_item(df.iloc[i], i) for i in range(n_items)]
+        ID2IDX = {ITEMS[i]["id"]: i for i in range(n_items)}
 
-    print(f"[RecoAPI] loaded items={len(ITEMS)} topics={n_topics} cats={N_CATS}")
+        LAST_ARTICLE_COUNT = len(df)
+        LAST_LOAD_TS = time.time()
+
+        print(f"[RecoAPI] loaded items={len(ITEMS)} topics={n_topics} cats={N_CATS}")
+
+def auto_reload_loop():
+    global LAST_ARTICLE_COUNT
+
+    while True:
+        try:
+            time.sleep(RELOAD_INTERVAL_SEC)
+            current_count = get_article_count()
+            if current_count != LAST_ARTICLE_COUNT:
+                print(f"[RecoAPI] article count changed {LAST_ARTICLE_COUNT} -> {current_count}, reloading...")
+                load_all()
+        except Exception as e:
+            print("[RecoAPI] auto_reload_loop error:", e)
 
 # -----------------------------
 # User preference from log table
@@ -286,10 +345,14 @@ def fetch_user_pref_rows(user_id: int) -> List[Dict[str, Any]]:
                 END
                 + IFNULL(l.scroll_depth, 0) * %s
                 + %s
+                + CASE
+                    WHEN l.created_at IS NOT NULL THEN 0
+                    ELSE 0
+                  END
             ) AS pref_score,
             COUNT(*) AS view_count,
             MAX(l.created_at) AS last_seen_at
-        FROM log l
+        FROM user_log l
         WHERE l.user_id = %s
           AND l.article_id IS NOT NULL
         GROUP BY l.article_id
@@ -310,6 +373,48 @@ def fetch_user_pref_rows(user_id: int) -> List[Dict[str, Any]]:
                     user_id,
                 ),
             )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    for row in rows:
+        row["pref_score"] = float(row.get("pref_score") or 0.0)
+        row["view_count"] = int(row.get("view_count") or 0)
+
+        bonus = calc_behavior_recency_bonus(row.get("last_seen_at"))
+        row["pref_score"] += bonus + math.log1p(row["view_count"]) * 0.6
+
+    rows.sort(
+        key=lambda x: (
+            float(x.get("pref_score") or 0.0),
+            int(x.get("view_count") or 0),
+            parse_datetime(x.get("last_seen_at")) or pd.Timestamp.min.to_pydatetime(),
+        ),
+        reverse=True,
+    )
+    return rows
+
+def fetch_guest_popular_rows(limit: int = 200) -> List[Dict[str, Any]]:
+    sql = """
+        SELECT
+            l.article_id,
+            COUNT(*) AS view_count,
+            SUM(IFNULL(l.stay_time, 0)) AS total_stay_time,
+            SUM(IFNULL(l.scroll_depth, 0)) AS total_scroll_depth,
+            MAX(l.created_at) AS last_seen_at
+        FROM user_log l
+        WHERE l.article_id IS NOT NULL
+        GROUP BY l.article_id
+        ORDER BY view_count DESC, total_stay_time DESC, total_scroll_depth DESC, last_seen_at DESC
+        LIMIT %s
+    """
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (limit,))
             rows = cur.fetchall()
     finally:
         conn.close()
@@ -355,9 +460,9 @@ def diversify_rerank(cand_idx: np.ndarray, scores: np.ndarray, k: int, min_uniqu
     return chosen[:k]
 
 # -----------------------------
-# Recommend
+# Personalized Recommend
 # -----------------------------
-def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
+def recommend(user_id: Optional[int], k: int) -> List[Dict[str, Any]]:
     global X_NORM
 
     k = max(1, min(int(k), 50))
@@ -366,40 +471,16 @@ def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
     if n == 0 or X_NORM is None:
         return []
 
-    pref_rows = fetch_user_pref_rows(user_id)
+    # 비로그인: 추천 안 함
+    if user_id is None or int(user_id) <= 0:
+        return []
 
+    pref_rows = fetch_user_pref_rows(int(user_id))
+
+    # 로그인했지만 개인 로그가 없음
     if not pref_rows:
-        base_scores = np.array(
-            [calc_recency_score(item.get("published_at")) for item in ITEMS],
-            dtype=np.float32,
-        )
-        if len(base_scores) == 0:
-            return []
+        return []
 
-        pre = min(PRE_N, len(base_scores))
-        if pre <= 0:
-            return []
-
-        cand_idx = np.argpartition(-base_scores, kth=pre - 1)[:pre]
-        scores = base_scores[cand_idx]
-
-        picked_idx = diversify_rerank(
-            cand_idx=cand_idx,
-            scores=scores,
-            k=k,
-            min_unique_cats=MIN_UNIQUE_CATS_IN_TOPK_DEFAULT,
-        )
-
-        out = []
-        for rank, idx in enumerate(picked_idx):
-            it = dict(ITEMS[idx])
-            it["score"] = float(k - rank) / float(k)
-            if not it.get("category"):
-                it["category"] = "etc"
-            out.append(it)
-        return out
-
-    seen_ids = []
     seen_idx = []
     pref_score_map = {}
 
@@ -407,11 +488,13 @@ def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
         aid = str(row.get("article_id", "")).strip()
         if not aid:
             continue
-        seen_ids.append(aid)
+
         pref_score_map[aid] = float(row.get("pref_score") or 0.0)
+
         if aid in ID2IDX:
             seen_idx.append(ID2IDX[aid])
 
+    # user_log 는 있지만 현재 추천 데이터셋 ITEMS 에 매핑되는 기사가 없음
     if not seen_idx:
         return []
 
@@ -421,18 +504,26 @@ def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
     )
     weights = weights / (weights.sum() + 1e-12)
 
-    user_vec = np.average(X_NORM[np.array(seen_idx, dtype=np.int32)], axis=0, weights=weights)
+    user_vec = np.average(
+        X_NORM[np.array(seen_idx, dtype=np.int32)],
+        axis=0,
+        weights=weights,
+    )
     user_vec = user_vec / (np.linalg.norm(user_vec) + 1e-12)
 
     scores_all = (X_NORM @ user_vec).astype(np.float32)
 
+    # 이미 본 기사 완전 제외
     for idx in seen_idx:
         scores_all[idx] = -1e9
 
+    # 최신 기사 가산점
     for i in range(n):
         scores_all[i] += calc_recency_score(ITEMS[i].get("published_at"))
 
-    pre = min(PRE_N, n - len(seen_idx)) if n > len(seen_idx) else 0
+    available_n = n - len(seen_idx)
+    pre = min(PRE_N, available_n) if available_n > 0 else 0
+
     if pre <= 0:
         return []
 
@@ -447,11 +538,13 @@ def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
     )
 
     out = []
-    for rank, idx in enumerate(picked_idx):
+    for idx in picked_idx:
         it = dict(ITEMS[idx])
         it["score"] = float(scores_all[idx])
+
         if not it.get("category"):
             it["category"] = "etc"
+
         out.append(it)
 
     return out
@@ -461,11 +554,24 @@ def recommend(user_id: int, k: int) -> List[Dict[str, Any]]:
 # -----------------------------
 @app.on_event("startup")
 def on_startup():
-    load_all()
+    def bootstrap():
+        try:
+            load_all()
+        except Exception as e:
+            print("[RecoAPI] bootstrap load_all error:", e)
+
+    threading.Thread(target=bootstrap, daemon=True).start()
+    threading.Thread(target=auto_reload_loop, daemon=True).start()
 
 @app.get("/health")
 def health():
-    return {"ok": True, "items": len(ITEMS), "cats": N_CATS}
+    return {
+        "ok": True,
+        "items": len(ITEMS),
+        "cats": N_CATS,
+        "last_article_count": LAST_ARTICLE_COUNT,
+        "last_load_ts": LAST_LOAD_TS,
+    }
 
 @app.get("/reload")
 def reload_items():
@@ -473,9 +579,9 @@ def reload_items():
     return {"ok": True, "items": len(ITEMS), "cats": N_CATS}
 
 @app.get("/reco")
-def reco(
-    userId: int = Query(..., ge=1),
-    k: int = Query(K_DEFAULT, ge=1, le=50),
-):
+def reco(userId: Optional[int] = None, k: int = 20):
+    if userId is None or int(userId) <= 0:
+        return {"items": []}
+
     items = recommend(user_id=userId, k=k)
     return {"items": items}

@@ -1,55 +1,21 @@
 const axios = require("axios");
 const db = require("../config/DB");
 
-const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://python:8000";
-
-/**
- * 최근 본 기사 article_id 목록을 user_log에서 가져오기 (중복 제거, 최근 순 유지)
- */
-async function fetchRecentSeenArticleIds(userId, limit = 80) {
-  const lim = Math.max(1, Math.min(200, Number(limit) || 80));
-
-  const sql = `
-    SELECT ul.article_id
-    FROM user_log ul
-    WHERE ul.user_id = ?
-    ORDER BY ul.created_at DESC
-    LIMIT ?
-  `;
-
-  const [rows] = await db.query(sql, [userId, lim]);
-
-  const seen = new Set();
-  const ids = [];
-  for (const r of rows) {
-    const id = String(r.article_id);
-    if (!id) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    ids.push(id);
-  }
-  return ids;
-}
+const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://reco:8000";
 
 /**
  * Python 추천 서버 호출
- * - (내가 최근에 준) python/app.py 기준: GET /reco?userId=...&k=...&seen=1,2,3
- * - cold-start는 seen 없이 호출
+ * - 로그인:  GET /reco?userId=...&k=...
+ * - 비로그인: GET /reco?k=...
  */
 async function fetchRecoFromPython({ userId, k }) {
   const url = `${RECO_BASE_URL}/reco`;
 
-  const params = {
-    userId: String(userId || 1),
-    k,
-  };
+  const params = { k };
 
-  // userId가 있을 때만 seen을 붙여서 개인화
-  if (userId) {
-    const seenIds = await fetchRecentSeenArticleIds(userId, 80);
-    if (seenIds.length > 0) {
-      params.seen = seenIds.join(",");
-    }
+  // 로그인 사용자일 때만 userId 전달
+  if (userId && Number(userId) > 0) {
+    params.userId = Number(userId);
   }
 
   const res = await axios.get(url, { params, timeout: 8000 });
@@ -62,7 +28,7 @@ async function fetchRecoFromPython({ userId, k }) {
 async function fetchArticlesByUrls(urls) {
   if (!urls || urls.length === 0) return [];
 
-  const uniq = Array.from(new Set(urls)); // 중복 제거
+  const uniq = Array.from(new Set(urls));
   if (uniq.length === 0) return [];
 
   const placeholders = uniq.map(() => "?").join(",");
@@ -85,7 +51,9 @@ async function fetchArticlesByUrls(urls) {
  */
 function mergeRecoWithArticles(recoItems, articleRows) {
   const byUrl = new Map();
-  for (const a of articleRows) byUrl.set(a.url, a);
+  for (const a of articleRows) {
+    byUrl.set(a.url, a);
+  }
 
   const out = [];
   for (const r of recoItems) {
@@ -93,7 +61,7 @@ function mergeRecoWithArticles(recoItems, articleRows) {
     if (!url) continue;
 
     const a = byUrl.get(url);
-    if (!a) continue; // DB에 없는 url이면 제외
+    if (!a) continue;
 
     out.push({
       id: a.id,
@@ -104,8 +72,6 @@ function mergeRecoWithArticles(recoItems, articleRows) {
       published_at: a.published_at,
       category: a.category,
       created_at: a.created_at,
-
-      // 추천 메타(있으면 같이 내려줌)
       reco: {
         category_for_model: r.category_for_model || r.category || null,
         source: r.source || null,
@@ -115,6 +81,7 @@ function mergeRecoWithArticles(recoItems, articleRows) {
       },
     });
   }
+
   return out;
 }
 
@@ -122,21 +89,17 @@ exports.getRecommendations = async ({ userId, k = 20 }) => {
   const kk = Math.max(1, Math.min(50, Number(k) || 20));
   const uid = userId ? Number(userId) : null;
 
-  const reco = await fetchRecoFromPython({ userId: uid || 1, k: kk });
+  const reco = await fetchRecoFromPython({ userId: uid, k: kk });
   const recoItems = Array.isArray(reco?.items) ? reco.items : [];
 
-  // python이 준 url 목록
   const urls = recoItems.map((x) => x?.url).filter(Boolean);
-
-  // DB에서 기사 조회 (url 기준)
   const articles = await fetchArticlesByUrls(urls);
-
-  // 추천 결과 순서를 유지한 채 합치기
   const merged = mergeRecoWithArticles(recoItems, articles);
 
   return {
     userId: uid,
     k: kk,
+    isPersonalized: !!(uid && uid > 0),
     items: merged,
     missing: Math.max(0, urls.length - merged.length),
   };

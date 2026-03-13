@@ -90,7 +90,7 @@ export default function ReportsPage() {
   }, [location.search]);
 
   const generatedReports = useMemo(() => {
-    // ✅ 이슈 페이지에서 생성된 리포트도 상세 페이지에서 조회할 수 있게 한다.
+    //  이슈 페이지에서 생성된 리포트도 상세 페이지에서 조회할 수 있게 한다.
     try {
       const parsed = JSON.parse(localStorage.getItem(GENERATED_REPORTS_KEY) || "[]");
       return Array.isArray(parsed) ? parsed : [];

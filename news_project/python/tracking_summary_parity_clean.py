@@ -241,7 +241,7 @@ class PipelineConfig:
     OUT_DIR: str
 
     BUCKET: str = "day"
-    MAX_BUCKETS: int = 2
+    MAX_BUCKETS: int = 4
     TARGET_BUCKETS: Optional[List[str]] = None
 
     E5_MODEL: str = "intfloat/multilingual-e5-large"
@@ -2301,7 +2301,7 @@ def _scheduler_loop():
 
 DEFAULT_OUT_DIR = os.getenv("OUT_DIR", "/app/issue_outputs")
 DEFAULT_BUCKET = os.getenv("BUCKET", "day")
-DEFAULT_MAX_BUCKETS = int(os.getenv("MAX_BUCKETS", "2"))
+DEFAULT_MAX_BUCKETS = int(os.getenv("MAX_BUCKETS", "4"))
 DEFAULT_E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-large")
 DEFAULT_DEVICE = os.getenv("DEVICE", "auto")  # cuda 쓰면 "cuda", auto는 사용 가능 장치 자동 선택
 DEFAULT_MODEL_DIR = os.getenv("MODEL_DIR", "")  # 로컬 모델 경로 쓸 때만
@@ -2871,8 +2871,42 @@ def get_issues(
             print("[/issues] rows =", len(rows))
 
         items = []
-   
+
         for r in rows:
+            article_ids = json.loads(r.get("article_ids_json") or "[]")
+
+            related_articles = []
+            if article_ids:
+                placeholders = ",".join(["%s"] * len(article_ids))
+
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        SELECT id, title, url, category, published_at
+                        FROM articles
+                        WHERE id IN ({placeholders})
+                        """,
+                        article_ids
+                    )
+                    related_rows = cur.fetchall()
+
+                related_map = {
+                    int(x["id"]): {
+                        "id": int(x["id"]),
+                        "title": clean_html_text(x.get("title") or ""),
+                        "url": x.get("url") or "",
+                        "category": x.get("category") or "기타",
+                        "published_at": str(x.get("published_at") or ""),
+                    }
+                    for x in related_rows
+                }
+
+                related_articles = [
+                    related_map[aid]
+                    for aid in article_ids
+                    if aid in related_map
+                ]
+
             items.append({
                 "id": r.get("article_id"),
                 "article_id": r.get("article_id"),
@@ -2882,7 +2916,8 @@ def get_issues(
                 "summary": clean_html_text(r.get("ultra_short") or ""),
                 "short_summary": clean_html_text(r.get("short_summary") or ""),
                 "related_count": int(r.get("related_count") or 1),
-                "article_ids": json.loads(r.get("article_ids_json") or "[]"),
+                "article_ids": article_ids,
+                "related_articles": related_articles,
                 "keywords": clean_html_text(r.get("keywords") or ""),
                 "created_at": str(r.get("created_at") or ""),
             })

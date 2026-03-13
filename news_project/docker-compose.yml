@@ -21,16 +21,6 @@ services:
     command: ["uvicorn", "reco:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
-  counter_python:
-    build: ./python
-    ports:
-      - "8003:8003"
-    env_file:
-      - ./python/.env
-    environment:
-      - ARTIFACT_DIR=/app/reco_artifacts
-    command: ["uvicorn", "counter_reco_app:app", "--host", "0.0.0.0", "--port", "8003"]
-    restart: unless-stopped
 
   crawler:
     build: ./python
@@ -43,6 +33,7 @@ services:
     command: ["uvicorn", "crawler:app", "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
+
   tracking:
     build: ./python
     ports:
@@ -53,4 +44,16 @@ services:
       - ./python/data:/app/data
       - ./python/issue_outputs:/app/issue_outputs
     command: ["uvicorn", "tracking_summary_parity_clean:app", "--host", "0.0.0.0", "--port", "8002"]
+    restart: unless-stopped
+
+
+  counter_python:
+    build: ./python
+    ports:
+      - "8003:8003"
+    env_file:
+      - ./python/.env
+    environment:
+      - ARTIFACT_DIR=/app/reco_artifacts
+    command: ["uvicorn", "counter_reco_app:app", "--host", "0.0.0.0", "--port", "8003"]
     restart: unless-stopped

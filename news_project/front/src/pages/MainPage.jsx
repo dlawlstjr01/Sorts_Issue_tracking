@@ -107,9 +107,18 @@ function RelatedItem({ title, meta, onClick }) {
 }
 
 function LatestIssueCard({ issue, onClick }) {
+  const titles =
+    issue.related_articles?.length > 0
+      ? issue.related_articles.map((article) => article.title)
+      : [issue.title];
+
   return (
     <button type="button" className="mp-latest-card" onClick={onClick}>
-      <div className="mp-latest-title">{issue.title}</div>
+      <div className="mp-latest-title">
+        {titles.map((title, idx) => (
+          <div key={idx}>{title}</div>
+        ))}
+      </div>
     </button>
   );
 }
@@ -272,15 +281,23 @@ function LatestIssuesCarousel({ items, count, onItemClick }) {
 
 function mapTrackingItemToRelatedUI(it) {
   const title = it?.title || it?.issue_title || it?.headline || "(제목 없음)";
-  const category = it?.category || it?.issue_category || "society";
   const url = it?.url || it?.representative_url || it?.top_url || "";
   const summary =
     it?.summary || it?.ultra_short || it?.issue_summary || it?.description || "";
   const id = String(it?.id || it?.issue_id || url || title);
 
+  const inferredCategory = inferCategoryFromNews({
+    title,
+    summary,
+    description: summary,
+    content: it?.background || it?.content || "",
+    body: it?.body || "",
+    press_name: it?.press_name || "",
+  });
+
   return {
     id,
-    category,
+    category: inferredCategory,
     title,
     meta: summary,
     raw: { ...it, url },
@@ -452,10 +469,10 @@ function buildArticleDedupKey(article) {
   const title = String(article?.title || "").trim();
   const published = String(
     article?.raw?.published_at ||
-      article?.raw?.created_at ||
-      article?.published_at ||
-      article?.createdAt ||
-      ""
+    article?.raw?.created_at ||
+    article?.published_at ||
+    article?.createdAt ||
+    ""
   ).trim();
 
   if (title && published) return `title:${title}|published:${published}`;
@@ -502,18 +519,34 @@ function mapRecoItemToArticle(item) {
   const url = raw.url || raw.link || raw.news_url || "";
   const title = raw.title || raw.headline || "(제목 없음)";
 
+  const rawCategory = String(raw.category || "").trim().toLowerCase();
+
   const category =
-    raw.category && raw.category !== "기타"
+    rawCategory &&
+      rawCategory !== "기타" &&
+      rawCategory !== "etc" &&
+      rawCategory !== "all"
       ? raw.category
-      : inferCategoryFromNews(raw);
+      : inferCategoryFromNews({
+        title,
+        summary: raw.summary || raw.short_summary || raw.ultra_short || "",
+        description: raw.description || "",
+        content: raw.content || raw.background || "",
+        body: raw.body || "",
+        press_name: raw.press_name || "",
+      });
 
   const id =
     raw.id ??
     raw.articleId ??
     raw.news_id ??
     url ??
-    `${title}-${raw.published_at || Date.now()}`;
-  const createdAt = raw.published_at ? new Date(raw.published_at).getTime() : Date.now();
+    `${title}-${raw.published_at || raw.publishedAt || Date.now()}`;
+
+  const createdAt =
+    raw.published_at || raw.publishedAt
+      ? new Date(raw.published_at || raw.publishedAt).getTime()
+      : Date.now();
 
   const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
 
@@ -540,6 +573,8 @@ export default function MainPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [articleListMode, setArticleListMode] = useState("daily");
   const swiperRef = useRef(null);
+  const [recoLoading, setRecoLoading] = useState(false);
+  const [recoReady, setRecoReady] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -696,15 +731,26 @@ export default function MainPage() {
   }, [selectedCategory, articles, page]);
 
   useEffect(() => {
-    const loadReco = async () => {
-      if (!userId) {
-        setRecoItems([]);
-        return;
-      }
+    if (!userId) {
+      setRecoItems([]);
+      setRecoLoading(false);
+      setRecoReady(false);
+      return;
+    }
 
+    let isMounted = true;
+    let timeoutId = null;
+    let retryCount = 0;
+    const MAX_RETRY = 3;
+
+    const loadReco = async () => {
       try {
+        if (!isMounted) return;
+
+        setRecoLoading(true);
+
         const res = await axios.get("/reco", {
-          params: { k: 20, userId },
+          params: { k: 20, userId }
         });
 
         const items = Array.isArray(res.data?.items)
@@ -714,14 +760,50 @@ export default function MainPage() {
             : [];
 
         const mapped = items.map(mapRecoItemToArticle);
-        setRecoItems(mapped);
+
+        if (!isMounted) return;
+
+        // 추천 결과가 있으면 바로 렌더링
+        if (mapped.length > 0) {
+          setRecoItems(mapped);
+          setRecoLoading(false);
+          setRecoReady(true);
+          return;
+        }
+
+        // 비어있으면 재시도
+        if (retryCount < MAX_RETRY) {
+          retryCount += 1;
+          timeoutId = setTimeout(() => {
+            loadReco();
+          }, 20000);
+          return;
+        }
+
+        // 끝까지 비어있으면 로딩 종료
+        setRecoItems([]);
+        setRecoLoading(false);
+        setRecoReady(true);
+
       } catch (err) {
         console.error("추천 불러오기 실패", err);
+
+        if (!isMounted) return;
+
         setRecoItems([]);
+        setRecoLoading(false);
+        setRecoReady(true);
       }
     };
 
+    setRecoItems([]);
+    setRecoReady(false);
     loadReco();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [userId]);
 
   useEffect(() => {
@@ -1117,26 +1199,41 @@ export default function MainPage() {
           <div className="mp-panel">
             <div className="mp-panel-title">추천 기사</div>
             <div className="mp-related-list">
-              {(relatedRecoItems.length
-                ? relatedRecoItems
-                : recoItems.length
-                  ? recoItems
-                  : relatedArticles
-              ).map((a) => (
-                <RelatedItem
-                  key={a.id}
-                  title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · 관련`}
-                  onClick={() => {
-                    setSelectedCategory(a.category || "all");
-                    setSelectedId(String(a.id));
-                  }}
-                />
-              ))}
-
-              {!userId && (
+              {!userId ? (
                 <div style={{ padding: 10, opacity: 0.7 }}>
                   로그인하면 개인화 추천(자주 본 뉴스)이 표시됩니다.
+                </div>
+              ) : recoLoading && !recoReady ? (
+                <div style={{ padding: 10, opacity: 0.7 }}>
+                  추천 기사 불러오는 중...
+                </div>
+              ) : recoItems.length > 0 ? (
+                recoItems.map((a) => (
+                  <RelatedItem
+                    key={a.id}
+                    title={a.title}
+                    meta={`${getCategoryLabel(a.category)} · 관련`}
+                    onClick={() => {
+                      setSelectedCategory(a.category || "all");
+                      setSelectedId(String(a.id));
+                    }}
+                  />
+                ))
+              ) : relatedRecoItems.length > 0 ? (
+                relatedRecoItems.map((a) => (
+                  <RelatedItem
+                    key={a.id}
+                    title={a.title}
+                    meta={`${getCategoryLabel(a.category)} · 관련`}
+                    onClick={() => {
+                      setSelectedCategory(a.category || "all");
+                      setSelectedId(String(a.id));
+                    }}
+                  />
+                ))
+              ) : (
+                <div style={{ padding: 10, opacity: 0.7 }}>
+                  추천 데이터가 없습니다.
                 </div>
               )}
             </div>

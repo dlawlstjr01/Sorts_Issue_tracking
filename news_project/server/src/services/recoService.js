@@ -1,7 +1,7 @@
 const axios = require("axios");
 const db = require("../config/DB");
 
-const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://python:8000";
+const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://reco:8000";
 
 /**
  * 최근 본 기사 article_id 목록을 user_log에서 가져오기 (중복 제거, 최근 순 유지)

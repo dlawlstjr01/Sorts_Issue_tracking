@@ -9,7 +9,7 @@ services:
       - reco
       - crawler
       - tracking
-
+      - counter_python
   reco:
     build: ./python
     ports:

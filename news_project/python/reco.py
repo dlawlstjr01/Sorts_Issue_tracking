@@ -494,7 +494,6 @@ def recommend(user_id: Optional[int], k: int) -> List[Dict[str, Any]]:
         if aid in ID2IDX:
             seen_idx.append(ID2IDX[aid])
 
-    # user_log 는 있지만 현재 추천 데이터셋 ITEMS 에 매핑되는 기사가 없음
     if not seen_idx:
         return []
 

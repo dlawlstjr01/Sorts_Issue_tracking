@@ -59,36 +59,6 @@ const THUMB = {
 };
 
 const INITIAL_ARTICLES = [];
-const AD_INTERVAL = 4;
-const AD_ITEMS = [
-  {
-    id: "ad-01",
-    title: "업무 속도 2배, AI 요약 도구",
-    body: "뉴스·보고서를 30초 만에 요약하고 팀과 공유하세요.",
-    sponsor: "WorkFlow AI",
-    cta: "무료로 시작하기",
-    image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a",
-    link: "https://example.com",
-  },
-  {
-    id: "ad-02",
-    title: "오늘의 투자 브리핑",
-    body: "시장 핵심 지표와 이슈를 한 장으로 정리해 드립니다.",
-    sponsor: "Signal Morning",
-    cta: "브리핑 받아보기",
-    image: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40",
-    link: "https://example.com",
-  },
-  {
-    id: "ad-03",
-    title: "개인 맞춤 뉴스레터",
-    body: "관심 분야만 골라 받아보는 맞춤형 뉴스 큐레이션.",
-    sponsor: "NewsPilot",
-    cta: "구독 신청",
-    image: "https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d",
-    link: "https://example.com",
-  },
-];
 
 function normalizeCategoryKey(value) {
   const v = String(value || "").trim().toLowerCase();
@@ -224,95 +194,6 @@ function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
       )}
     </section>
   );
-}
-
-function AdSlide({ ad }) {
-  const imageUrl = ad?.image ? `${ad.image}?auto=format&fit=crop&w=1200&q=80` : "";
-  return (
-    <div className="mp-center-inner">
-      <div className="mp-ad-card">
-        <div className="mp-ad-top">
-          <span className="mp-ad-badge">광고</span>
-          <span className="mp-ad-sponsor">{ad?.sponsor || "Sponsored"}</span>
-        </div>
-        <div className="mp-ad-title">{ad?.title || "스폰서 콘텐츠"}</div>
-        <div className="mp-ad-body">{ad?.body || "안내 메시지가 없습니다."}</div>
-        {imageUrl && (
-          <div className="mp-ad-thumb">
-            <img src={imageUrl} alt="" loading="lazy" />
-          </div>
-        )}
-        <div className="mp-ad-actions">
-          <button
-            type="button"
-            className="mp-btn primary"
-            onClick={() => {
-              if (!ad?.link) return;
-              window.open(ad.link, "_blank", "noopener,noreferrer");
-            }}
-            disabled={!ad?.link}
-          >
-            {ad?.cta || "자세히 보기"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function mapTrackingItemToRelatedUI(it) {
-  const title = it?.title || it?.issue_title || it?.headline || "(제목 없음)";
-  const url = it?.url || it?.representative_url || it?.top_url || "";
-  const summary =
-    it?.summary || it?.ultra_short || it?.issue_summary || it?.description || "";
-  const id = String(it?.id || it?.issue_id || url || title);
-
-  const inferredCategory = inferCategoryFromNews({
-    title,
-    summary,
-    description: summary,
-    content: it?.background || it?.content || "",
-    body: it?.body || "",
-    press_name: it?.press_name || "",
-  });
-
-  return {
-    id,
-    category: inferredCategory,
-    title,
-    meta: summary,
-    raw: { ...it, url },
-  };
-}
-
-function mapIssueSummaryToLatestUI(it, articles = []) {
-  const matchedArticle = articles.find(
-    (a) => String(a.id) === String(it.article_id)
-  );
-
-  const inferredCategory =
-    matchedArticle?.category ||
-    inferCategoryFromNews({
-      title: it.title,
-      summary: it.summary,
-      description: it.short_summary,
-      content: it.background,
-    });
-
-  return {
-    id: String(it.id),
-    articleId: String(it.article_id || it.id),
-    category: inferredCategory,
-    title: it.title || "(이슈 제목 없음)",
-    relatedCount: Number(it.related_count || 0),
-    articleIds: Array.isArray(it.article_ids) ? it.article_ids.map(String) : [],
-    summary: it.summary || "",
-    shortSummary: it.short_summary || "",
-    ultraShort: it.ultra_short || "",
-    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
-    representativeUrl: it.url || "",
-    raw: it,
-  };
 }
 
 const CATEGORY_RULES = {
@@ -670,7 +551,6 @@ export default function MainPage() {
   const [latestIssues, setLatestIssues] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
-  const [manualSelectedArticle, setManualSelectedArticle] = useState(null);
   const [articleListMode, setArticleListMode] = useState("daily");
   const [activeIssueArticleId, setActiveIssueArticleId] = useState(null);
   const [issueArticleDetails, setIssueArticleDetails] = useState({});
@@ -679,7 +559,6 @@ export default function MainPage() {
   const [recoReady, setRecoReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
 
   const [userId, setUserId] = useState(null);
   const [trackRelated, setTrackRelated] = useState([]);
@@ -812,8 +691,8 @@ export default function MainPage() {
       selectedCategory === "all"
         ? articles
         : articles.filter(
-          (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
-        );
+            (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
+          );
 
     const sorted = [...source].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
@@ -835,47 +714,14 @@ export default function MainPage() {
     return found || displayedArticles[0];
   }, [displayedArticles, selectedId]);
 
-  const feedItems = useMemo(() => {
-    if (manualSelectedArticle) {
-      return [{ type: "article", article: manualSelectedArticle }];
-    }
-    const items = displayedArticles || [];
-    if (!items.length) return [];
-
-    const results = [];
-    let adIndex = 0;
-    items.forEach((article, idx) => {
-      results.push({ type: "article", article });
-      if ((idx + 1) % AD_INTERVAL === 0 && AD_ITEMS.length > 0) {
-        const ad = AD_ITEMS[adIndex % AD_ITEMS.length];
-        results.push({ type: "ad", ad });
-        adIndex += 1;
-      }
-    });
-    return results;
-  }, [manualSelectedArticle, displayedArticles]);
-
-  const feedIndexById = useMemo(() => {
-    const map = new Map();
-    feedItems.forEach((item, idx) => {
-      if (item.type === "article" && item.article?.id != null) {
-        map.set(String(item.article.id), idx);
-      }
-    });
-    return map;
-  }, [feedItems]);
-
   const selectedArticle = useMemo(() => {
-    if (manualSelectedArticle) return manualSelectedArticle;
     if (!displayedArticles.length) return null;
 
     const fromDisplayed = displayedArticles.find(
       (a) => String(a.id) === String(selectedId)
     );
     return fromDisplayed || displayedArticles[0];
-  }, [displayedArticles, selectedId, manualSelectedArticle]);
-
-  const listActiveId = manualSelectedArticle ? selectedId : selectedArticle?.id;
+  }, [displayedArticles, selectedId]);
 
   const selectedIssue = useMemo(() => {
     if (!selectedMainArticle) return null;
@@ -1054,12 +900,7 @@ export default function MainPage() {
   const contrastRecoItems = [];
 
   const onSaveArticle = (article) => {
-    const merged =
-      article?.raw && typeof article.raw === "object"
-        ? { ...article.raw, ...article }
-        : article;
-    const result = toggleArchiveItem(merged);
-    setArchiveKeys(getArchiveKeySet(result.items));
+    console.log("save article:", article);
   };
 
   useEffect(() => {
@@ -1080,11 +921,11 @@ export default function MainPage() {
 
   useEffect(() => {
     if (!swiperRef.current) return;
-    const idx = feedIndexById.get(String(selectedId));
-    if (idx !== undefined && swiperRef.current.activeIndex !== idx) {
+    const idx = displayedArticles.findIndex((a) => String(a.id) === String(selectedId));
+    if (idx >= 0 && swiperRef.current.activeIndex !== idx) {
       swiperRef.current.slideTo(idx, 0);
     }
-  }, [feedIndexById, selectedId]);
+  }, [displayedArticles, selectedId]);
 
   const openOriginal = (article) => {
     const source = article?.raw || article;
@@ -1117,7 +958,6 @@ export default function MainPage() {
                   categoryKey={c.key}
                   active={selectedCategory === c.key}
                   onClick={() => {
-                    setManualSelectedArticle(null);
                     setSelectedCategory(c.key);
                     setSelectedId(null);
                     if (swiperRef.current) swiperRef.current.slideTo(0, 0);
@@ -1134,12 +974,7 @@ export default function MainPage() {
                   <button
                     type="button"
                     className={`mp-article-tab ${articleListMode === "daily" ? "active" : ""}`}
-                    onClick={() => {
-                      setManualSelectedArticle(null);
-                      setArticleListMode("daily");
-                      setSelectedId(null);
-                      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
-                    }}
+                    onClick={() => setArticleListMode("daily")}
                     aria-pressed={articleListMode === "daily"}
                   >
                     일간
@@ -1147,12 +982,7 @@ export default function MainPage() {
                   <button
                     type="button"
                     className={`mp-article-tab ${articleListMode === "weekly" ? "active" : ""}`}
-                    onClick={() => {
-                      setManualSelectedArticle(null);
-                      setArticleListMode("weekly");
-                      setSelectedId(null);
-                      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
-                    }}
+                    onClick={() => setArticleListMode("weekly")}
                     aria-pressed={articleListMode === "weekly"}
                   >
                     주간
@@ -1165,8 +995,7 @@ export default function MainPage() {
                   <button
                     key={a.id}
                     type="button"
-                    className={`mp-article-item ${listActiveId != null && String(a.id) === String(listActiveId) ? "active" : ""
-                      }`}
+                    className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
                     onClick={() => {
                       openOriginal(a);
                     }}
@@ -1199,11 +1028,7 @@ export default function MainPage() {
             </div>
           ) : (
             <Swiper
-              key={
-                manualSelectedArticle
-                  ? `manual-${manualSelectedArticle.id}`
-                  : `${selectedCategory}-${articleListMode}`
-              }
+              key={`${selectedCategory}-${articleListMode}`}
               direction="vertical"
               slidesPerView={1}
               mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
@@ -1213,11 +1038,8 @@ export default function MainPage() {
                 swiperRef.current = s;
               }}
               onSlideChange={(s) => {
-                const next = feedItems[s.activeIndex];
-                if (!next || manualSelectedArticle) return;
-                if (next.type === "article") {
-                  setSelectedId(String(next.article.id));
-                }
+                const next = displayedArticles[s.activeIndex];
+                if (next) setSelectedId(String(next.id));
               }}
               className="mp-center-swiper"
             >
@@ -1260,7 +1082,7 @@ export default function MainPage() {
                           type="button"
                           onClick={() => onSaveArticle(activeIssueArticle || article)}
                         >
-                          {isSaved ? "저장됨" : "저장"}
+                          저장
                         </button>
 
                         <button className="mp-btn" type="button">
@@ -1319,7 +1141,8 @@ export default function MainPage() {
                     title={a.title}
                     meta={`${getCategoryLabel(a.category)} · 관련`}
                     onClick={() => {
-                      openOriginal(a);
+                      setSelectedCategory(a.category || "all");
+                      setSelectedId(String(a.id));
                     }}
                   />
                 ))
@@ -1330,7 +1153,8 @@ export default function MainPage() {
                     title={a.title}
                     meta={`${getCategoryLabel(a.category)} · 관련`}
                     onClick={() => {
-                      openOriginal(a);
+                      setSelectedCategory(a.category || "all");
+                      setSelectedId(String(a.id));
                     }}
                   />
                 ))
@@ -1351,7 +1175,8 @@ export default function MainPage() {
                   title={a.title}
                   meta={`${getCategoryLabel(a.category)} · 대조`}
                   onClick={() => {
-                    openOriginal(a);
+                    setSelectedCategory(a.category || "all");
+                    setSelectedId(String(a.id));
                   }}
                 />
               ))}

@@ -163,6 +163,8 @@ const PRESS_DOMAIN_RULES = [
   { press: "뉴스엔", domains: ["newsen.com"] },
 ];
 
+const PRESS_DOMAIN_SET = new Set(PRESS_DOMAIN_RULES.map(({ press }) => press));
+
 const DOMAIN_TO_PRESS_RULES = PRESS_DOMAIN_RULES.flatMap(({ press, domains }) =>
   (domains || []).map((domain) => ({
     press,
@@ -389,6 +391,9 @@ const PRESS_ITEMS = [
   "뉴스엔",
 ];
 
+const PRESS_FILTER_ITEMS = PRESS_ITEMS.filter((name) => PRESS_DOMAIN_SET.has(name));
+const PRESS_FILTER_SET = new Set(PRESS_FILTER_ITEMS);
+
 const THUMB_FALLBACK =
   "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
 
@@ -525,7 +530,7 @@ function parseArticleListSearch(search) {
     sp
       .getAll("sp")
       .map((item) => String(item || "").trim())
-      .filter(Boolean)
+      .filter((name) => PRESS_FILTER_SET.has(name))
   );
 
   return {
@@ -586,7 +591,7 @@ export default function ArticleListPage() {
   const [selectedPress, setSelectedPress] = useState(
     () => new Set(initialSearchState.selectedPress)
   );
-  const [availablePresses] = useState(() => [...new Set(PRESS_ITEMS)]);
+  const [availablePresses] = useState(() => [...new Set(PRESS_FILTER_ITEMS)]);
   const [dateRange, setDateRange] = useState(initialSearchState.dateRange);
 
   const [newsItems, setNewsItems] = useState([]);

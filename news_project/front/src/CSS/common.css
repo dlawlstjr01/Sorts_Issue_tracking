@@ -2828,6 +2828,34 @@ body {
   color: #9ca3af;
 }
 
+.archive-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.archive-item-remove {
+  border: 1px solid #f1b3b3;
+  background: #fff5f5;
+  color: #c81e1e;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.archive-item-remove:hover {
+  border-color: #e59aa0;
+  background: #ffe7e7;
+}
+
+.archive-item-remove:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+
 .archive-item-title {
   font-size: 16px;
   font-weight: 800;
@@ -3489,6 +3517,11 @@ body {
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  transform: translateY(0);
+  box-shadow: 0 1px 0 rgba(30, 64, 175, 0.08);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease,
+    border-color 0.14s ease, color 0.14s ease;
+  will-change: transform;
 }
 
 .als-chip-btn.sub {
@@ -3501,6 +3534,34 @@ body {
   background: #2f6faf;
   border-color: #2f6faf;
   color: #ffffff;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .article-search-page .als-chip-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(30, 64, 175, 0.18);
+    background: #eaf3ff;
+    border-color: #b8cceb;
+    color: #1f4b74;
+  }
+
+  .article-search-page .als-chip-btn.sub:hover {
+    background: #f2f6fb;
+    border-color: #c8d2dd;
+    color: #2f3f52;
+  }
+
+  .article-search-page .als-chip-btn.active:hover {
+    background: #2a66a8;
+    border-color: #2a66a8;
+    box-shadow: 0 6px 12px rgba(37, 99, 235, 0.32);
+    color: #ffffff;
+  }
+
+  .article-search-page .als-chip-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(30, 64, 175, 0.22);
+  }
 }
 
 .als-btn {

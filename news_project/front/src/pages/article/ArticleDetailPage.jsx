@@ -1,8 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
-import { getNewsById } from "../../api/newsApi";
+import { getNewsById, searchKoreanDictionary } from "../../api/newsApi";
+import {
+  ARCHIVE_STORAGE_KEY,
+  getArchiveItemKey,
+  getArchiveKeySet,
+  toggleArchiveItem,
+} from "../../utils/archiveStorage";
+import { addRecentItem } from "../../utils/recentStorage";
 import {
   getRememberedArticleDetail,
   rememberArticleDetail,
@@ -209,6 +216,15 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState(initialArticle);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+
+  const [searchInput, setSearchInput] = useState("");
+  const [dictionaryLoading, setDictionaryLoading] = useState(false);
+  const [dictionaryError, setDictionaryError] = useState("");
+  const [dictionaryResults, setDictionaryResults] = useState([]);
+  const [dictionaryTotal, setDictionaryTotal] = useState(0);
+  const [dictionaryKeyword, setDictionaryKeyword] = useState("");
+  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
+
   const fetchedArticleIdRef = useRef("");
 
   const [userId, setUserId] = useState(null);
@@ -222,6 +238,40 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     setArticle(initialArticle);
   }, [initialArticle]);
+
+  useEffect(() => {
+    setSearchInput("");
+    setDictionaryLoading(false);
+    setDictionaryError("");
+    setDictionaryResults([]);
+    setDictionaryTotal(0);
+    setDictionaryKeyword("");
+  }, [article?.id]);
+
+  useEffect(() => {
+    setArchiveKeys(getArchiveKeySet());
+  }, [article?.id]);
+
+  useEffect(() => {
+    if (!article) return;
+    const payload = {
+      ...article,
+      published_at: article.publishedAt,
+      created_at: article.publishedAt,
+    };
+    addRecentItem(payload);
+  }, [article?.id]);
+
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event.key === ARCHIVE_STORAGE_KEY) {
+        setArchiveKeys(getArchiveKeySet());
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -409,6 +459,52 @@ export default function ArticleDetailPage() {
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
   );
+  const isSaved = useMemo(() => {
+    if (!article) return false;
+    const key = getArchiveItemKey(article);
+    return key ? archiveKeys.has(key) : false;
+  }, [article, archiveKeys]);
+
+  const handleToggleArchive = () => {
+    if (!article) return;
+    const payload = {
+      ...article,
+      published_at: article.publishedAt,
+      created_at: article.publishedAt,
+    };
+    const result = toggleArchiveItem(payload);
+    setArchiveKeys(getArchiveKeySet(result.items));
+  };
+
+  const handleDictionarySearch = async () => {
+    const keyword = searchInput.trim();
+
+    setDictionaryKeyword(keyword);
+    setDictionaryError("");
+    setDictionaryResults([]);
+    setDictionaryTotal(0);
+
+    if (!keyword) return;
+
+    try {
+      setDictionaryLoading(true);
+      const result = await searchKoreanDictionary(keyword);
+
+      setDictionaryResults(result.items || []);
+      setDictionaryTotal(result.total || 0);
+
+      if (!result.items || result.items.length === 0) {
+        setDictionaryError("사전 검색 결과가 없습니다.");
+      }
+    } catch (error) {
+      console.error("dictionary search failed:", error);
+      setDictionaryError(error?.message || "사전 검색 중 오류가 발생했습니다.");
+      setDictionaryResults([]);
+      setDictionaryTotal(0);
+    } finally {
+      setDictionaryLoading(false);
+    }
+  };
 
   return (
     <div className="page article-detail-page">
@@ -419,6 +515,15 @@ export default function ArticleDetailPage() {
           onClick={() => navigate(backTarget)}
         >
           기사 목록으로
+        </button>
+        <button
+          type="button"
+          className={`article-detail-save ${isSaved ? "active" : ""}`}
+          aria-pressed={isSaved}
+          onClick={handleToggleArchive}
+          disabled={!article}
+        >
+          {isSaved ? "저장됨" : "저장"}
         </button>
       </div>
 
@@ -478,14 +583,17 @@ export default function ArticleDetailPage() {
 
               <article className="article-detail-content-card">
                 <div className="article-detail-content-title">본문</div>
+
                 {detailLoading && (
                   <p className="article-detail-empty-content">
                     본문을 불러오는 중입니다...
                   </p>
                 )}
+
                 {detailError && !detailLoading && (
                   <p className="article-detail-empty-content">{detailError}</p>
                 )}
+
                 {paragraphs.length > 0 ? (
                   <div className="article-detail-content">
                     {paragraphs.map((line, index) => (
@@ -494,7 +602,7 @@ export default function ArticleDetailPage() {
                   </div>
                 ) : (
                   <p className="article-detail-empty-content">
-                    본문 텍스트가 없어 요약 정보만 제공됩니다.
+                    본문 텍스트가 없어 요약 정보만 제공합니다.
                   </p>
                 )}
               </article>
@@ -505,14 +613,17 @@ export default function ArticleDetailPage() {
 
               <div className="article-detail-source-card">
                 <div className="article-detail-source-title">원문 정보</div>
+
                 <div className="article-detail-source-row">
                   <span>출처</span>
                   <span>{sourceHost || "-"}</span>
                 </div>
+
                 <div className="article-detail-source-row">
                   <span>기사 ID</span>
                   <span>{article.id}</span>
                 </div>
+
                 <button
                   type="button"
                   className="article-detail-open-source"
@@ -524,6 +635,131 @@ export default function ArticleDetailPage() {
                 >
                   {article.url ? "원문 사이트로 이동" : "원문 링크 없음"}
                 </button>
+
+                <div className="article-detail-search">
+                  <label
+                    className="article-detail-search-label"
+                    htmlFor="article-detail-search"
+                  >
+                    국립국어원 사전 검색
+                  </label>
+
+                  <div className="article-detail-search-controls">
+                    <div className="article-detail-search-input">
+                      <input
+                        id="article-detail-search"
+                        type="text"
+                        placeholder="뜻을 검색할 단어를 입력하세요."
+                        value={searchInput}
+                        onChange={(event) => setSearchInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            void handleDictionarySearch();
+                          }
+                        }}
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      className="article-detail-search-btn"
+                      onClick={() => void handleDictionarySearch()}
+                      disabled={!searchInput.trim() || dictionaryLoading}
+                    >
+                      {dictionaryLoading ? "검색 중..." : "검색"}
+                    </button>
+                  </div>
+
+                  {dictionaryKeyword && (
+                    <div className="article-detail-search-count">
+                      사전 검색어: {dictionaryKeyword}
+                    </div>
+                  )}
+
+                  {dictionaryError && (
+                    <p
+                      className="article-detail-empty-content"
+                      style={{ marginTop: "10px" }}
+                    >
+                      {dictionaryError}
+                    </p>
+                  )}
+
+                  {!dictionaryError && dictionaryResults.length > 0 && (
+                    <div style={{ marginTop: "14px" }}>
+                      <div
+                        className="article-detail-source-title"
+                        style={{ marginBottom: "10px" }}
+                      >
+                        사전 결과
+                      </div>
+
+                      <div
+                        className="article-detail-search-count"
+                        style={{ marginBottom: "10px" }}
+                      >
+                        총 {dictionaryTotal}건 중 {dictionaryResults.length}건 표시
+                      </div>
+
+                      {dictionaryResults.map((item) => (
+                        <div
+                          key={item.key}
+                          style={{
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "12px",
+                            padding: "12px",
+                            marginBottom: "10px",
+                            background: "#fff",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: "6px" }}>
+                            {item.word || "-"}
+                            {item.supNo && item.supNo !== "0" ? <sup> {item.supNo}</sup> : null}
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: "13px",
+                              color: "#6b7280",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            {[item.pos, item.wordGrade, item.pronunciation]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </div>
+
+                          {item.senses.length > 0 ? (
+                            <ol style={{ paddingLeft: "18px", margin: 0 }}>
+                              {item.senses.map((sense, index) => (
+                                <li key={`${item.key}-sense-${index}`} style={{ marginBottom: "6px" }}>
+                                  {sense.definition}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p style={{ margin: 0 }}>뜻풀이 정보가 없습니다.</p>
+                          )}
+
+                          {item.link && (
+                            <a
+                              href={item.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block",
+                                marginTop: "10px",
+                                fontSize: "14px",
+                              }}
+                            >
+                              사전에서 자세히 보기
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </aside>
           </div>

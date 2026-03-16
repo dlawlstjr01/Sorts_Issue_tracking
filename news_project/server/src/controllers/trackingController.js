@@ -17,6 +17,12 @@ exports.getIssues = async (req, res) => {
     return res.json(data);
   } catch (e) {
     console.error("[tracking] getIssues failed:", e);
-    return res.status(500).json({ message: "tracking issues fetch failed" });
+    return res.json({
+      items: [],
+      issues: [],
+      data: [],
+      fallback: true,
+      message: "tracking issues fetch failed",
+    });
   }
 };

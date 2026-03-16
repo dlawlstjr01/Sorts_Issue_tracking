@@ -41,7 +41,23 @@ export const getNewsById = (id, config = {}) => {
 
 export const fetchIssues = ({ category = "", limit = 6 } = {}) => {
   return axios.get("/tracking/issues", {
-    params: { category, limit }
+    params: { category, limit },
   });
 };
 
+export async function searchKoreanDictionary(keyword) {
+  const q = String(keyword || "").trim();
+
+  if (!q) {
+    return {
+      total: 0,
+      items: [],
+    };
+  }
+
+  const response = await axios.get("/news/dictionary/search", {
+    params: { q },
+  });
+
+  return response.data;
+}

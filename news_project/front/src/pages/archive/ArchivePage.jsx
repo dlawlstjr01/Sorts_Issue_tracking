@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import SideMenuCard from "../../components/SideMenuCard";
+import { removeArchiveItem } from "../../utils/archiveStorage";
+import { removeRecentItem } from "../../utils/recentStorage";
 
 // ✅ (있으면) 아카이브 컨텍스트 사용
 // 없으면 아래 try/catch fallback으로 localStorage에서 읽도록 처리함
@@ -267,6 +269,20 @@ export default function ArchivePage() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const handleRemoveSaved = (event, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const result = removeArchiveItem(item);
+    setSavedItems(result.items.map(mapAnyToArchiveItem));
+  };
+
+  const handleRemoveRecent = (event, item) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const result = removeRecentItem(item);
+    setRecentItems(result.items.map(mapAnyToArchiveItem));
+  };
+
   // ✅ 상세 데이터가 있는 카드만 모달을 열어 3번(비활성 처리) 기준을 지킨다.
   const openTrendDetail = (item) => {
     if (!item?.detail?.summary) return;
@@ -400,7 +416,29 @@ export default function ArchivePage() {
                   >
                     <div className="archive-item-head">
                       <span className="archive-item-cat">{item.category}</span>
-                      <span className="archive-item-date">{item.date}</span>
+                      <div className="archive-item-actions">
+                        <span className="archive-item-date">{item.date}</span>
+                        {activeTab === "saved" && (
+                          <button
+                            type="button"
+                            className="archive-item-remove"
+                            onClick={(event) => handleRemoveSaved(event, item)}
+                            aria-label="저장된 기사 삭제"
+                          >
+                            삭제
+                          </button>
+                        )}
+                        {activeTab === "recent" && (
+                          <button
+                            type="button"
+                            className="archive-item-remove"
+                            onClick={(event) => handleRemoveRecent(event, item)}
+                            aria-label="최근 본 기사 삭제"
+                          >
+                            삭제
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="archive-item-title">{item.title}</div>
                     <div className="archive-item-summary">{item.summary}</div>

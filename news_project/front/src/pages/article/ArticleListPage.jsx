@@ -17,6 +17,36 @@ const FILTER_TABS = [
 ];
 
 const PRESS_INITIALS = ["\u3131", "\u3134", "\u3137", "\u3139", "\u3141", "\u3142", "\u3145", "\u3147", "\u3148", "\u314A", "\u314D", "\u314E"];
+const HANGUL_INITIALS = [
+  "\u3131",
+  "\u3132",
+  "\u3134",
+  "\u3137",
+  "\u3138",
+  "\u3139",
+  "\u3141",
+  "\u3142",
+  "\u3143",
+  "\u3145",
+  "\u3146",
+  "\u3147",
+  "\u3148",
+  "\u3149",
+  "\u314A",
+  "\u314B",
+  "\u314C",
+  "\u314D",
+  "\u314E",
+];
+const PRESS_INITIAL_GROUPS = {
+  "\u3132": "\u3131",
+  "\u3138": "\u3137",
+  "\u3143": "\u3142",
+  "\u3146": "\u3145",
+  "\u3149": "\u3148",
+  "\u314B": "\u3131",
+  "\u314C": "\u3137",
+};
 
 const PRESS_ALPHABETS = Array.from({ length: 26 }, (_, index) =>
   String.fromCharCode(65 + index)
@@ -132,6 +162,8 @@ const PRESS_DOMAIN_RULES = [
   { press: "TV리포트", domains: ["tvreport.co.kr"] },
   { press: "뉴스엔", domains: ["newsen.com"] },
 ];
+
+const PRESS_DOMAIN_SET = new Set(PRESS_DOMAIN_RULES.map(({ press }) => press));
 
 const DOMAIN_TO_PRESS_RULES = PRESS_DOMAIN_RULES.flatMap(({ press, domains }) =>
   (domains || []).map((domain) => ({
@@ -359,6 +391,9 @@ const PRESS_ITEMS = [
   "뉴스엔",
 ];
 
+const PRESS_FILTER_ITEMS = PRESS_ITEMS.filter((name) => PRESS_DOMAIN_SET.has(name));
+const PRESS_FILTER_SET = new Set(PRESS_FILTER_ITEMS);
+
 const THUMB_FALLBACK =
   "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
 
@@ -414,7 +449,10 @@ function getHangulInitial(char) {
   const HANGUL_END = 0xd7a3;
   if (code < HANGUL_START || code > HANGUL_END) return "";
   const index = Math.floor((code - HANGUL_START) / 588);
-  return PRESS_INITIALS[index] || "";
+  const initial = HANGUL_INITIALS[index] || "";
+  if (!initial) return "";
+  const grouped = PRESS_INITIAL_GROUPS[initial] || initial;
+  return PRESS_INITIALS.includes(grouped) ? grouped : "";
 }
 
 const PRESS_NAME_BY_TEXT_PRIORITY = [...PRESS_ITEMS].sort((a, b) => b.length - a.length);
@@ -492,7 +530,7 @@ function parseArticleListSearch(search) {
     sp
       .getAll("sp")
       .map((item) => String(item || "").trim())
-      .filter(Boolean)
+      .filter((name) => PRESS_FILTER_SET.has(name))
   );
 
   return {
@@ -553,7 +591,7 @@ export default function ArticleListPage() {
   const [selectedPress, setSelectedPress] = useState(
     () => new Set(initialSearchState.selectedPress)
   );
-  const [availablePresses] = useState(() => [...new Set(PRESS_ITEMS)]);
+  const [availablePresses] = useState(() => [...new Set(PRESS_FILTER_ITEMS)]);
   const [dateRange, setDateRange] = useState(initialSearchState.dateRange);
 
   const [newsItems, setNewsItems] = useState([]);
@@ -692,6 +730,7 @@ export default function ArticleListPage() {
     });
   }, [availablePresses]);
 
+
   useEffect(() => {
     if (!isSearchOpen) setIsHelpOpen(false);
   }, [isSearchOpen]);
@@ -735,6 +774,7 @@ export default function ArticleListPage() {
       return next;
     });
   };
+
 
   const applyQuickRange = (unit, amount) => {
     const end = new Date();

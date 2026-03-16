@@ -4,6 +4,34 @@ const db = require("../config/DB");
 const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://reco:8000";
 
 /**
+ * 최근 본 기사 article_id 목록을 user_log에서 가져오기 (중복 제거, 최근 순 유지)
+ */
+async function fetchRecentSeenArticleIds(userId, limit = 80) {
+  const lim = Math.max(1, Math.min(200, Number(limit) || 80));
+
+  const sql = `
+    SELECT ul.article_id
+    FROM user_log ul
+    WHERE ul.user_id = ?
+    ORDER BY ul.created_at DESC
+    LIMIT ?
+  `;
+
+  const [rows] = await db.query(sql, [userId, lim]);
+
+  const seen = new Set();
+  const ids = [];
+  for (const r of rows) {
+    const id = String(r.article_id);
+    if (!id) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+/**
  * Python 추천 서버 호출
  * - 로그인:  GET /reco?userId=...&k=...
  * - 비로그인: GET /reco?k=...

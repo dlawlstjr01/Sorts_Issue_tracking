@@ -1,4 +1,5 @@
 const newsService = require("../services/newsService");
+const dictionaryService = require("../services/dictionaryService");
 
 // GET /news?page=&size=&category=&q=
 exports.list = async (req, res) => {
@@ -50,5 +51,17 @@ exports.summary = async (req, res) => {
   } catch (e) {
     console.error("[news/summary] failed:", e);
     return res.status(500).json({ message: "요약을 불러오지 못했습니다." });
+  }
+};
+
+exports.dictionarySearch = async (req, res) => {
+  try {
+    const data = await dictionaryService.searchDictionary(req.query.q);
+    return res.json(data);
+  } catch (err) {
+    console.error("[newsController.dictionarySearch]", err);
+    return res
+      .status(err.statusCode || 500)
+      .json({ message: err.message || "사전 검색 중 오류가 발생했습니다." });
   }
 };

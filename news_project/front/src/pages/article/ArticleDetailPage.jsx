@@ -2,7 +2,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
-import { getNewsById } from "../../api/newsApi";
+import { getNewsById, searchKoreanDictionary } from "../../api/newsApi";
 import {
   getRememberedArticleDetail,
   rememberArticleDetail,
@@ -42,31 +42,6 @@ function splitParagraphs(article) {
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-function escapeRegExp(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function renderHighlightedText(text, query, keyPrefix) {
-  if (!query) return text;
-  const safeQuery = escapeRegExp(query);
-  if (!safeQuery) return text;
-  const regex = new RegExp(safeQuery, "gi");
-  const matches = text.match(regex);
-  if (!matches) return text;
-  const parts = text.split(regex);
-  return parts.reduce((acc, part, idx) => {
-    if (part) acc.push(part);
-    if (idx < matches.length) {
-      acc.push(
-        <mark key={`${keyPrefix}-m-${idx}`} className="article-detail-mark">
-          {matches[idx]}
-        </mark>
-      );
-    }
-    return acc;
-  }, []);
 }
 
 function resolveBackTarget(location, fallback) {
@@ -115,8 +90,14 @@ export default function ArticleDetailPage() {
   const [article, setArticle] = useState(initialArticle);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
+
   const [searchInput, setSearchInput] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [dictionaryLoading, setDictionaryLoading] = useState(false);
+  const [dictionaryError, setDictionaryError] = useState("");
+  const [dictionaryResults, setDictionaryResults] = useState([]);
+  const [dictionaryTotal, setDictionaryTotal] = useState(0);
+  const [dictionaryKeyword, setDictionaryKeyword] = useState("");
+
   const fetchedArticleIdRef = useRef("");
 
   const [userId, setUserId] = useState(null);
@@ -133,7 +114,11 @@ export default function ArticleDetailPage() {
 
   useEffect(() => {
     setSearchInput("");
-    setSearchQuery("");
+    setDictionaryLoading(false);
+    setDictionaryError("");
+    setDictionaryResults([]);
+    setDictionaryTotal(0);
+    setDictionaryKeyword("");
   }, [article?.id]);
 
   useEffect(() => {
@@ -154,25 +139,25 @@ export default function ArticleDetailPage() {
     loadMe();
   }, []);
 
- useEffect(() => {
-  const handleWheel = (e) => {
-    if (e.deltaY > 0) {
-      scrollCountRef.current += 1;
-    }
-  };
+  useEffect(() => {
+    const handleWheel = (e) => {
+      if (e.deltaY > 0) {
+        scrollCountRef.current += 1;
+      }
+    };
 
-  window.addEventListener("wheel", handleWheel, { passive: true });
+    window.addEventListener("wheel", handleWheel, { passive: true });
 
-  return () => {
-    window.removeEventListener("wheel", handleWheel);
-  };
-}, []);
+    return () => {
+      window.removeEventListener("wheel", handleWheel);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
 
-    if (!isNumericArticleId(articleId)) return () => { };
-    if (fetchedArticleIdRef.current === articleId) return () => { };
+    if (!isNumericArticleId(articleId)) return () => {};
+    if (fetchedArticleIdRef.current === articleId) return () => {};
     fetchedArticleIdRef.current = articleId;
 
     const loadDetail = async () => {
@@ -298,23 +283,40 @@ export default function ArticleDetailPage() {
   }, []);
 
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
-  const trimmedQuery = searchQuery.trim();
-  const matchCount = useMemo(() => {
-    if (!trimmedQuery) return 0;
-    return paragraphs.reduce((sum, line) => {
-      const regex = new RegExp(escapeRegExp(trimmedQuery), "gi");
-      const matches = line.match(regex);
-      return sum + (matches ? matches.length : 0);
-    }, 0);
-  }, [trimmedQuery, paragraphs]);
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
   const backTarget = useMemo(
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
   );
 
-  const handleSearchSubmit = () => {
-    setSearchQuery(searchInput.trim());
+  const handleDictionarySearch = async () => {
+    const keyword = searchInput.trim();
+
+    setDictionaryKeyword(keyword);
+    setDictionaryError("");
+    setDictionaryResults([]);
+    setDictionaryTotal(0);
+
+    if (!keyword) return;
+
+    try {
+      setDictionaryLoading(true);
+      const result = await searchKoreanDictionary(keyword);
+
+      setDictionaryResults(result.items || []);
+      setDictionaryTotal(result.total || 0);
+
+      if (!result.items || result.items.length === 0) {
+        setDictionaryError("사전 검색 결과가 없습니다.");
+      }
+    } catch (error) {
+      console.error("dictionary search failed:", error);
+      setDictionaryError(error?.message || "사전 검색 중 오류가 발생했습니다.");
+      setDictionaryResults([]);
+      setDictionaryTotal(0);
+    } finally {
+      setDictionaryLoading(false);
+    }
   };
 
   return (
@@ -385,24 +387,21 @@ export default function ArticleDetailPage() {
 
               <article className="article-detail-content-card">
                 <div className="article-detail-content-title">본문</div>
+
                 {detailLoading && (
                   <p className="article-detail-empty-content">
                     본문을 불러오는 중입니다...
                   </p>
                 )}
+
                 {detailError && !detailLoading && (
                   <p className="article-detail-empty-content">{detailError}</p>
                 )}
+
                 {paragraphs.length > 0 ? (
                   <div className="article-detail-content">
                     {paragraphs.map((line, index) => (
-                      <p key={`${article.id}-line-${index}`}>
-                        {renderHighlightedText(
-                          line,
-                          trimmedQuery,
-                          `${article.id}-line-${index}`
-                        )}
-                      </p>
+                      <p key={`${article.id}-line-${index}`}>{line}</p>
                     ))}
                   </div>
                 ) : (
@@ -418,14 +417,17 @@ export default function ArticleDetailPage() {
 
               <div className="article-detail-source-card">
                 <div className="article-detail-source-title">원문 정보</div>
+
                 <div className="article-detail-source-row">
                   <span>출처</span>
                   <span>{sourceHost || "-"}</span>
                 </div>
+
                 <div className="article-detail-source-row">
                   <span>기사 ID</span>
                   <span>{article.id}</span>
                 </div>
+
                 <button
                   type="button"
                   className="article-detail-open-source"
@@ -437,36 +439,128 @@ export default function ArticleDetailPage() {
                 >
                   {article.url ? "원문 사이트로 이동" : "원문 링크 없음"}
                 </button>
-                
+
                 <div className="article-detail-search">
-                  <label className="article-detail-search-label" htmlFor="article-detail-search">
-                    본문 단어 검색
+                  <label
+                    className="article-detail-search-label"
+                    htmlFor="article-detail-search"
+                  >
+                    국립국어원 사전 검색
                   </label>
+
                   <div className="article-detail-search-controls">
                     <div className="article-detail-search-input">
                       <input
                         id="article-detail-search"
                         type="text"
-                        placeholder="본문에서 찾을 단어를 입력하세요."
+                        placeholder="뜻을 검색할 단어를 입력하세요."
                         value={searchInput}
                         onChange={(event) => setSearchInput(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") handleSearchSubmit();
+                          if (event.key === "Enter") {
+                            void handleDictionarySearch();
+                          }
                         }}
                       />
                     </div>
+
                     <button
                       type="button"
                       className="article-detail-search-btn"
-                      onClick={handleSearchSubmit}
-                      disabled={!searchInput.trim()}
+                      onClick={() => void handleDictionarySearch()}
+                      disabled={!searchInput.trim() || dictionaryLoading}
                     >
-                      검색
+                      {dictionaryLoading ? "검색 중..." : "검색"}
                     </button>
                   </div>
-                  {trimmedQuery && (
+
+                  {dictionaryKeyword && (
                     <div className="article-detail-search-count">
-                      {matchCount > 0 ? `검색 결과 ${matchCount}건` : "검색 결과 없음"}
+                      사전 검색어: {dictionaryKeyword}
+                    </div>
+                  )}
+
+                  {dictionaryError && (
+                    <p
+                      className="article-detail-empty-content"
+                      style={{ marginTop: "10px" }}
+                    >
+                      {dictionaryError}
+                    </p>
+                  )}
+
+                  {!dictionaryError && dictionaryResults.length > 0 && (
+                    <div style={{ marginTop: "14px" }}>
+                      <div
+                        className="article-detail-source-title"
+                        style={{ marginBottom: "10px" }}
+                      >
+                        사전 결과
+                      </div>
+
+                      <div
+                        className="article-detail-search-count"
+                        style={{ marginBottom: "10px" }}
+                      >
+                        총 {dictionaryTotal}건 중 {dictionaryResults.length}건 표시
+                      </div>
+
+                      {dictionaryResults.map((item) => (
+                        <div
+                          key={item.key}
+                          style={{
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "12px",
+                            padding: "12px",
+                            marginBottom: "10px",
+                            background: "#fff",
+                          }}
+                        >
+                          <div style={{ fontWeight: 700, marginBottom: "6px" }}>
+                            {item.word || "-"}
+                            {item.supNo && item.supNo !== "0" ? <sup> {item.supNo}</sup> : null}
+                          </div>
+
+                          <div
+                            style={{
+                              fontSize: "13px",
+                              color: "#6b7280",
+                              marginBottom: "8px",
+                            }}
+                          >
+                            {[item.pos, item.wordGrade, item.pronunciation]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </div>
+
+                          {item.senses.length > 0 ? (
+                            <ol style={{ paddingLeft: "18px", margin: 0 }}>
+                              {item.senses.map((sense, index) => (
+                                <li key={`${item.key}-sense-${index}`} style={{ marginBottom: "6px" }}>
+                                  {sense.definition}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : (
+                            <p style={{ margin: 0 }}>뜻풀이 정보가 없습니다.</p>
+                          )}
+
+                          {item.link && (
+                            <a
+                              href={item.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "inline-block",
+                                marginTop: "10px",
+                                fontSize: "14px",
+                              }}
+                            >
+                              사전에서 자세히 보기
+                            </a>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
@@ -478,6 +572,3 @@ export default function ArticleDetailPage() {
     </div>
   );
 }
-
-
-

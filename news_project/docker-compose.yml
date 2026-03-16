@@ -22,7 +22,6 @@ services:
     command: ["uvicorn", "reco:app", "--host", "0.0.0.0", "--port", "8000"]
     restart: unless-stopped
 
-
   crawler:
     build: ./python
     ports:
@@ -34,19 +33,27 @@ services:
     command: ["uvicorn", "crawler:app", "--host", "0.0.0.0", "--port", "8001"]
     restart: unless-stopped
 
-
   tracking:
     build: ./python
     ports:
       - "8002:8002"
     env_file:
       - ./python/.env
+    environment:
+      - DEVICE=cuda
+      - CUDA_VISIBLE_DEVICES=0
     volumes:
       - ./python/data:/app/data
       - ./python/issue_outputs:/app/issue_outputs
     command: ["uvicorn", "tracking_summary_parity_clean:app", "--host", "0.0.0.0", "--port", "8002"]
     restart: unless-stopped
-
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   counter_python:
     build: ./python

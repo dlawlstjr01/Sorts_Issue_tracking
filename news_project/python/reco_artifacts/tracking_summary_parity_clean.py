@@ -1658,19 +1658,24 @@ def build_bucket_from_df(
     bucket_key: str,
     df0: pd.DataFrame,
     embedder: KoE5Embedder,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], pd.DataFrame, Dict[str, Any]]:
     """
-    DB에서 로드한 기사들로 연관기사 이슈만 생성해서 반환한다.
-    단독기사(singleton)는 생성/저장하지 않는다.
+    - DB에서 로드한 df0로 이슈 생성
+    - 파일(issue_outputs/*) 저장/생성: 전부 제거
+    - low_conf/review 생성: 전부 제거
+    - 반환: (issues, df_single, stats)
     """
 
+    # cache_dir만 만들고 싶으면 호출 (bucket_paths는 {"cache_dir": ...}만 있어도 OK)
     paths = bucket_paths(cfg, bucket_key)
     _cache_dir = paths.get("cache_dir")
 
     scan_stats: Dict[str, Any] = {}
     docs_raw_bucket = int(len(df0))
 
+    # ---------- empty bucket ----------
     if df0 is None or len(df0) == 0:
+        empty_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
         stats = {
             "status": "ok_empty",
             "bucket": bucket_key,
@@ -1691,9 +1696,14 @@ def build_bucket_from_df(
             "no_issue_reason": "empty_bucket",
             **scan_stats,
         }
-        return [], stats
+        return [], empty_single, stats
 
+    # =========================
+    # stage1 clean
+    # =========================
     df = df0.copy()
+
+    # REQUIRED_COLS는 기존 코드에 있다고 가정
     for c in REQUIRED_COLS:
         if c not in df.columns:
             df[c] = ""
@@ -1703,6 +1713,9 @@ def build_bucket_from_df(
     df["content"] = df["content"].astype(str).apply(normalize_text)
     df["domain"] = df["url"].astype(str).apply(safe_domain)
 
+    # =========================
+    # stage2 dedup + suspicious
+    # =========================
     df, strict_drop, mh_drop = dedup_articles(df, cfg)
     df, susp_drop = drop_suspicious_rows(df, cfg)
 
@@ -1710,6 +1723,7 @@ def build_bucket_from_df(
     docs_total = int(len(df1))
 
     if docs_total == 0:
+        empty_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
         stats = {
             "status": "ok_filtered_empty",
             "bucket": bucket_key,
@@ -1730,7 +1744,7 @@ def build_bucket_from_df(
             "no_issue_reason": "all_filtered_before_embed",
             **scan_stats,
         }
-        return [], stats
+        return [], empty_single, stats
 
     titles_s = df1["title"].astype(str)
     contents_s = df1["content"].astype(str)
@@ -1739,6 +1753,9 @@ def build_bucket_from_df(
 
     emb = embedder.encode(texts_for_embed, batch_size=int(cfg.EMB_BATCH_SIZE))
 
+    # =========================
+    # stage3 cluster (+ fallback)
+    # =========================
     fallback_used = False
     tiny_rescue_used = False
     max_group_size = 0
@@ -1755,7 +1772,7 @@ def build_bucket_from_df(
             domain_keys=domain_keys,
             broad_cats=bcats,
             lead_texts=texts_for_embed,
-            cfg=cfg,
+            cfg=cfg
         )
 
         max_group_size = max((len(v) for v in groups.values()), default=0)
@@ -1772,7 +1789,7 @@ def build_bucket_from_df(
                 domain_keys=domain_keys,
                 broad_cats=bcats,
                 lead_texts=texts_for_embed,
-                cfg=fallback_cfg,
+                cfg=fallback_cfg
             )
             fallback_used = True
 
@@ -1789,7 +1806,7 @@ def build_bucket_from_df(
                 if max_group_size < int(cfg.MIN_ISSUE_SIZE):
                     uf_tiny = UnionFind(len(df1))
                     idxs_all = np.arange(len(df1), dtype=int)
-                    edges_tiny = knn_edges_cos(emb, idxs_all, topk=min(10, len(df1) - 1), th=0.80)
+                    edges_tiny = knn_edges_cos(emb, idxs_all, topk=min(10, len(df1)-1), th=0.80)
                     titles_all = df1["title"].astype(str).tolist()
 
                     for a, b in edges_tiny:
@@ -1802,68 +1819,150 @@ def build_bucket_from_df(
                     tiny_rescue_used = True
 
     max_group_size = max((len(v) for v in groups.values()), default=0)
+
     effective_min_rep_min = float(cfg.MIN_REP_MIN)
     if fallback_used:
         effective_min_rep_min = min(effective_min_rep_min, 0.55)
     if tiny_rescue_used:
         effective_min_rep_min = min(effective_min_rep_min, 0.45)
 
+    emit_singletons = bool(getattr(cfg, "EMIT_SINGLETONS", False))
+
     issues: List[Dict[str, Any]] = []
+    singleton_rows: List[Dict[str, Any]] = []
     multi_count = 0
     geo_pruned_total = 0
-    titles_all = df1["title"].astype(str).tolist()
+
     group_items = sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True)
+    titles_all = df1["title"].astype(str).tolist()
 
     for gi, (_root, members) in enumerate(group_items, start=1):
         members = sorted(set(int(x) for x in members))
         if not members:
             continue
 
+        # tiny rescue quality gate(원본 유지)
         if tiny_rescue_used:
             dom_n = len(set(str(df1.loc[i, "domain"]) for i in members))
             if len(members) <= 2 and dom_n < 2:
+                if emit_singletons:
+                    for i in members:
+                        r = df1.loc[i]
+                        singleton_rows.append({
+                            "bucket_date": bucket_key,
+                            "url": str(r.get("url","")),
+                            "title": str(r.get("title","")),
+                            "date": str(r.get("date","")),
+                            "category": str(r.get("category","")),
+                            "domain": str(r.get("domain","")),
+                            "reason": "tiny_rescue_low_diversity",
+                        })
                 continue
+
             if len(members) == 2:
                 a, b = members[0], members[1]
                 tj = title_jaccard(str(df1.loc[a, "title"]), str(df1.loc[b, "title"]))
                 lt = text_token_jaccard(texts_for_embed[a], texts_for_embed[b], max_tok=140)
                 if tj < 0.08 and lt < 0.12:
+                    if emit_singletons:
+                        for i in members:
+                            r = df1.loc[i]
+                            singleton_rows.append({
+                                "bucket_date": bucket_key,
+                                "url": str(r.get("url","")),
+                                "title": str(r.get("title","")),
+                                "date": str(r.get("date","")),
+                                "category": str(r.get("category","")),
+                                "domain": str(r.get("domain","")),
+                                "reason": "tiny_rescue_weak_pair",
+                            })
                     continue
 
+        # geo prune(원본 유지)
         tmp_rep = pick_representative(members, emb)
         members, geo_dropped = prune_geo_mismatch_members(
             members=members,
             titles=titles_all,
             rep_idx=tmp_rep,
-            min_keep=int(cfg.MIN_ISSUE_SIZE),
+            min_keep=int(cfg.MIN_ISSUE_SIZE)
         )
         if geo_dropped:
             geo_pruned_total += int(len(geo_dropped))
-
-        if len(members) < int(cfg.MIN_ISSUE_SIZE):
-            continue
+            if emit_singletons:
+                for i in geo_dropped:
+                    r = df1.loc[i]
+                    singleton_rows.append({
+                        "bucket_date": bucket_key,
+                        "url": str(r.get("url","")),
+                        "title": str(r.get("title","")),
+                        "date": str(r.get("date","")),
+                        "category": str(r.get("category","")),
+                        "domain": str(r.get("domain","")),
+                        "reason": "geo_mismatch_local_incident",
+                    })
 
         rep = pick_representative(members, emb)
         metrics = compute_cluster_metrics(members, emb, rep_idx=rep, sample_pairs=250)
 
         metric_val = float(metrics.get(cfg.COHESION_METRIC, 0.0))
         if cfg.MIN_COHESION and metric_val < float(cfg.MIN_COHESION):
+            if emit_singletons:
+                for i in members:
+                    r = df1.loc[i]
+                    singleton_rows.append({
+                        "bucket_date": bucket_key,
+                        "url": str(r.get("url","")),
+                        "title": str(r.get("title","")),
+                        "date": str(r.get("date","")),
+                        "category": str(r.get("category","")),
+                        "domain": str(r.get("domain","")),
+                        "reason": "low_cohesion",
+                    })
             continue
 
         if effective_min_rep_min > 0.0 and float(metrics.get("rep_min", 1.0)) < effective_min_rep_min:
+            if emit_singletons:
+                for i in members:
+                    r = df1.loc[i]
+                    singleton_rows.append({
+                        "bucket_date": bucket_key,
+                        "url": str(r.get("url","")),
+                        "title": str(r.get("title","")),
+                        "date": str(r.get("date","")),
+                        "category": str(r.get("category","")),
+                        "domain": str(r.get("domain","")),
+                        "reason": "low_rep_min",
+                    })
+            continue
+
+        if len(members) < int(cfg.MIN_ISSUE_SIZE):
+            reason = "cluster_size_1" if len(members) == 1 else "below_min_issue_size"
+            if emit_singletons:
+                for i in members:
+                    r = df1.loc[i]
+                    singleton_rows.append({
+                        "bucket_date": bucket_key,
+                        "url": str(r.get("url","")),
+                        "title": str(r.get("title","")),
+                        "date": str(r.get("date","")),
+                        "category": str(r.get("category","")),
+                        "domain": str(r.get("domain","")),
+                        "reason": reason,
+                    })
             continue
 
         ordered = ordered_by_centroid(members, emb)
         sample_idx = ordered[: min(16, len(ordered))]
-        sample_texts = [(str(df1.loc[i, "title"]) + " " + str(df1.loc[i, "content"])) for i in sample_idx]
+        sample_texts = [(str(df1.loc[i,"title"]) + " " + str(df1.loc[i,"content"])) for i in sample_idx]
         kws = extract_keywords(sample_texts, topk=8)
 
         rep_row = df1.loc[rep]
-        contents_for_sum: List[str] = []
 
+        # summary
+        contents_for_sum = []
         def add_sum(i: int) -> None:
-            t = str(df1.loc[i, "title"])
-            c = str(df1.loc[i, "content"])
+            t = str(df1.loc[i,"title"])
+            c = str(df1.loc[i,"content"])
             if c.strip() and not content_suspicious(t, c, cfg):
                 contents_for_sum.append(c)
 
@@ -1872,7 +1971,7 @@ def build_bucket_from_df(
             if i != rep:
                 add_sum(int(i))
         if not contents_for_sum:
-            contents_for_sum = [str(df1.loc[rep, "content"])]
+            contents_for_sum = [str(df1.loc[rep,"content"])]
 
         sum_lines = extractive_news_style_summary(contents_for_sum, max_lines=7, min_lines=5)
         sum_lines = refine_summary_lines_by_focus(
@@ -1880,10 +1979,10 @@ def build_bucket_from_df(
             representative_title=str(rep_row.get("title", "")),
             keywords=kws,
             max_lines=7,
-            min_lines=4,
+            min_lines=4
         )
 
-        source_rep_title_raw = str(rep_row.get("title", ""))
+        source_rep_title_raw = str(rep_row.get("title",""))
         source_rep_title = _clean_title_text(source_rep_title_raw) or source_rep_title_raw
 
         generated_title = source_rep_title
@@ -1893,7 +1992,7 @@ def build_bucket_from_df(
                 keywords=kws,
                 summary_lines=sum_lines,
                 max_chars=int(getattr(cfg, "GENERATED_TITLE_MAX_CHARS", 64)),
-                candidate_titles=[str(df1.loc[i, "title"]) for i in ordered[: min(12, len(ordered))]],
+                candidate_titles=[str(df1.loc[i, "title"]) for i in ordered[: min(12, len(ordered))]]
             )
         generated_title = _clean_title_text(generated_title) or source_rep_title
 
@@ -1911,13 +2010,13 @@ def build_bucket_from_df(
             "time_end": tmax.isoformat(timespec="seconds"),
             "representative_title": generated_title,
             "source_representative_title": source_rep_title,
-            "representative_url": str(rep_row.get("url", "")),
+            "representative_url": str(rep_row.get("url","")),
             "keywords": kws,
             "related_count": int(len(members)),
             "related_urls": related_urls,
             "stats": {
                 "size": int(len(members)),
-                "domains": int(len(set(str(df1.loc[i, "domain"]) for i in members))),
+                "domains": int(len(set(str(df1.loc[i,"domain"]) for i in members))),
                 "centroid_mean": float(metrics["centroid_mean"]),
                 "rep_mean": float(metrics["rep_mean"]),
                 "intra_sample_mean": float(metrics["intra_sample_mean"]),
@@ -1931,18 +2030,25 @@ def build_bucket_from_df(
             for i in ordered:
                 r = df1.loc[i]
                 arts.append({
-                    "domain": str(r.get("domain", "")),
-                    "date": str(r.get("date", "")),
-                    "category": str(r.get("category", "")),
-                    "title": str(r.get("title", "")),
-                    "url": str(r.get("url", "")),
+                    "domain": str(r.get("domain","")),
+                    "date": str(r.get("date","")),
+                    "category": str(r.get("category","")),
+                    "title": str(r.get("title","")),
+                    "url": str(r.get("url","")),
                 })
             issue_obj["articles"] = arts
 
         issues.append(issue_obj)
         multi_count += 1
 
+    # singleton df는 "저장"하지 않고 반환만
+    if emit_singletons:
+        df_single = pd.DataFrame(singleton_rows, columns=["bucket_date","url","title","date","category","domain","reason"])
+    else:
+        df_single = pd.DataFrame(columns=["bucket_date","url","title","date","category","domain","reason"])
+
     docs_in_multi = int(sum(int(it.get("stats", {}).get("size", 0)) for it in issues))
+    docs_in_singleton = int(len(df_single))
     coverage = float(docs_in_multi / docs_total) if docs_total > 0 else 0.0
 
     no_issue_reason = ""
@@ -1962,9 +2068,9 @@ def build_bucket_from_df(
         "docs_raw_bucket": docs_raw_bucket,
         "docs_total": docs_total,
         "docs_in_multi": docs_in_multi,
-        "docs_in_singleton": 0,
+        "docs_in_singleton": docs_in_singleton,
         "multi_count": int(multi_count),
-        "singleton_count": 0,
+        "singleton_count": docs_in_singleton,
         "coverage": coverage,
         "strict_dropped": int(strict_drop),
         "minhash_dropped": int(mh_drop),
@@ -1977,7 +2083,7 @@ def build_bucket_from_df(
         **scan_stats,
     }
 
-    return issues, stats
+    return issues, df_single, stats
               
 
 # =============================================================================
@@ -2120,7 +2226,6 @@ SUMMARY_LOOKBACK_DAYS = int(os.getenv("SUMMARY_LOOKBACK_DAYS", "40"))
 
 # 연관기사 최대 개수
 MAX_RELATED_ARTICLES = int(os.getenv("MAX_RELATED_ARTICLES", "10"))
-SUMMARY_BATCH_SIZE = int(os.getenv("SUMMARY_BATCH_SIZE", "10000"))
 
 _scheduler_started = False
 _scheduler_guard = threading.Lock()
@@ -2199,9 +2304,9 @@ def _scheduler_loop():
 # DB 연결
 # =========================
 
-DEFAULT_OUT_DIR = os.getenv("TRACKING_OUT_DIR", os.getenv("OUT_DIR", "/app/issue_outputs"))
-DEFAULT_BUCKET = os.getenv("TRACKING_BUCKET", os.getenv("BUCKET", "day"))
-DEFAULT_MAX_BUCKETS = int(os.getenv("TRACKING_MAX_BUCKETS", os.getenv("MAX_BUCKETS", "14")))
+DEFAULT_OUT_DIR = os.getenv("OUT_DIR", "/app/issue_outputs")
+DEFAULT_BUCKET = os.getenv("BUCKET", "day")
+DEFAULT_MAX_BUCKETS = int(os.getenv("MAX_BUCKETS", "14"))
 DEFAULT_E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-large")
 DEFAULT_DEVICE = os.getenv("DEVICE", "auto")
 DEFAULT_MODEL_DIR = os.getenv("MODEL_DIR", "")
@@ -2222,7 +2327,7 @@ def get_conn():
 
 def make_cfg() -> "PipelineConfig":
     cfg = PipelineConfig(
-        CSV_PATH=os.getenv("TRACKING_CSV_PATH", os.getenv("CSV_PATH", "")).strip(),
+        CSV_PATH=os.getenv("CSV_PATH", "").strip(),
         OUT_DIR=DEFAULT_OUT_DIR,
         BUCKET=DEFAULT_BUCKET,
         MAX_BUCKETS=DEFAULT_MAX_BUCKETS,
@@ -2231,7 +2336,7 @@ def make_cfg() -> "PipelineConfig":
     cfg.E5_MODEL = os.getenv("E5_MODEL", "intfloat/multilingual-e5-base")
     cfg.DEVICE = os.getenv("DEVICE", DEFAULT_DEVICE)
 
-    cfg.MAX_DOCS_PER_BUCKET = int(os.getenv("MAX_DOCS_PER_BUCKET", "20000"))
+    cfg.MAX_DOCS_PER_BUCKET = int(os.getenv("MAX_DOCS_PER_BUCKET", "300"))
     cfg.EMB_BATCH_SIZE = int(os.getenv("EMB_BATCH_SIZE", "8"))
     cfg.KNN_MAX_NEIGHBORS = int(os.getenv("KNN_MAX_NEIGHBORS", "30"))
     cfg.KNN_MAX_N = int(os.getenv("KNN_MAX_N", "2000"))
@@ -2265,7 +2370,7 @@ def article_summary_exists(article_id: int) -> bool:
             cur.execute(
                 """
                 SELECT 1
-                FROM issue_summary_articles
+                FROM issue_summaries
                 WHERE article_id = %s
                 LIMIT 1
                 """,
@@ -2275,6 +2380,26 @@ def article_summary_exists(article_id: int) -> bool:
             return row is not None
     finally:
         conn.close()
+
+
+def _infer_related_count(issue: dict) -> int:
+    rc = issue.get("related_count")
+    if isinstance(rc, (int, float)) and rc > 0:
+        return int(rc)
+    if isinstance(rc, str) and rc.isdigit():
+        return int(rc)
+
+    size = (issue.get("stats") or {}).get("size")
+    if isinstance(size, (int, float)) and size > 0:
+        return int(size)
+    if isinstance(size, str) and size.isdigit():
+        return int(size)
+
+    arts = issue.get("articles")
+    if isinstance(arts, list) and len(arts) > 0:
+        return len(arts)
+
+    return 1
 
 
 def _extract_article_ids_from_issue(issue: dict) -> list[int]:
@@ -2332,11 +2457,11 @@ def find_first_unsummarized_article_id(candidate_ids: list[int]) -> int | None:
                 f"""
                 SELECT a.id
                 FROM articles a
-                LEFT JOIN issue_summary_articles isa
-                  ON isa.article_id = a.id
+                LEFT JOIN issue_summaries s
+                  ON s.article_id = a.id
                 WHERE a.id IN ({placeholders})
                   AND a.published_at >= {_recent_cutoff_sql()}
-                  AND isa.article_id IS NULL
+                  AND s.article_id IS NULL
                 ORDER BY a.published_at DESC, a.id DESC
                 LIMIT 1
                 """,
@@ -2348,75 +2473,35 @@ def find_first_unsummarized_article_id(candidate_ids: list[int]) -> int | None:
         conn.close()
 
 
-def _resolve_representative_article_id(issue: dict, article_ids: list[int]) -> int | None:
-    cleaned = []
-    for x in article_ids or []:
-        try:
-            cleaned.append(int(x))
-        except Exception:
-            pass
-    cleaned = list(dict.fromkeys(cleaned))
-    if not cleaned:
-        return None
+def _resolve_article_id(issue: dict) -> int | None:
+    article_ids = _extract_article_ids_from_issue(issue)
+
+    unresolved = find_first_unsummarized_article_id(article_ids)
+    if unresolved:
+        return unresolved
 
     rep_url = str(issue.get("representative_url", "")).strip()
-    if rep_url:
-        rep_article_id = find_article_id_by_url(rep_url)
-        if rep_article_id and rep_article_id in cleaned:
-            return int(rep_article_id)
+    rep_article_id = find_article_id_by_url(rep_url)
+    if rep_article_id and not article_summary_exists(rep_article_id):
+        return rep_article_id
 
-    arts = issue.get("articles") or []
-    for a in arts:
-        if not isinstance(a, dict):
-            continue
-        candidate_id = a.get("id") or a.get("article_id") or a.get("doc_id")
-        try:
-            candidate_id = int(candidate_id)
-        except Exception:
-            candidate_id = None
-        if candidate_id and candidate_id in cleaned:
-            return candidate_id
+    arts = issue.get("articles")
+    if isinstance(arts, list):
+        candidate_ids = []
+        for a in arts[:30]:
+            u = str((a or {}).get("url", "")).strip()
+            if not u:
+                continue
+            aid = find_article_id_by_url(u)
+            if aid:
+                candidate_ids.append(aid)
 
-        u = str(a.get("url", "")).strip()
-        if u:
-            found_id = find_article_id_by_url(u)
-            if found_id and found_id in cleaned:
-                return int(found_id)
+        unresolved = find_first_unsummarized_article_id(candidate_ids)
+        if unresolved:
+            return unresolved
 
-    return int(cleaned[0])
-
-
-def _sync_issue_summary_articles(cur, issue_summary_id: int, representative_article_id: int, article_ids: list[int]) -> int:
-    cleaned_ids = []
-    for x in article_ids or []:
-        try:
-            cleaned_ids.append(int(x))
-        except Exception:
-            pass
-    cleaned_ids = list(dict.fromkeys(cleaned_ids))[:MAX_RELATED_ARTICLES]
-    if not cleaned_ids:
-        return 0
-
-    if representative_article_id in cleaned_ids:
-        cleaned_ids.remove(representative_article_id)
-    ordered_ids = [int(representative_article_id)] + cleaned_ids
-
-    cur.execute(
-        "DELETE FROM issue_summary_articles WHERE issue_summary_id = %s",
-        (int(issue_summary_id),),
-    )
-
-    insert_sql = """
-        INSERT INTO issue_summary_articles
-          (issue_summary_id, article_id, sort_order, is_representative)
-        VALUES
-          (%s, %s, %s, %s)
-    """
-    inserted = 0
-    for idx, aid in enumerate(ordered_ids):
-        cur.execute(insert_sql, (int(issue_summary_id), int(aid), int(idx), 1 if idx == 0 else 0))
-        inserted += 1
-    return inserted
+    print("[WARN] unsummarized article_id not found for representative_url:", rep_url)
+    return None
 
 
 def upsert_issue_summary(issue: dict) -> int:
@@ -2426,7 +2511,7 @@ def upsert_issue_summary(issue: dict) -> int:
         for x in raw_lines
         if clean_html_text(x)
     ]
-    short_summary = "\n".join(cleaned_lines).strip()
+    short_summary = "\n".join(cleaned_lines)
 
     ultra_short = clean_html_text(issue.get("representative_title", "") or "")
     keywords_json = json.dumps(issue.get("keywords", []) or [], ensure_ascii=False)
@@ -2442,95 +2527,48 @@ def upsert_issue_summary(issue: dict) -> int:
         print("[UPSERT] representative_url =", rep_url)
         return 0
 
+    # 연관기사 최대 개수 제한
     article_ids = list(dict.fromkeys(article_ids))[:MAX_RELATED_ARTICLES]
-    representative_article_id = _resolve_representative_article_id(issue, article_ids)
+    related_count = len(article_ids)
+    article_ids_json = json.dumps(article_ids, ensure_ascii=False)
 
-    if not representative_article_id:
-        print("[UPSERT] skipped - representative_article_id unresolved")
-        print("[UPSERT] article_ids =", article_ids)
-        return 0
-
-    if representative_article_id in article_ids:
-        article_ids.remove(representative_article_id)
-    ordered_article_ids = [int(representative_article_id)] + article_ids
-
-    related_count = len(ordered_article_ids)
-
-    print("[UPSERT] representative_article_id =", representative_article_id)
     print("[UPSERT] related_count =", related_count)
     print("[UPSERT] len(issue.articles) =", len(issue.get("articles", []) or []))
-    print("[UPSERT] ordered_article_ids =", ordered_article_ids)
+    print("[UPSERT] article_ids =", article_ids)
 
     conn = get_conn()
+    inserted_count = 0
+
     try:
         with conn.cursor() as cur:
-            # 이미 대표기사 기준 이슈가 있으면 update, 없으면 insert
-            cur.execute(
-                """
-                SELECT id
-                FROM issue_summaries
-                WHERE article_id = %s
-                LIMIT 1
-                """,
-                (int(representative_article_id),),
-            )
-            existing = cur.fetchone()
-
-            if existing:
-                issue_summary_id = int(existing["id"])
+            for aid in article_ids:
                 cur.execute(
                     """
-                    UPDATE issue_summaries
-                    SET related_count = %s,
-                        short_summary = %s,
-                        ultra_short = %s,
-                        background = %s,
-                        keywords = %s,
-                        created_at = NOW()
-                    WHERE id = %s
-                    """,
-                    (
-                        related_count,
-                        short_summary,
-                        ultra_short,
-                        background,
-                        keywords_json,
-                        issue_summary_id,
-                    ),
-                )
-                print(f"[UPSERT] updated issue_summary_id={issue_summary_id}")
-            else:
-                cur.execute(
-                    """
-                    INSERT INTO issue_summaries
-                      (article_id, related_count, short_summary, ultra_short, background, keywords, created_at)
+                    INSERT IGNORE INTO issue_summaries
+                      (article_id, related_count, short_summary, ultra_short, background, keywords, article_ids_json, created_at)
                     VALUES
-                      (%s, %s, %s, %s, %s, %s, NOW())
+                      (%s, %s, %s, %s, %s, %s, %s, NOW())
                     """,
                     (
-                        int(representative_article_id),
+                        aid,
                         related_count,
                         short_summary,
                         ultra_short,
                         background,
                         keywords_json,
+                        article_ids_json,
                     ),
                 )
-                issue_summary_id = int(cur.lastrowid)
-                print(f"[UPSERT] inserted issue_summary_id={issue_summary_id}")
 
-            mapped_count = _sync_issue_summary_articles(
-                cur=cur,
-                issue_summary_id=issue_summary_id,
-                representative_article_id=int(representative_article_id),
-                article_ids=ordered_article_ids,
-            )
+                inserted = int(cur.rowcount or 0)
+                if inserted > 0:
+                    inserted_count += 1
+                    print(f"[UPSERT] inserted article_id={aid} related_count={related_count}")
+                else:
+                    print(f"[UPSERT] skipped duplicate article_id={aid}")
 
-            print(
-                f"[UPSERT] saved issue_summary_id={issue_summary_id} "
-                f"mapped_articles={mapped_count}"
-            )
-            return 1
+        print(f"[UPSERT] inserted_count={inserted_count}/{len(article_ids)}")
+        return inserted_count
 
     except Exception as e:
         print(f"[UPSERT] error: {repr(e)}")
@@ -2541,31 +2579,79 @@ def upsert_issue_summary(issue: dict) -> int:
         conn.close()
 
 
-def rows_to_article_df(rows: list[dict]) -> pd.DataFrame:
-    if not rows:
-        return pd.DataFrame(
-            columns=["id", "url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]
-        )
+def insert_single_article_summary_from_row(row: dict) -> bool:
+    url = str(row.get("url") or "").strip()
+    if not url:
+        print("[SINGLE] skipped - empty url")
+        return False
 
-    df = pd.DataFrame(rows)
+    article_id = find_article_id_by_url(url)
+    if not article_id:
+        print("[SINGLE] skipped - article_id not found by url:", url)
+        return False
 
-    if "thumbnail" not in df.columns:
-        df["thumbnail"] = ""
+    if article_summary_exists(article_id):
+        print(f"[SINGLE] skipped duplicate article_id={article_id}")
+        return False
 
-    df["date"] = df["published_at"].astype(str)
-    df["_dt"] = pd.to_datetime(df["published_at"], errors="coerce")
-    df["domain"] = df["url"].astype(str).apply(safe_domain)
+    title = clean_html_text(row.get("title") or "")
+    content = clean_html_text(row.get("content") or "")
 
-    for col in ["thumbnail", "category", "title", "content", "url"]:
-        if col in df.columns:
-            df[col] = df[col].where(df[col].notna(), "")
+    if not content:
+        short_summary = title
+    else:
+        text = content.strip()
+        short_summary = text[:500] if len(text) > 500 else text
+        if not short_summary:
+            short_summary = title
 
-    return df[["id", "url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]]
+    ultra_short = title
+    background = clean_html_text(f"{title}\n{url}")
+    keywords_json = json.dumps([], ensure_ascii=False)
+    article_ids_json = json.dumps([article_id], ensure_ascii=False)
+    related_count = 1
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT IGNORE INTO issue_summaries
+                  (article_id, related_count, short_summary, ultra_short, background, keywords, article_ids_json, created_at)
+                VALUES
+                  (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """,
+                (
+                    article_id,
+                    related_count,
+                    short_summary,
+                    ultra_short,
+                    background,
+                    keywords_json,
+                    article_ids_json,
+                ),
+            )
+            inserted = int(cur.rowcount or 0)
+
+        if inserted > 0:
+            print(f"[SINGLE] inserted article_id={article_id}")
+            return True
+        else:
+            print(f"[SINGLE] skipped duplicate article_id={article_id}")
+            return False
+
+    except Exception as e:
+        print(f"[SINGLE] error: {repr(e)}")
+        print(traceback.format_exc())
+        return False
+
+    finally:
+        conn.close()
 
 
 def load_articles_from_db(cfg: PipelineConfig) -> pd.DataFrame:
     """
-    최근 lookback 기간 내 기사 중 issue_summary_articles에 아직 없는 기사만 최신순으로 가져온다.
+    최근 14일 기사 중 issue_summaries에 아직 없는 기사만 최신순으로 가져온다.
     """
     conn = get_conn()
     try:
@@ -2573,20 +2659,15 @@ def load_articles_from_db(cfg: PipelineConfig) -> pd.DataFrame:
             cur.execute(
                 f"""
                 SELECT
-                  a.id,
-                  a.url,
-                  a.title,
-                  a.thumbnail,
-                  a.content,
-                  a.published_at,
-                  a.category
+                  a.url, a.title, a.thumbnail, a.content,
+                  a.published_at, a.category
                 FROM articles a
-                LEFT JOIN issue_summary_articles isa
-                  ON isa.article_id = a.id
+                LEFT JOIN issue_summaries s
+                  ON s.article_id = a.id
                 WHERE a.published_at IS NOT NULL
                   AND a.published_at > '2000-01-01 00:00:00'
                   AND a.published_at >= {_recent_cutoff_sql()}
-                  AND isa.article_id IS NULL
+                  AND s.article_id IS NULL
                 ORDER BY a.published_at DESC, a.id DESC
                 """
             )
@@ -2596,11 +2677,18 @@ def load_articles_from_db(cfg: PipelineConfig) -> pd.DataFrame:
         conn.close()
 
     if not rows:
-        return pd.DataFrame(
-            columns=["id", "url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]
-        )
+        return pd.DataFrame(columns=["url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"])
 
-    return rows_to_article_df(rows)
+    df = pd.DataFrame(rows)
+    df["date"] = df["published_at"].astype(str)
+    df["_dt"] = pd.to_datetime(df["published_at"], errors="coerce")
+    df["domain"] = df["url"].astype(str).apply(safe_domain)
+
+    for col in ["thumbnail", "category", "title", "content", "url"]:
+        if col in df.columns:
+            df[col] = df[col].where(df[col].notna(), "")
+
+    return df[["url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]]
 
 
 def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
@@ -2614,12 +2702,12 @@ def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
                     f"""
                     SELECT DATE_FORMAT(a.published_at, %s) AS bucket, COUNT(*) AS cnt
                     FROM articles a
-                    LEFT JOIN issue_summary_articles isa
-                      ON isa.article_id = a.id
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
                     WHERE a.published_at IS NOT NULL
                       AND a.published_at > '2000-01-01 00:00:00'
                       AND a.published_at >= {_recent_cutoff_sql()}
-                      AND isa.article_id IS NULL
+                      AND s.article_id IS NULL
                     GROUP BY DATE_FORMAT(a.published_at, %s)
                     ORDER BY bucket DESC
                     """,
@@ -2630,12 +2718,12 @@ def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
                     f"""
                     SELECT COUNT(*) AS cnt
                     FROM articles a
-                    LEFT JOIN issue_summary_articles isa
-                      ON isa.article_id = a.id
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
                     WHERE a.published_at IS NOT NULL
                       AND a.published_at > '2000-01-01 00:00:00'
                       AND a.published_at >= {_recent_cutoff_sql()}
-                      AND isa.article_id IS NULL
+                      AND s.article_id IS NULL
                     """
                 )
                 one = cur.fetchone() or {}
@@ -2646,12 +2734,12 @@ def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
                     f"""
                     SELECT DATE(a.published_at) AS bucket, COUNT(*) AS cnt
                     FROM articles a
-                    LEFT JOIN issue_summary_articles isa
-                      ON isa.article_id = a.id
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
                     WHERE a.published_at IS NOT NULL
                       AND a.published_at > '2000-01-01 00:00:00'
                       AND a.published_at >= {_recent_cutoff_sql()}
-                      AND isa.article_id IS NULL
+                      AND s.article_id IS NULL
                     GROUP BY DATE(a.published_at)
                     ORDER BY bucket DESC
                     """
@@ -2669,210 +2757,86 @@ def _count_buckets_db(cfg: PipelineConfig) -> Tuple[Dict[str, int], int]:
     return counts, dropped_no_date
 
 
-
-
-def fetch_unsummarized_rows_by_bucket(
-    bucket_key: str,
-    cfg: "PipelineConfig",
-    last_seen_published_at: Optional[str] = None,
-    last_seen_id: Optional[int] = None,
-    batch_size: int = 10000,
-) -> list[dict]:
+def _load_bucket_articles_db(cfg: PipelineConfig, bucket_key: str) -> pd.DataFrame:
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            where_parts = [
-                "a.published_at IS NOT NULL",
-                "a.published_at > '2000-01-01 00:00:00'",
-                f"a.published_at >= {_recent_cutoff_sql()}",
-                "isa.article_id IS NULL",
-            ]
-            params = []
-
             if cfg.BUCKET == "week":
-                where_parts.append("DATE_FORMAT(a.published_at, %s) = %s")
-                params.extend(["%x-W%v", str(bucket_key)])
-            elif cfg.BUCKET == "none":
-                pass
-            else:
-                where_parts.append("DATE(a.published_at) = %s")
-                params.append(str(bucket_key))
-
-            # 핵심: published_at DESC, id DESC 기준 keyset pagination
-            if last_seen_published_at is not None and last_seen_id is not None:
-                where_parts.append(
-                    "(a.published_at < %s OR (a.published_at = %s AND a.id < %s))"
+                cur.execute(
+                    f"""
+                    SELECT
+                      a.url, a.title, a.thumbnail, a.content,
+                      a.published_at, a.category
+                    FROM articles a
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
+                    WHERE a.published_at IS NOT NULL
+                      AND a.published_at > '2000-01-01 00:00:00'
+                      AND a.published_at >= {_recent_cutoff_sql()}
+                      AND DATE_FORMAT(a.published_at, %s) = %s
+                      AND s.article_id IS NULL
+                    ORDER BY a.published_at DESC, a.id DESC
+                    """,
+                    ("%x-W%v", str(bucket_key), int(cfg.MAX_DOCS_PER_BUCKET)),
                 )
-                params.extend([
-                    last_seen_published_at,
-                    last_seen_published_at,
-                    int(last_seen_id),
-                ])
+            elif cfg.BUCKET == "none":
+                cur.execute(
+                    f"""
+                    SELECT
+                      a.url, a.title, a.thumbnail, a.content,
+                      a.published_at, a.category
+                    FROM articles a
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
+                    WHERE a.published_at IS NOT NULL
+                      AND a.published_at > '2000-01-01 00:00:00'
+                      AND a.published_at >= {_recent_cutoff_sql()}
+                      AND s.article_id IS NULL
+                    ORDER BY a.published_at DESC, a.id DESC
+                    LIMIT %s
+                    """,
+                    (int(cfg.MAX_DOCS_PER_BUCKET),),
+                )
+            else:
+                cur.execute(
+                    f"""
+                    SELECT
+                      a.url, a.title, a.thumbnail, a.content,
+                      a.published_at, a.category
+                    FROM articles a
+                    LEFT JOIN issue_summaries s
+                      ON s.article_id = a.id
+                    WHERE a.published_at IS NOT NULL
+                      AND a.published_at > '2000-01-01 00:00:00'
+                      AND a.published_at >= {_recent_cutoff_sql()}
+                      AND DATE(a.published_at) = %s
+                      AND s.article_id IS NULL
+                    ORDER BY a.published_at DESC, a.id DESC
+                    LIMIT %s
+                    """,
+                    (str(bucket_key), int(cfg.MAX_DOCS_PER_BUCKET)),
+                )
 
-            sql = f"""
-                SELECT
-                    a.id,
-                    a.url,
-                    a.title,
-                    COALESCE(a.thumbnail, '') AS thumbnail,
-                    a.content,
-                    a.published_at,
-                    a.category
-                FROM articles a
-                LEFT JOIN issue_summary_articles isa
-                  ON isa.article_id = a.id
-                WHERE {' AND '.join(where_parts)}
-                ORDER BY a.published_at DESC, a.id DESC
-                LIMIT %s
-            """
-            params.append(int(batch_size))
-
-            cur.execute(sql, params)
             rows = cur.fetchall()
-
-            print(
-                f"[FETCH] bucket={bucket_key} "
-                f"rows={len(rows)} "
-                f"last_seen_published_at={last_seen_published_at} "
-                f"last_seen_id={last_seen_id}"
-            )
-
-            return rows
     finally:
         conn.close()
 
+    print(f"[DB] bucket={bucket_key} | unsummarized fetched_rows={len(rows)}")
 
-def process_bucket_in_batches(
-    bucket_key: str,
-    cfg: "PipelineConfig",
-    embedder,
-    batch_size: int = 10000,
-) -> Dict[str, Any]:
-    batch_no = 0
-    last_seen_published_at = None
-    last_seen_id = None
+    if not rows:
+        return pd.DataFrame(columns=["url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"])
 
-    total_docs_loaded = 0
-    total_group_saved = 0
-    total_single_saved = 0
-    total_issue_groups = 0
+    df = pd.DataFrame(rows)
+    df["date"] = df["published_at"].astype(str)
+    df["_dt"] = pd.to_datetime(df["published_at"], errors="coerce")
+    df["domain"] = df["url"].astype(str).apply(safe_domain)
 
-    while True:
-        rows = fetch_unsummarized_rows_by_bucket(
-            bucket_key=bucket_key,
-            cfg=cfg,
-            last_seen_published_at=last_seen_published_at,
-            last_seen_id=last_seen_id,
-            batch_size=batch_size,
-        )
+    for col in ["thumbnail", "category", "title", "content", "url"]:
+        if col in df.columns:
+            df[col] = df[col].where(df[col].notna(), "")
 
-        if not rows:
-            print(
-                f"[DAY DONE] bucket={bucket_key} "
-                f"total_docs_loaded={total_docs_loaded} "
-                f"total_group_saved={total_group_saved} "
-                f"total_single_saved={total_single_saved} "
-                f"total_issue_groups={total_issue_groups}"
-            )
-            break
+    return df[["url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]]
 
-        batch_no += 1
-        fetched_count = len(rows)
-        total_docs_loaded += fetched_count
-
-        print(
-            f"[DB] bucket={bucket_key} batch={batch_no} "
-            f"fetched_rows={fetched_count} "
-            f"last_seen_published_at={last_seen_published_at} "
-            f"last_seen_id={last_seen_id}"
-        )
-
-        df_bucket = rows_to_article_df(rows)
-        if df_bucket is None or len(df_bucket) == 0:
-            print(f"[BUILD] skip bucket={bucket_key} batch={batch_no} rows=0")
-
-            last_row = rows[-1]
-            last_seen_published_at = str(last_row["published_at"])
-            last_seen_id = int(last_row["id"])
-
-            if fetched_count < batch_size:
-                print(
-                    f"[DAY DONE] bucket={bucket_key} "
-                    f"total_docs_loaded={total_docs_loaded} "
-                    f"total_group_saved={total_group_saved} "
-                    f"total_single_saved={total_single_saved} "
-                    f"total_issue_groups={total_issue_groups}"
-                )
-                break
-            continue
-
-        issues, stats = build_bucket_from_df(cfg, bucket_key, df_bucket, embedder)
-
-        issue_count = len(issues) if issues else 0
-        total_issue_groups += issue_count
-
-        print(
-            f"[BUILD] done bucket={bucket_key} batch={batch_no} "
-            f"issues={issue_count} "
-            f"raw_rows={len(rows)}"
-        )
-        print(
-            f"[BUILD] stats bucket={bucket_key} batch={batch_no} "
-            f"stats={json.dumps(stats, ensure_ascii=False)}"
-        )
-
-        batch_group_saved = 0
-
-        for idx, issue in enumerate(issues or [], start=1):
-            try:
-                print(
-                    f"[SAVE-GROUP] bucket={bucket_key} batch={batch_no} "
-                    f"issue_index={idx}/{issue_count} "
-                    f"rep_url={str(issue.get('representative_url', '')).strip()}"
-                )
-                inserted_count = upsert_issue_summary(issue)
-                batch_group_saved += int(inserted_count or 0)
-            except Exception as e:
-                print(
-                    f"[SAVE-GROUP][ERROR] bucket={bucket_key} batch={batch_no} "
-                    f"issue_index={idx} error={e}"
-                )
-
-        total_group_saved += batch_group_saved
-
-        print(
-            f"[SAVE] done bucket={bucket_key} batch={batch_no} "
-            f"group_saved={batch_group_saved} "
-            f"single_saved=0 "
-            f"batch_total_saved={batch_group_saved}"
-        )
-
-        last_row = rows[-1]
-        last_seen_published_at = str(last_row["published_at"])
-        last_seen_id = int(last_row["id"])
-
-        if fetched_count < batch_size:
-            print(
-                f"[DAY DONE] bucket={bucket_key} "
-                f"total_docs_loaded={total_docs_loaded} "
-                f"total_group_saved={total_group_saved} "
-                f"total_single_saved={total_single_saved} "
-                f"total_issue_groups={total_issue_groups}"
-            )
-            break
-
-    return {
-        "bucket": bucket_key,
-        "docs_in_bucket": total_docs_loaded,
-        "group_saved": total_group_saved,
-        "single_saved": total_single_saved,
-        "issues_saved": total_group_saved + total_single_saved,
-        "issue_groups": total_issue_groups,
-        "stats": {
-            "status": "done",
-            "batches_processed": batch_no,
-        },
-    }
 
 def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
     counts, dropped_no_date = _count_buckets_db(cfg)
@@ -2882,7 +2846,6 @@ def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
     print(f"[SCAN] BUCKET={cfg.BUCKET} | MAX_BUCKETS={cfg.MAX_BUCKETS}")
     print(f"[SCAN] LOOKBACK_DAYS={SUMMARY_LOOKBACK_DAYS}")
     print(f"[SCAN] MAX_RELATED_ARTICLES={MAX_RELATED_ARTICLES}")
-    print(f"[SCAN] SUMMARY_BATCH_SIZE={SUMMARY_BATCH_SIZE}")
     print(f"[SCAN] selected buckets: {buckets}")
     print(f"[SCAN] dropped(no date): {dropped_no_date}")
 
@@ -2912,23 +2875,59 @@ def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
 
     for b in buckets:
         try:
-            print(f"[BUCKET] start bucket={b}")
-            result = process_bucket_in_batches(
-                bucket_key=b,
-                cfg=cfg,
-                embedder=embedder,
-                batch_size=SUMMARY_BATCH_SIZE,
-            )
+            df_bucket = _load_bucket_articles_db(cfg, b)
+            docs_loaded = int(len(df_bucket))
+            docs_loaded_total += docs_loaded
 
-            docs_loaded_total += int(result.get("docs_in_bucket", 0))
-            issues_saved_total += int(result.get("issues_saved", 0))
-            bucket_rows.append(result)
+            print(f"[BUILD] start bucket={b} rows={docs_loaded}")
 
-            print(
-                f"[BUCKET] done bucket={b} "
-                f"docs_in_bucket={result.get('docs_in_bucket', 0)} "
-                f"issues_saved={result.get('issues_saved', 0)}"
-            )
+            if docs_loaded == 0:
+                print(f"[BUILD] skip bucket={b} rows=0")
+                bucket_rows.append({
+                    "bucket": b,
+                    "docs_in_bucket": 0,
+                    "issues_saved": 0,
+                    "stats": {"status": "empty_bucket"},
+                })
+                continue
+
+            issues, df_single, stats = build_bucket_from_df(cfg, b, df_bucket, embedder)
+
+            print(f"[BUILD] done bucket={b} issues={len(issues)}")
+            print(f"[BUILD] stats bucket={b} stats={json.dumps(stats, ensure_ascii=False)}")
+
+            saved = 0
+            single_saved = 0
+
+            # 1) 묶인 이슈 저장
+            for idx, issue in enumerate(issues, start=1):
+                print(
+                    f"[SAVE] bucket={b} issue_index={idx}/{len(issues)} "
+                    f"rep_url={str(issue.get('representative_url', '')).strip()}"
+                )
+                inserted_count = upsert_issue_summary(issue)
+                saved += inserted_count
+
+            # 2) 단독 기사 저장
+            if df_single is not None and len(df_single) > 0:
+                print(f"[SINGLE] bucket={b} singleton_rows={len(df_single)}")
+
+                for idx, row in enumerate(df_single.to_dict(orient='records'), start=1):
+                    ok = insert_single_article_summary_from_row(row)
+                    if ok:
+                        saved += 1
+                        single_saved += 1
+
+            print(f"[SAVE] done bucket={b} saved={saved} (single_saved={single_saved})")
+
+            issues_saved_total += saved
+            bucket_rows.append({
+                "bucket": b,
+                "docs_in_bucket": docs_loaded,
+                "issues_saved": saved,
+                "single_saved": single_saved,
+                "stats": stats,
+            })
 
         except Exception as e:
             err = repr(e)
@@ -2947,8 +2946,71 @@ def run_pipeline_db(cfg: PipelineConfig) -> Dict[str, Any]:
         "failed_buckets": failed_buckets,
     }
 
+def fetch_unsummarized_rows_by_bucket(conn, bucket_date: str, last_id: int = 0, batch_size: int = 300):
+    sql = """
+        SELECT
+            a.id,
+            a.title,
+            a.content,
+            a.url,
+            a.published_at,
+            a.category
+        FROM articles a
+        LEFT JOIN issue_summaries s
+            ON s.article_id = a.id
+        WHERE DATE(a.published_at) = %s
+          AND a.id > %s
+          AND s.article_id IS NULL
+        ORDER BY a.id ASC
+        LIMIT %s
+    """
+    with conn.cursor(dictionary=True) as cur:
+        cur.execute(sql, (bucket_date, last_id, batch_size))
+        return cur.fetchall()
 
-# legacy batch helpers removed
+def run_bucket_all_batches(conn, bucket_date: str, batch_size: int = 300):
+    last_id = 0
+    batch_no = 0
+    total_fetched = 0
+    total_saved = 0
+
+    while True:
+        rows = fetch_unsummarized_rows_by_bucket(
+            conn=conn,
+            bucket_date=bucket_date,
+            last_id=last_id,
+            batch_size=batch_size
+        )
+
+        if not rows:
+            print(f"[DAY DONE] bucket={bucket_date} total_fetched={total_fetched} total_saved={total_saved}")
+            break
+
+        batch_no += 1
+        fetched_count = len(rows)
+        total_fetched += fetched_count
+
+        print(f"[DB] bucket={bucket_date} batch={batch_no} fetched_rows={fetched_count} last_id_start={last_id}")
+
+        # 기존에 쓰던 빌드 함수 호출
+        issues, stats = build_issue_groups(rows, bucket_date)
+
+        issue_count = len(issues) if issues else 0
+        print(f"[BUILD] done bucket={bucket_date} batch={batch_no} issues={issue_count}")
+        print(f"[BUILD] stats bucket={bucket_date} batch={batch_no} stats={stats}")
+
+        saved_count = 0
+        if issues:
+            for issue in issues:
+                ok = upsert_issue_summary(issue)
+                if ok:
+                    saved_count += 1
+
+        total_saved += saved_count
+        print(f"[SAVE] done bucket={bucket_date} batch={batch_no} saved={saved_count}")
+
+        # 다음 배치로 넘기기 위한 마지막 id 갱신
+        last_id = rows[-1]["id"]
 
 @app.get("/health")
 def health():
@@ -2973,7 +3035,6 @@ def health():
             "issue_summaries_count": scnt["cnt"],
             "lookback_days": SUMMARY_LOOKBACK_DAYS,
             "max_related_articles": MAX_RELATED_ARTICLES,
-            "summary_batch_size": SUMMARY_BATCH_SIZE,
             "db_host": DB_HOST,
             "db_port": DB_PORT,
             "db_name": DB_NAME,
@@ -2993,51 +3054,41 @@ def get_issues(
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            where_clauses = []
+            sql = """
+            SELECT
+              s.article_id,
+              s.related_count,
+              s.short_summary,
+              s.ultra_short,
+              s.background,
+              s.keywords,
+              s.article_ids_json,
+              s.created_at,
+              a.url,
+              a.title,
+              a.category,
+              a.published_at
+            FROM issue_summaries s
+            JOIN articles a ON a.id = s.article_id
+            """
             params = []
+            where_clauses = []
 
             if article_id is not None:
                 where_clauses.append(
-                    """
-                    EXISTS (
-                        SELECT 1
-                        FROM issue_summary_articles f
-                        WHERE f.issue_summary_id = s.id
-                          AND f.article_id = %s
-                    )
-                    """
+                    "(s.article_id = %s OR JSON_CONTAINS(s.article_ids_json, JSON_ARRAY(%s)))"
                 )
+                params.append(int(article_id))
                 params.append(int(article_id))
 
             if category and category != "all":
                 where_clauses.append("a.category = %s")
                 params.append(category)
 
-            sql = """
-                SELECT
-                  s.id AS issue_summary_id,
-                  s.article_id,
-                  s.related_count,
-                  s.short_summary,
-                  s.ultra_short,
-                  s.background,
-                  s.keywords,
-                  s.created_at,
-                  a.url,
-                  a.title,
-                  a.thumbnail,
-                  a.content,
-                  a.category,
-                  a.published_at
-                FROM issue_summaries s
-                JOIN articles a
-                  ON a.id = s.article_id
-            """
-
             if where_clauses:
                 sql += " WHERE " + " AND ".join(where_clauses)
 
-            sql += " ORDER BY a.published_at DESC, s.created_at DESC LIMIT %s "
+            sql += " ORDER BY s.created_at DESC LIMIT %s "
             params.append(limit)
 
             print("[/issues] SQL =", sql)
@@ -3050,74 +3101,63 @@ def get_issues(
         items = []
 
         for r in rows:
-            issue_summary_id = int(r.get("issue_summary_id") or 0)
+            try:
+                article_ids = json.loads(r.get("article_ids_json") or "[]")
+            except Exception:
+                article_ids = []
 
             related_articles = []
-            if issue_summary_id > 0:
+            if article_ids:
+                placeholders = ",".join(["%s"] * len(article_ids))
+
                 with conn.cursor() as cur:
                     cur.execute(
-                        """
-                        SELECT
-                          m.article_id,
-                          m.sort_order,
-                          m.is_representative,
-                          a.title,
-                          a.url,
-                          a.thumbnail,
-                          a.content,
-                          a.category,
-                          a.published_at
-                        FROM issue_summary_articles m
-                        JOIN articles a
-                          ON a.id = m.article_id
-                        WHERE m.issue_summary_id = %s
-                        ORDER BY m.sort_order ASC, a.published_at DESC, a.id DESC
+                        f"""
+                        SELECT id, title, url, category, published_at
+                        FROM articles
+                        WHERE id IN ({placeholders})
                         """,
-                        (issue_summary_id,),
+                        article_ids
                     )
                     related_rows = cur.fetchall()
 
-                related_articles = [
-                    {
-                        "id": int(x.get("article_id") or 0),
-                        "article_id": int(x.get("article_id") or 0),
+                related_map = {
+                    int(x["id"]): {
+                        "id": int(x["id"]),
                         "title": clean_html_text(x.get("title") or ""),
                         "url": x.get("url") or "",
-                        "thumbnail": x.get("thumbnail") or "",
-                        "content": clean_html_text(x.get("content") or ""),
                         "category": x.get("category") or "기타",
                         "published_at": str(x.get("published_at") or ""),
-                        "sort_order": int(x.get("sort_order") or 0),
-                        "is_representative": bool(int(x.get("is_representative") or 0)),
                     }
                     for x in related_rows
+                }
+
+                related_articles = [
+                    related_map[aid]
+                    for aid in article_ids
+                    if aid in related_map
                 ]
 
             items.append({
-                "id": issue_summary_id,
-                "issue_summary_id": issue_summary_id,
-                "article_id": int(r.get("article_id") or 0),  # 대표 기사 id
+                "id": r.get("article_id"),
+                "article_id": r.get("article_id"),
                 "category": r.get("category") or "기타",
-                "title": clean_html_text(r.get("title") or ""),  # 대표 기사 제목
+                "title": clean_html_text(r.get("title") or ""),
                 "url": r.get("url") or "",
-                "thumbnail": r.get("thumbnail") or "",          # 대표 기사 썸네일
-                "content": clean_html_text(r.get("content") or ""),  # 대표 기사 본문
                 "summary": clean_html_text(r.get("ultra_short") or ""),
-                "short_summary": clean_html_text(r.get("short_summary") or ""),  # 이슈 전체 요약
-                "ultra_short": clean_html_text(r.get("ultra_short") or ""),
-                "background": clean_html_text(r.get("background") or ""),
-                "related_count": int(r.get("related_count") or len(related_articles) or 1),
+                "short_summary": clean_html_text(r.get("short_summary") or ""),
+                "related_count": int(r.get("related_count") or 1),
+                "article_ids": article_ids,
                 "related_articles": related_articles,
-                "article_ids": [x["article_id"] for x in related_articles],
-                "keywords": r.get("keywords"),
+                "keywords": clean_html_text(r.get("keywords") or ""),
                 "created_at": str(r.get("created_at") or ""),
-                "published_at": str(r.get("published_at") or ""),
             })
 
         return {"items": items}
 
     finally:
         conn.close()
+
 
 @app.on_event("startup")
 def start_tracking_scheduler():
@@ -3143,8 +3183,9 @@ def run():
     except Exception as e:
         return {"ok": False, "error": repr(e), "trace": traceback.format_exc()[-2000:]}
 
-
+#  로컬에서 python tracking_summary.py로 실행할 때도 돌아가게 (선택)
 if __name__ == "__main__":
+    # 로컬 실행 시 CSV_PATH가 있으면 CSV 모드, 없으면 DB 모드
     cfg = make_cfg()
     if cfg.CSV_PATH:
         run_pipeline(cfg)
@@ -3154,8 +3195,4 @@ if __name__ == "__main__":
             print(json.dumps(result, ensure_ascii=False, indent=2))
         except Exception as e:
             print(repr(e))
-            print(json.dumps({
-                "ok": False,
-                "error": repr(e),
-                "trace": traceback.format_exc()[-2000:]
-            }, ensure_ascii=False))
+            print(json.dumps({"ok": False, "error": repr(e), "trace": traceback.format_exc()[-2000:]}, ensure_ascii=False))

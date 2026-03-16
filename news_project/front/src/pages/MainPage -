@@ -6,8 +6,8 @@ import { Swiper, SwiperSlide } from "swiper/react";
 import { Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/mousewheel";
-import { getNewsById } from "../api/newsApi";
 
+import { fetchNews } from "../api/newsApi";
 import { rememberArticleDetail } from "../utils/articleDetail";
 import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
 
@@ -60,26 +60,8 @@ const THUMB = {
 
 const INITIAL_ARTICLES = [];
 
-function normalizeCategoryKey(value) {
-  const v = String(value || "").trim().toLowerCase();
-
-  if (!v) return "";
-
-  if (["all", "전체"].includes(v)) return "all";
-  if (["politics", "정치"].includes(v)) return "politics";
-  if (["economy", "경제"].includes(v)) return "economy";
-  if (["society", "사회"].includes(v)) return "society";
-  if (["world", "국제", "international"].includes(v)) return "world";
-  if (["it", "it/과학", "과학", "tech", "science"].includes(v)) return "it";
-  if (["culture", "문화", "연예"].includes(v)) return "culture";
-  if (["sports", "스포츠"].includes(v)) return "sports";
-
-  return "";
-}
-
 function getCategoryLabel(key) {
-  const normalizedKey = normalizeCategoryKey(key);
-  return CATEGORIES.find((c) => c.key === normalizedKey)?.label || "기타";
+  return CATEGORIES.find((c) => c.key === key)?.label || "기타";
 }
 
 function Badge({ type }) {
@@ -124,34 +106,139 @@ function RelatedItem({ title, meta, onClick }) {
   );
 }
 
-function LatestIssueCard({ issue, onClick, activeArticleId }) {
-  const isActive =
-    String(activeArticleId || "") === String(issue.articleId || issue.id || "");
+function LatestIssueCard({ issue, onClick }) {
+  const relatedArticles = Array.isArray(issue.related_articles)
+    ? issue.related_articles
+    : [];
+
+  const hasGroupedArticles = relatedArticles.length > 0;
+  const titles = hasGroupedArticles
+    ? relatedArticles.map((article) => article.title)
+    : [issue.title];
+
+  const meta = hasGroupedArticles
+    ? ""
+    : issue.meta || issue.ultraShort || issue.shortSummary || "";
 
   return (
-    <button
-      type="button"
-      className={`mp-latest-card ${isActive ? "active" : ""}`}
-      onClick={() => onClick(issue)}
-    >
+    <button type="button" className="mp-latest-card" onClick={onClick}>
       <div className="mp-latest-title">
-        <div>{issue.title || "(제목 없음)"}</div>
+        {titles.map((title, idx) => (
+          <div key={idx}>{title}</div>
+        ))}
       </div>
-      {issue.ultraShort ? (
-        <div className="mp-related-meta">{issue.ultraShort}</div>
+      {!hasGroupedArticles && meta ? (
+        <div className="mp-related-meta">{meta}</div>
       ) : null}
     </button>
   );
 }
 
-function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
+function LatestIssuesCarousel({ items, count, onItemClick }) {
   const trackRef = useRef(null);
+  const dragRef = useRef({
+    active: false,
+    startX: 0,
+    startScrollLeft: 0,
+    lastX: 0,
+    lastTime: 0,
+    velocity: 0,
+    rafId: 0,
+    targetScrollLeft: 0,
+    pointerId: null,
+    moveRafId: 0,
+  });
 
   const scrollByAmount = (dir) => {
     const el = trackRef.current;
     if (!el) return;
     const amount = Math.max(260, Math.floor(el.clientWidth * 0.85));
     el.scrollBy({ left: dir * amount, behavior: "smooth" });
+  };
+
+  const onPointerDown = (e) => {
+    const el = trackRef.current;
+    if (!el) return;
+    if (e.button !== undefined && e.button !== 0) return;
+
+    if (dragRef.current.rafId) cancelAnimationFrame(dragRef.current.rafId);
+
+    dragRef.current.pointerId = e.pointerId;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch { }
+
+    dragRef.current.active = true;
+    dragRef.current.startX = e.clientX;
+    dragRef.current.startScrollLeft = el.scrollLeft;
+    dragRef.current.lastX = e.clientX;
+    dragRef.current.lastTime = performance.now();
+    dragRef.current.velocity = 0;
+    dragRef.current.targetScrollLeft = el.scrollLeft;
+
+    el.classList.add("is-dragging");
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e) => {
+    const el = trackRef.current;
+    if (!el || !dragRef.current.active) return;
+
+    const dx = e.clientX - dragRef.current.startX;
+    dragRef.current.targetScrollLeft = dragRef.current.startScrollLeft - dx;
+
+    const now = performance.now();
+    const dt = now - dragRef.current.lastTime;
+    if (dt > 0) {
+      const dist = e.clientX - dragRef.current.lastX;
+      dragRef.current.velocity = dist / dt;
+      dragRef.current.lastX = e.clientX;
+      dragRef.current.lastTime = now;
+    }
+
+    if (!dragRef.current.moveRafId) {
+      dragRef.current.moveRafId = requestAnimationFrame(() => {
+        if (!dragRef.current.active) {
+          dragRef.current.moveRafId = 0;
+          return;
+        }
+        el.scrollLeft = dragRef.current.targetScrollLeft;
+        dragRef.current.moveRafId = 0;
+      });
+    }
+
+    e.preventDefault();
+  };
+
+  const stopDrag = () => {
+    const el = trackRef.current;
+    if (!el) return;
+
+    dragRef.current.active = false;
+    el.classList.remove("is-dragging");
+
+    if (dragRef.current.moveRafId) cancelAnimationFrame(dragRef.current.moveRafId);
+    dragRef.current.moveRafId = 0;
+
+    try {
+      if (dragRef.current.pointerId !== null) {
+        el.releasePointerCapture(dragRef.current.pointerId);
+      }
+    } catch { }
+    dragRef.current.pointerId = null;
+
+    const startVelocity = dragRef.current.velocity;
+    if (Math.abs(startVelocity) < 0.02) return;
+
+    const step = () => {
+      const v = dragRef.current.velocity * 0.95;
+      dragRef.current.velocity = v;
+      el.scrollLeft -= v * 16;
+      if (Math.abs(v) > 0.02) dragRef.current.rafId = requestAnimationFrame(step);
+      else dragRef.current.rafId = 0;
+    };
+
+    dragRef.current.rafId = requestAnimationFrame(step);
   };
 
   return (
@@ -181,19 +268,82 @@ function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
       {items.length === 0 ? (
         <div style={{ padding: 12, opacity: 0.7 }}>묶인 기사가 없습니다.</div>
       ) : (
-        <div className="mp-latest-track" ref={trackRef}>
+        <div
+          className="mp-latest-track"
+          ref={trackRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={stopDrag}
+          onPointerLeave={stopDrag}
+          onPointerCancel={stopDrag}
+        >
           {items.map((issue) => (
             <LatestIssueCard
-              key={String(issue.articleId || issue.id)}
+              key={issue.id}
               issue={issue}
-              activeArticleId={activeArticleId}
-              onClick={onItemClick}
+              onClick={() => onItemClick(issue)}
             />
           ))}
         </div>
       )}
     </section>
   );
+}
+
+function mapTrackingItemToRelatedUI(it) {
+  const title = it?.title || it?.issue_title || it?.headline || "(제목 없음)";
+  const url = it?.url || it?.representative_url || it?.top_url || "";
+  const summary =
+    it?.summary || it?.ultra_short || it?.issue_summary || it?.description || "";
+  const id = String(it?.id || it?.issue_id || url || title);
+
+  const inferredCategory = inferCategoryFromNews({
+    title,
+    summary,
+    description: summary,
+    content: it?.background || it?.content || "",
+    body: it?.body || "",
+    press_name: it?.press_name || "",
+  });
+
+  return {
+    id,
+    category: inferredCategory,
+    title,
+    meta: summary,
+    raw: { ...it, url },
+  };
+}
+
+function mapIssueSummaryToLatestUI(it, articles = []) {
+  const matchedArticle = articles.find(
+    (a) => String(a.id) === String(it.article_id)
+  );
+
+  const inferredCategory =
+    matchedArticle?.category ||
+    inferCategoryFromNews({
+      title: it.title,
+      summary: it.ultra_short || it.summary,
+      description: it.short_summary,
+      content: it.background,
+    });
+
+  return {
+    id: String(it.id ?? it.article_id ?? ""),
+    articleId: String(it.article_id || it.id),
+    category: inferredCategory,
+    title: it.title || "(이슈 제목 없음)",
+    relatedCount: Number(it.related_count || 0),
+    articleIds: Array.isArray(it.article_ids) ? it.article_ids.map(String) : [],
+    related_articles: Array.isArray(it.related_articles) ? it.related_articles : [],
+    summary: it.summary || it.ultra_short || "",
+    shortSummary: it.short_summary || "",
+    ultraShort: it.ultra_short || it.summary || "",
+    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
+    representativeUrl: it.url || "",
+    raw: it,
+  };
 }
 
 const CATEGORY_RULES = {
@@ -299,119 +449,81 @@ function inferCategoryFromNews(n) {
   return bestScore > 0 ? bestKey : "society";
 }
 
-function mapTrackingItemToRelatedUI(it) {
-  const title = it?.title || it?.issue_title || it?.headline || "(제목 없음)";
-  const url = it?.url || it?.representative_url || it?.top_url || "";
-  const summary =
-    it?.summary || it?.ultra_short || it?.issue_summary || it?.description || "";
-  const id = String(it?.id || it?.issue_id || url || title);
+function mapNewsToArticle(n) {
+  const rawId = n.id ?? `${n.url || "news"}-${n.published_at || Date.now()}`;
+  const id = String(rawId);
 
-  const inferredCategory =
-    normalizeCategoryKey(it?.category) ||
-    inferCategoryFromNews({
-      title: it?.title || "",
-      summary: it?.ultra_short || it?.summary || "",
-      description: it?.short_summary || it?.description || "",
-      content: it?.content || it?.background || "",
-      body: it?.body || "",
-      press_name: it?.press_name || "",
-    });
+  const category = inferCategoryFromNews(n);
+  const title = n.title ?? "(제목 없음)";
+  const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
+  const thumb = resolveThumbnailUrl(n.thumbnail, fallbackThumb);
+  const rawTime = n.published_at ?? n.created_at;
+  const createdAt = rawTime ? new Date(rawTime).getTime() : Date.now();
 
   return {
     id,
-    category: inferredCategory || "society",
+    category,
+    badge: "최신",
     title,
-    meta: summary,
-    raw: { ...it, url },
+    thumbnailUrl: thumb,
+    summary: [
+      n.summary ||
+      n.short_summary ||
+      n.ultra_short ||
+      "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요.",
+    ],
+    createdAt,
+    raw: n,
   };
 }
 
-function mapIssueSummaryToLatestUI(it) {
-  const relatedArticles = Array.isArray(it.related_articles) ? it.related_articles : [];
+function buildArticleDedupKey(article) {
+  const title = String(article?.title || "").trim();
+  const published = String(
+    article?.raw?.published_at ||
+    article?.raw?.created_at ||
+    article?.published_at ||
+    article?.createdAt ||
+    ""
+  ).trim();
 
-  const representative =
-    relatedArticles.find(
-      (a) =>
-        Number(a.is_representative || 0) === 1 ||
-        String(a.id || a.article_id || "") === String(it.article_id || "")
-    ) || relatedArticles[0] || null;
+  if (title && published) return `title:${title}|published:${published}`;
 
-  const inferredCategory =
-    normalizeCategoryKey(representative?.category) ||
-    normalizeCategoryKey(it.category) ||
-    inferCategoryFromNews({
-      title: representative?.title || it.title || "",
-      summary: it.ultra_short || it.summary || "",
-      description: it.short_summary || "",
-      content: representative?.content || it.background || "",
-      body: representative?.body || "",
-      press_name: representative?.press_name || "",
-    });
+  const url = String(article?.raw?.url || article?.url || "").trim();
+  if (url) return `url:${url}`;
 
-  return {
-    id: String(it.id ?? it.article_id ?? ""),
-    issueSummaryId: String(it.id ?? ""),
-    articleId: String(
-      it.article_id || representative?.id || representative?.article_id || ""
-    ),
-    category: inferredCategory || "society",
-    title: representative?.title || it.title || "(이슈 제목 없음)",
-    relatedCount: Number(it.related_count || relatedArticles.length || 0),
-    related_articles: relatedArticles,
-    shortSummary: it.short_summary || "",
-    ultraShort: it.ultra_short || "",
-    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
-    representativeUrl: representative?.url || it.url || "",
-    representativeThumbnail: representative?.thumbnail || "",
-    representativeContent: representative?.content || "",
-    raw: it,
-  };
+  if (title || published) return `title:${title}|published:${published}`;
+  return `id:${String(article?.id || "")}`;
 }
 
-function mapIssueSummaryToMainArticle(it) {
-  const relatedArticles = Array.isArray(it.related_articles) ? it.related_articles : [];
-  const representative =
-    relatedArticles.find(
-      (a) =>
-        Number(a.is_representative || 0) === 1 ||
-        String(a.id || a.article_id || "") === String(it.article_id || "")
-    ) || relatedArticles[0] || null;
+function pickPreferredArticle(current, incoming) {
+  if (!current) return incoming;
 
-  const inferredCategory =
-    normalizeCategoryKey(representative?.category) ||
-    normalizeCategoryKey(it.category) ||
-    inferCategoryFromNews({
-      title: representative?.title || it.title || "",
-      summary: it.ultra_short || it.summary || "",
-      description: it.short_summary || "",
-      content: representative?.content || it.background || "",
-      body: representative?.body || "",
-      press_name: representative?.press_name || "",
-    });
+  const currentTs = Number(current?.createdAt || 0);
+  const incomingTs = Number(incoming?.createdAt || 0);
+  if (incomingTs > currentTs) return incoming;
+  if (incomingTs < currentTs) return current;
 
-  const fallbackThumb = `${THUMB[inferredCategory || "society"] || THUMB.it}${UQ}`;
+  const currentId = Number(current?.id);
+  const incomingId = Number(incoming?.id);
+  if (Number.isFinite(currentId) && Number.isFinite(incomingId)) {
+    return incomingId >= currentId ? incoming : current;
+  }
 
-  return {
-    id: String(it.article_id || representative?.id || representative?.article_id || it.id || ""),
-    issueSummaryId: String(it.id || ""),
-    articleId: String(it.article_id || representative?.id || representative?.article_id || it.id || ""),
-    category: inferredCategory || "society",
-    badge: `묶음 ${Number(it.related_count || relatedArticles.length || 0)}`,
-    title: representative?.title || it.title || "(이슈 제목 없음)",
-    thumbnailUrl: resolveThumbnailUrl(
-      representative?.thumbnail || "",
-      fallbackThumb
-    ),
-    summary: [it.short_summary || "요약 정보가 없습니다."],
-    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
-    raw: {
-      ...it,
-      title: representative?.title || it.title || "(이슈 제목 없음)",
-      thumbnail: representative?.thumbnail || "",
-      url: representative?.url || it.url || "",
-      content: representative?.content || "",
-    },
-  };
+  return incoming;
+}
+
+function mergeUniqueArticles(items) {
+  const dedup = new Map();
+  for (const item of items) {
+    const key = buildArticleDedupKey(item);
+    const current = dedup.get(key);
+    dedup.set(key, pickPreferredArticle(current, item));
+  }
+
+  return Array.from(dedup.values()).sort(
+    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  );
 }
 
 function mapRecoItemToArticle(item) {
@@ -419,18 +531,22 @@ function mapRecoItemToArticle(item) {
   const url = raw.url || raw.link || raw.news_url || "";
   const title = raw.title || raw.headline || "(제목 없음)";
 
-  const normalizedRawCategory = normalizeCategoryKey(raw.category);
+  const rawCategory = String(raw.category || "").trim().toLowerCase();
 
   const category =
-    normalizedRawCategory ||
-    inferCategoryFromNews({
-      title,
-      summary: raw.summary || raw.short_summary || raw.ultra_short || "",
-      description: raw.description || "",
-      content: raw.content || raw.background || "",
-      body: raw.body || "",
-      press_name: raw.press_name || "",
-    });
+    rawCategory &&
+      rawCategory !== "기타" &&
+      rawCategory !== "etc" &&
+      rawCategory !== "all"
+      ? raw.category
+      : inferCategoryFromNews({
+        title,
+        summary: raw.summary || raw.short_summary || raw.ultra_short || "",
+        description: raw.description || "",
+        content: raw.content || raw.background || "",
+        body: raw.body || "",
+        press_name: raw.press_name || "",
+      });
 
   const id =
     raw.id ??
@@ -448,7 +564,7 @@ function mapRecoItemToArticle(item) {
 
   return {
     id: String(id),
-    category: category || "society",
+    category,
     badge: "추천",
     title,
     thumbnailUrl: resolveThumbnailUrl(raw.thumbnail, fallbackThumb),
@@ -458,110 +574,97 @@ function mapRecoItemToArticle(item) {
   };
 }
 
-async function fetchArticleDetailById(articleId) {
-  if (!articleId) return null;
-
-  try {
-    const res = await getNewsById(articleId);
-    const data = res?.data;
-
-    return (
-      data?.item ||
-      data?.data ||
-      data?.article ||
-      (Array.isArray(data?.items) ? data.items[0] : null) ||
-      (Array.isArray(data) ? data[0] : data)
-    );
-  } catch (e) {
-    console.error("fetchArticleDetailById failed:", e);
-    return null;
-  }
-}
-
-function mapArticleDetailToView(article, fallbackCategory = "society") {
-  if (!article) return null;
-
-  const rawId = article.id ?? article.article_id ?? article.news_id;
-  const id = String(rawId ?? "");
-  const category =
-    normalizeCategoryKey(article.category) ||
-    inferCategoryFromNews({
-      title: article.title,
-      summary: article.summary || article.short_summary || article.ultra_short,
-      description: article.description,
-      content: article.content,
-      body: article.body,
-    }) ||
-    fallbackCategory;
-
-  const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
-
-  return {
-    id,
-    articleId: id,
-    category,
-    badge: "이슈",
-    title: article.title || "(제목 없음)",
-    thumbnailUrl: resolveThumbnailUrl(article.thumbnail, fallbackThumb),
-    summary: [
-      article.short_summary ||
-      article.ultra_short ||
-      article.summary ||
-      "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요.",
-    ],
-    createdAt: article.published_at ? new Date(article.published_at).getTime() : Date.now(),
-    raw: article,
-  };
-}
-
-function mapSingleArticleToListItem(article) {
-  if (!article) return null;
-
-  const articleId = String(article.id ?? article.article_id ?? "");
-  const category =
-    normalizeCategoryKey(article.category) ||
-    inferCategoryFromNews({
-      title: article.title || "",
-      description: article.description || "",
-      summary: article.summary || article.short_summary || article.ultra_short || "",
-      content: article.content || "",
-      body: article.body || "",
-      press_name: article.press_name || "",
-    });
-
-  return {
-    id: articleId,
-    articleId,
-    category: category || "society",
-    badge: "",
-    title: article.title || "(제목 없음)",
-    createdAt: article.published_at
-      ? new Date(article.published_at).getTime()
-      : Date.now(),
-    raw: article,
-  };
-}
-
 export default function MainPage() {
   const navigate = useNavigate();
   const location = useLocation();
-
   const [articles, setArticles] = useState(INITIAL_ARTICLES);
   const [recoItems, setRecoItems] = useState([]);
   const [latestIssues, setLatestIssues] = useState([]);
+  const [selectedIssue, setSelectedIssue] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedId, setSelectedId] = useState(null);
   const [articleListMode, setArticleListMode] = useState("daily");
-  const [activeIssueArticleId, setActiveIssueArticleId] = useState(null);
-  const [issueArticleDetails, setIssueArticleDetails] = useState({});
   const swiperRef = useRef(null);
   const [recoLoading, setRecoLoading] = useState(false);
   const [recoReady, setRecoReady] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const [page, setPage] = useState(1);
+  const size = 100;
+
+  const cacheRef = useRef(new Map());
+  const fetchedPagesRef = useRef(new Set());
+  const abortRef = useRef(null);
+
+  const MIN_PER_CATEGORY = 15;
+  const MAX_AUTO_PAGES = 6;
+
+  const q = "";
+
+  const fetchPageAndAppend = async (targetPage, { background = false } = {}) => {
+    const cacheKey = `${targetPage}:${size}:${q}`;
+
+    if (cacheRef.current.has(cacheKey)) {
+      const cached = cacheRef.current.get(cacheKey);
+      setArticles((prev) => {
+        return mergeUniqueArticles([...prev, ...cached]);
+      });
+      setPage((prev) => Math.max(prev, targetPage));
+      return cached.length;
+    }
+
+    if (fetchedPagesRef.current.has(cacheKey)) return 0;
+    fetchedPagesRef.current.add(cacheKey);
+
+    const controller = new AbortController();
+    if (!background) {
+      abortRef.current = controller;
+    }
+
+    try {
+      if (!background) {
+        setLoading(true);
+        setError("");
+      }
+
+      const res = await fetchNews(
+        { page: targetPage, size, q, includeTotal: false },
+        { signal: controller.signal }
+      );
+      const data = res.data;
+      const list = Array.isArray(data?.items) ? data.items : [];
+      const mapped = list.map(mapNewsToArticle);
+
+      cacheRef.current.set(cacheKey, mapped);
+
+      setArticles((prev) => {
+        return mergeUniqueArticles([...prev, ...mapped]);
+      });
+      setPage((prev) => Math.max(prev, targetPage));
+
+      return mapped.length;
+    } catch (e) {
+      if (e?.name === "CanceledError" || e?.code === "ERR_CANCELED") {
+        fetchedPagesRef.current.delete(cacheKey);
+        return 0;
+      }
+
+      fetchedPagesRef.current.delete(cacheKey);
+      if (!background) {
+        setError(e?.response?.data?.message || "뉴스를 불러오지 못했습니다.");
+      }
+      return 0;
+    } finally {
+      if (!background) {
+        setLoading(false);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
+    }
+  };
+
   const [userId, setUserId] = useState(null);
-  const [trackRelated, setTrackRelated] = useState([]);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -578,9 +681,66 @@ export default function MainPage() {
         setUserId(null);
       }
     };
-
     loadMe();
   }, []);
+
+  const didInitRef = useRef(false);
+
+  useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    const loadInitial = async () => {
+      const loaded = await fetchPageAndAppend(1);
+      if (!loaded) return;
+
+      void (async () => {
+        await fetchPageAndAppend(2, { background: true });
+        await fetchPageAndAppend(3, { background: true });
+      })();
+    };
+
+    loadInitial();
+  }, []);
+
+  const skipAbortFirstRunRef = useRef(true);
+  useEffect(() => {
+    if (skipAbortFirstRunRef.current) {
+      skipAbortFirstRunRef.current = false;
+      return;
+    }
+    if (abortRef.current) abortRef.current.abort();
+  }, [selectedCategory]);
+
+  useEffect(() => {
+    let canceled = false;
+
+    const ensureCategoryFilled = async () => {
+      if (selectedCategory === "all") return;
+
+      const countNow = articles.filter((a) => a.category === selectedCategory).length;
+      if (countNow >= MIN_PER_CATEGORY) return;
+
+      let nextPage = page;
+      let tries = 0;
+
+      while (!canceled && tries < MAX_AUTO_PAGES) {
+        tries += 1;
+        nextPage += 1;
+
+        const added = await fetchPageAndAppend(nextPage);
+        setPage(nextPage);
+
+        if (added === 0) break;
+      }
+    };
+
+    ensureCategoryFilled();
+
+    return () => {
+      canceled = true;
+    };
+  }, [selectedCategory, articles, page]);
 
   useEffect(() => {
     if (!userId) {
@@ -602,7 +762,7 @@ export default function MainPage() {
         setRecoLoading(true);
 
         const res = await axios.get("/reco", {
-          params: { k: 20, userId },
+          params: { k: 20, userId }
         });
 
         const items = Array.isArray(res.data?.items)
@@ -615,6 +775,7 @@ export default function MainPage() {
 
         if (!isMounted) return;
 
+        // 추천 결과가 있으면 바로 렌더링
         if (mapped.length > 0) {
           setRecoItems(mapped);
           setRecoLoading(false);
@@ -622,6 +783,7 @@ export default function MainPage() {
           return;
         }
 
+        // 비어있으면 재시도
         if (retryCount < MAX_RETRY) {
           retryCount += 1;
           timeoutId = setTimeout(() => {
@@ -630,9 +792,11 @@ export default function MainPage() {
           return;
         }
 
+        // 끝까지 비어있으면 로딩 종료
         setRecoItems([]);
         setRecoLoading(false);
         setRecoReady(true);
+
       } catch (err) {
         console.error("추천 불러오기 실패", err);
 
@@ -657,225 +821,159 @@ export default function MainPage() {
   useEffect(() => {
     const loadLatestIssues = async () => {
       try {
-        setLoading(true);
-        setError("");
-
         const res = await axios.get("/tracking/issues", {
-          params: { limit: 50 },
+          params: { limit: 15 },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
-        const onlyGrouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
-
-        const mappedIssues = onlyGrouped.map((it) => mapIssueSummaryToLatestUI(it));
-        const mappedArticles = onlyGrouped.map((it) => mapIssueSummaryToMainArticle(it));
-
-        setLatestIssues(mappedIssues);
-        setArticles(mappedArticles);
-        setSelectedId((prev) => prev || String(mappedArticles[0]?.id || ""));
+        const mapped = items.map((it) => mapIssueSummaryToLatestUI(it, articles));
+        setLatestIssues(mapped);
       } catch (e) {
         console.error("latest issues load failed:", e);
         setLatestIssues([]);
-        setArticles([]);
-        setError("이슈를 불러오지 못했습니다.");
-      } finally {
-        setLoading(false);
       }
     };
 
     loadLatestIssues();
-  }, []);
+  }, [articles]);
 
-  const displayedArticles = useMemo(() => {
-    const source =
-      selectedCategory === "all"
-        ? articles
-        : articles.filter(
-            (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
-          );
+  const filtered = useMemo(() => {
+    if (selectedCategory === "all") return articles;
+    return articles.filter((a) => a.category === selectedCategory);
+  }, [selectedCategory, articles]);
 
-    const sorted = [...source].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const articleLists = useMemo(() => {
+    const daily = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    if (articleListMode === "weekly") {
-      const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-      const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-      return weekly.length ? weekly : sorted;
-    }
+    const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
+    const weeklySource = daily.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
+    const weeklyBase = weeklySource.length ? weeklySource : daily;
 
-    return sorted;
-  }, [articles, selectedCategory, articleListMode]);
+    const weekly = [...weeklyBase].sort((a, b) => {
+      const hotA = String(a.badge).toUpperCase() === "HOT" ? 1 : 0;
+      const hotB = String(b.badge).toUpperCase() === "HOT" ? 1 : 0;
+      if (hotA !== hotB) return hotB - hotA;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
 
-  const displayedIssueArticles = displayedArticles;
+    return { daily, weekly };
+  }, [filtered]);
 
-  const selectedMainArticle = useMemo(() => {
-    if (!displayedArticles.length) return null;
-
-    const found = displayedArticles.find((a) => String(a.id) === String(selectedId));
-    return found || displayedArticles[0];
-  }, [displayedArticles, selectedId]);
+  const displayedArticles =
+    articleListMode === "weekly" ? articleLists.weekly : articleLists.daily;
 
   const selectedArticle = useMemo(() => {
     if (!displayedArticles.length) return null;
-
     const fromDisplayed = displayedArticles.find(
       (a) => String(a.id) === String(selectedId)
     );
     return fromDisplayed || displayedArticles[0];
   }, [displayedArticles, selectedId]);
 
-  const selectedIssue = useMemo(() => {
-    if (!selectedMainArticle) return null;
-
-    return (
-      latestIssues.find((it) => String(it.articleId) === String(selectedMainArticle.id)) || null
-    );
-  }, [selectedMainArticle, latestIssues]);
-
   useEffect(() => {
-    if (!selectedIssue) {
-      setActiveIssueArticleId(null);
-      return;
-    }
-    setActiveIssueArticleId(String(selectedIssue.articleId || ""));
-  }, [selectedIssue]);
+    const loadSelectedIssue = async () => {
+      if (!selectedArticle?.id) {
+        setSelectedIssue(null);
+        return;
+      }
 
-  const selectedIssueGroup = useMemo(() => {
-    if (!selectedIssue) return [];
+      try {
+        const res = await axios.get("/tracking/issues", {
+          params: {
+            article_id: selectedArticle.id,
+            limit: 1,
+          },
+        });
 
-    const rawRelated = Array.isArray(selectedIssue.related_articles)
-      ? selectedIssue.related_articles
-      : [];
+        const items = res.data?.items || res.data?.issues || res.data?.data || [];
+        const first = items[0] || null;
 
-    return rawRelated.map((article, idx) => {
-      const articleId = String(article.article_id ?? article.id ?? "");
-      const category =
-        normalizeCategoryKey(article.category) ||
-        inferCategoryFromNews({
-          title: article.title,
-          summary: article.ultra_short || "",
-          description: article.short_summary || "",
-          content: article.content || "",
-        }) ||
-        selectedIssue.category ||
-        "society";
-
-      const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
-
-      return {
-        id: articleId || String(idx),
-        articleId,
-        category,
-        title: article.title || "(제목 없음)",
-        thumbnailUrl: resolveThumbnailUrl(article.thumbnail, fallbackThumb),
-        ultraShort: article.ultra_short || "",
-        shortSummary: article.short_summary || "",
-        url: article.url || "",
-        content: article.content || "",
-        raw: {
-          ...article,
-          id: articleId,
-        },
-      };
-    });
-  }, [selectedIssue]);
-
-  useEffect(() => {
-    const loadIssueArticleDetails = async () => {
-      if (!selectedIssue || !selectedIssueGroup.length) return;
-
-      const targetIds = selectedIssueGroup
-        .map((item) => String(item.articleId || item.id || "").trim())
-        .filter(Boolean);
-
-      const missingIds = targetIds.filter((id) => {
-        const fromGroup = selectedIssueGroup.find(
-          (item) => String(item.articleId || item.id || "") === String(id)
-        );
-        const hasContentInGroup = Boolean(fromGroup?.content || fromGroup?.raw?.content);
-        const hasFetchedDetail = Boolean(issueArticleDetails[id]?.raw?.content);
-        return !hasContentInGroup && !hasFetchedDetail;
-      });
-
-      if (!missingIds.length) return;
-
-      const loadedEntries = await Promise.all(
-        missingIds.map(async (id) => {
-          const detail = await fetchArticleDetailById(id);
-          if (!detail) return null;
-          return [id, mapArticleDetailToView(detail, selectedIssue.category || "society")];
-        })
-      );
-
-      const nextEntries = loadedEntries.filter(Boolean);
-      if (!nextEntries.length) return;
-
-      setIssueArticleDetails((prev) => ({
-        ...prev,
-        ...Object.fromEntries(nextEntries),
-      }));
+        setSelectedIssue(first ? mapIssueSummaryToLatestUI(first, articles) : null);
+      } catch (e) {
+        console.error("selected issue load failed:", e);
+        setSelectedIssue(null);
+      }
     };
 
-    loadIssueArticleDetails();
-  }, [selectedIssue, selectedIssueGroup, issueArticleDetails]);
+    loadSelectedIssue();
+  }, [selectedArticle?.id, articles]);
 
-  const activeIssueArticle = useMemo(() => {
-    if (!selectedIssue) return null;
+  const selectedIssueGroup = useMemo(() => {
+    const rawRelated =
+      selectedIssue?.related_articles ||
+      selectedIssue?.raw?.related_articles ||
+      [];
 
-    const activeId = String(
-      activeIssueArticleId || selectedIssue.articleId || selectedIssue.article_id || ""
-    );
-
-    const fromGroup =
-      selectedIssueGroup.find(
-        (item) => String(item.articleId || item.id || "") === activeId
-      ) || null;
-
-    const fromFetched = issueArticleDetails[activeId] || null;
-
-    if (fromGroup && fromFetched) {
-      return {
-        ...fromGroup,
-        ...fromFetched,
-        title: fromFetched.title || fromGroup.title,
-        thumbnailUrl: fromFetched.thumbnailUrl || fromGroup.thumbnailUrl,
-        category: fromFetched.category || fromGroup.category,
-        raw: {
-          ...(fromGroup.raw || {}),
-          ...(fromFetched.raw || {}),
-        },
-      };
+    if (Array.isArray(rawRelated) && rawRelated.length > 0) {
+      return rawRelated.map((a) => ({
+        id: String(a.id ?? a.article_id ?? a.url ?? Math.random()),
+        title: a.title || "(제목 없음)",
+        url: a.url || "",
+        category: a.category || "society",
+        createdAt: a.published_at ? new Date(a.published_at).getTime() : Date.now(),
+        relatedCount: 0,
+        ultraShort: a.ultra_short || "",
+        shortSummary: a.short_summary || "",
+        meta: a.ultra_short || "",
+      }));
     }
 
-    if (fromFetched) return fromFetched;
-    if (fromGroup) return fromGroup;
+    const ids =
+      selectedIssue?.articleIds ||
+      selectedIssue?.raw?.article_ids ||
+      [];
 
-    return null;
-  }, [selectedIssue, selectedIssueGroup, activeIssueArticleId, issueArticleDetails]);
+    if (!ids.length) return [];
+
+    const articleMap = new Map(
+      articles.map((a) => [String(a.id), a])
+    );
+
+    return ids
+      .map((id) => articleMap.get(String(id)))
+      .filter(Boolean)
+      .map((a) => ({
+        id: String(a.id),
+        title: a.title || "(제목 없음)",
+        url: a.raw?.url || "",
+        category: a.category || "society",
+        createdAt: a.createdAt || Date.now(),
+        relatedCount: 0,
+        ultraShort: "",
+        shortSummary: "",
+        meta: "",
+      }));
+  }, [selectedIssue, articles]);
+
+  const relatedArticles = useMemo(() => {
+    if (!selectedArticle) return [];
+    return articles
+      .filter((a) => String(a.id) !== String(selectedArticle.id))
+      .slice(0, 6);
+  }, [selectedArticle, articles]);
 
   const contrastArticles = useMemo(() => {
     if (!selectedArticle) return [];
 
     const source = articles.filter((a) => String(a.id) !== String(selectedArticle.id));
-    const selectedCategoryKey = normalizeCategoryKey(selectedArticle.category);
-    const oppositeCategories = OPPOSITE_CATEGORY_MAP[selectedCategoryKey] || [];
+    const oppositeCategories = OPPOSITE_CATEGORY_MAP[selectedArticle.category] || [];
     const allCategories = CATEGORIES.map((c) => c.key).filter((k) => k !== "all");
     const fallbackCategories = allCategories.filter(
-      (k) => k !== selectedCategoryKey && !oppositeCategories.includes(k)
+      (k) => k !== selectedArticle.category && !oppositeCategories.includes(k)
     );
 
-    const primary = source.filter((a) =>
-      oppositeCategories.includes(normalizeCategoryKey(a.category))
+    const primary = source.filter((a) => oppositeCategories.includes(a.category));
+    const secondary = source.filter((a) => fallbackCategories.includes(a.category));
+    const tail = source.filter(
+      (a) =>
+        !oppositeCategories.includes(a.category) &&
+        !fallbackCategories.includes(a.category)
     );
-    const secondary = source.filter((a) =>
-      fallbackCategories.includes(normalizeCategoryKey(a.category))
-    );
-    const tail = source.filter((a) => {
-      const key = normalizeCategoryKey(a.category);
-      return !oppositeCategories.includes(key) && !fallbackCategories.includes(key);
-    });
 
     return [...primary, ...secondary, ...tail].slice(0, 6);
   }, [selectedArticle, articles]);
+
+  const [trackRelated, setTrackRelated] = useState([]);
 
   useEffect(() => {
     const loadTrackingRelated = async () => {
@@ -928,9 +1026,7 @@ export default function MainPage() {
   }, [displayedArticles, selectedId]);
 
   const openOriginal = (article) => {
-    const source = article?.raw || article;
-    const normalized = rememberArticleDetail(source);
-
+    const normalized = rememberArticleDetail(article?.raw || article);
     if (!normalized) {
       alert("기사 정보를 확인할 수 없습니다.");
       return;
@@ -997,11 +1093,16 @@ export default function MainPage() {
                     type="button"
                     className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
                     onClick={() => {
-                      openOriginal(a);
+                      setSelectedId(String(a.id));
                     }}
                   >
                     <div className="mp-article-item-top">
                       <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
+                      <span
+                        className={`mp-article-item-badge ${String(a.badge).trim().toUpperCase() === "HOT" ? "hot" : "new"}`}
+                      >
+                        {a.badge}
+                      </span>
                     </div>
                     <div className="mp-article-item-title">{a.title}</div>
                   </button>
@@ -1010,6 +1111,21 @@ export default function MainPage() {
                 {!loading && displayedArticles.length === 0 && (
                   <div style={{ padding: 12, opacity: 0.7 }}>해당 카테고리 기사가 없습니다.</div>
                 )}
+              </div>
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", padding: 12 }}>
+                <button
+                  type="button"
+                  className="mp-btn"
+                  disabled={loading}
+                  onClick={async () => {
+                    const next = page + 1;
+                    await fetchPageAndAppend(next);
+                    setPage(next);
+                  }}
+                >
+                  {loading ? "불러오는 중..." : "더 불러오기"}
+                </button>
               </div>
 
               {error && (
@@ -1043,25 +1159,23 @@ export default function MainPage() {
               }}
               className="mp-center-swiper"
             >
-              {displayedIssueArticles.map((article) => (
+              {displayedArticles.map((article) => (
                 <SwiperSlide key={article.id}>
                   <div className="mp-center-inner">
                     <div className="mp-head">
-                      <h1 className="mp-title">
-                        {activeIssueArticle?.title || selectedIssue?.title || article.title}
-                      </h1>
+                      <h1 className="mp-title">{article.title}</h1>
                       <Badge type={article.badge} />
                     </div>
 
                     <div className="mp-thumb-wrap">
                       <img
                         className="mp-thumb"
-                        src={activeIssueArticle?.thumbnailUrl || article.thumbnailUrl}
+                        src={article.thumbnailUrl}
                         alt="article thumbnail"
                         loading="lazy"
                         onError={withImageFallback}
                       />
-                      <div className="mp-thumb-label">기사 썸네일</div>
+                      <div className="mp-thumb-label">AI 생성 썸네일</div>
                     </div>
 
                     <section className="mp-summary">
@@ -1069,18 +1183,26 @@ export default function MainPage() {
 
                       <div className="mp-summary-lines">
                         <p className="mp-summary-line">
-                          {activeIssueArticle?.shortSummary ||
-                            activeIssueArticle?.ultraShort ||
-                            selectedIssue?.shortSummary ||
+                          {selectedIssue?.shortSummary ||
+                            selectedIssue?.ultraShort ||
+                            article.summary?.[0] ||
                             "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요."}
                         </p>
                       </div>
 
                       <div className="mp-actions">
                         <button
+                          className="mp-btn primary"
+                          type="button"
+                          onClick={() => openOriginal(article)}
+                        >
+                          본문 보기
+                        </button>
+
+                        <button
                           className="mp-btn"
                           type="button"
-                          onClick={() => onSaveArticle(activeIssueArticle || article)}
+                          onClick={() => onSaveArticle(article)}
                         >
                           저장
                         </button>
@@ -1093,26 +1215,11 @@ export default function MainPage() {
 
                     <LatestIssuesCarousel
                       items={selectedIssueGroup}
-                      count={selectedIssueGroup.length}
-                      activeArticleId={activeIssueArticleId}
-                      onItemClick={async (issue) => {
-                        const nextId = String(issue.articleId || issue.id || "").trim();
-                        if (!nextId) return;
-
-                        let targetArticle = issue?.raw || issue;
-
-                        const hasEnoughData =
-                          targetArticle &&
-                          (targetArticle.url || targetArticle.content || targetArticle.title);
-
-                        if (!hasEnoughData) {
-                          const detail = await fetchArticleDetailById(nextId);
-                          if (detail) {
-                            targetArticle = detail;
-                          }
+                      count={selectedIssue?.relatedCount || 0}
+                      onItemClick={(issue) => {
+                        if (issue.url) {
+                          window.open(issue.url, "_blank", "noopener,noreferrer");
                         }
-
-                        openOriginal(targetArticle);
                       }}
                     />
                   </div>

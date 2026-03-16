@@ -8,6 +8,11 @@ import "swiper/css";
 import "swiper/css/mousewheel";
 
 import { fetchNews } from "../api/newsApi";
+import {
+  getArchiveItemKey,
+  getArchiveKeySet,
+  toggleArchiveItem,
+} from "../utils/archiveStorage";
 import { rememberArticleDetail } from "../utils/articleDetail";
 import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
 
@@ -59,6 +64,36 @@ const THUMB = {
 };
 
 const INITIAL_ARTICLES = [];
+const AD_INTERVAL = 4;
+const AD_ITEMS = [
+  {
+    id: "ad-01",
+    title: "업무 속도 2배, AI 요약 도구",
+    body: "뉴스·보고서를 30초 만에 요약하고 팀과 공유하세요.",
+    sponsor: "WorkFlow AI",
+    cta: "무료로 시작하기",
+    image: "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a",
+    link: "https://example.com",
+  },
+  {
+    id: "ad-02",
+    title: "오늘의 투자 브리핑",
+    body: "시장 핵심 지표와 이슈를 한 장으로 정리해 드립니다.",
+    sponsor: "Signal Morning",
+    cta: "브리핑 받아보기",
+    image: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40",
+    link: "https://example.com",
+  },
+  {
+    id: "ad-03",
+    title: "개인 맞춤 뉴스레터",
+    body: "관심 분야만 골라 받아보는 맞춤형 뉴스 큐레이션.",
+    sponsor: "NewsPilot",
+    cta: "구독 신청",
+    image: "https://images.unsplash.com/photo-1486312338219-ce68d2c6f44d",
+    link: "https://example.com",
+  },
+];
 
 function getCategoryLabel(key) {
   return CATEGORIES.find((c) => c.key === key)?.label || "기타";
@@ -276,6 +311,40 @@ function LatestIssuesCarousel({ items, count, onItemClick }) {
         </div>
       )}
     </section>
+  );
+}
+
+function AdSlide({ ad }) {
+  const imageUrl = ad?.image ? `${ad.image}?auto=format&fit=crop&w=1200&q=80` : "";
+  return (
+    <div className="mp-center-inner">
+      <div className="mp-ad-card">
+        <div className="mp-ad-top">
+          <span className="mp-ad-badge">광고</span>
+          <span className="mp-ad-sponsor">{ad?.sponsor || "Sponsored"}</span>
+        </div>
+        <div className="mp-ad-title">{ad?.title || "스폰서 콘텐츠"}</div>
+        <div className="mp-ad-body">{ad?.body || "안내 메시지가 없습니다."}</div>
+        {imageUrl && (
+          <div className="mp-ad-thumb">
+            <img src={imageUrl} alt="" loading="lazy" />
+          </div>
+        )}
+        <div className="mp-ad-actions">
+          <button
+            type="button"
+            className="mp-btn primary"
+            onClick={() => {
+              if (!ad?.link) return;
+              window.open(ad.link, "_blank", "noopener,noreferrer");
+            }}
+            disabled={!ad?.link}
+          >
+            {ad?.cta || "자세히 보기"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -579,6 +648,7 @@ export default function MainPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
 
   const [page, setPage] = useState(1);
   const size = 100;
@@ -832,18 +902,29 @@ export default function MainPage() {
   }, [selectedCategory, articles]);
 
   const articleLists = useMemo(() => {
-    const daily = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const base = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (base.length === 0) return { daily: [], weekly: [] };
 
-    const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-    const weeklySource = daily.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-    const weeklyBase = weeklySource.length ? weeklySource : daily;
+    const anchorTs = base[0]?.createdAt || 0;
+    const dayMs = 1000 * 60 * 60 * 24;
+    const dailyCutoff = anchorTs ? anchorTs - dayMs : 0;
+    const weeklyCutoff = anchorTs ? anchorTs - dayMs * 7 : 0;
 
-    const weekly = [...weeklyBase].sort((a, b) => {
-      const hotA = String(a.badge).toUpperCase() === "HOT" ? 1 : 0;
-      const hotB = String(b.badge).toUpperCase() === "HOT" ? 1 : 0;
-      if (hotA !== hotB) return hotB - hotA;
-      return (b.createdAt || 0) - (a.createdAt || 0);
-    });
+    const dailySource = base.filter((a) => (a.createdAt || 0) >= dailyCutoff);
+    const weeklySource = base.filter((a) => (a.createdAt || 0) >= weeklyCutoff);
+
+    const daily = (dailySource.length ? dailySource : base).map((a) => ({
+      ...a,
+      badge: "최신",
+    }));
+
+    const weeklyBase = weeklySource.length ? weeklySource : base;
+    const weeklyRanked = [...weeklyBase].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const hotCount = Math.min(12, weeklyRanked.length);
+    const weekly = weeklyRanked.map((a, idx) => ({
+      ...a,
+      badge: idx < hotCount ? "HOT" : "최신",
+    }));
 
     return { daily, weekly };
   }, [filtered]);
@@ -851,10 +932,35 @@ export default function MainPage() {
   const displayedArticles =
     articleListMode === "weekly" ? articleLists.weekly : articleLists.daily;
 
-  const centerArticles = useMemo(() => {
-    if (manualSelectedArticle) return [manualSelectedArticle];
-    return displayedArticles;
+  const feedItems = useMemo(() => {
+    if (manualSelectedArticle) {
+      return [{ type: "article", article: manualSelectedArticle }];
+    }
+    const items = displayedArticles || [];
+    if (!items.length) return [];
+
+    const results = [];
+    let adIndex = 0;
+    items.forEach((article, idx) => {
+      results.push({ type: "article", article });
+      if ((idx + 1) % AD_INTERVAL === 0 && AD_ITEMS.length > 0) {
+        const ad = AD_ITEMS[adIndex % AD_ITEMS.length];
+        results.push({ type: "ad", ad });
+        adIndex += 1;
+      }
+    });
+    return results;
   }, [manualSelectedArticle, displayedArticles]);
+
+  const feedIndexById = useMemo(() => {
+    const map = new Map();
+    feedItems.forEach((item, idx) => {
+      if (item.type === "article" && item.article?.id != null) {
+        map.set(String(item.article.id), idx);
+      }
+    });
+    return map;
+  }, [feedItems]);
 
   const selectedArticle = useMemo(() => {
     if (manualSelectedArticle) return manualSelectedArticle;
@@ -973,7 +1079,12 @@ export default function MainPage() {
   const contrastRecoItems = [];
 
   const onSaveArticle = (article) => {
-    console.log("save article:", article);
+    const merged =
+      article?.raw && typeof article.raw === "object"
+        ? { ...article.raw, ...article }
+        : article;
+    const result = toggleArchiveItem(merged);
+    setArchiveKeys(getArchiveKeySet(result.items));
   };
 
   useEffect(() => {
@@ -994,11 +1105,11 @@ export default function MainPage() {
 
   useEffect(() => {
     if (!swiperRef.current) return;
-    const idx = displayedArticles.findIndex((a) => String(a.id) === String(selectedId));
-    if (idx >= 0 && swiperRef.current.activeIndex !== idx) {
+    const idx = feedIndexById.get(String(selectedId));
+    if (idx !== undefined && swiperRef.current.activeIndex !== idx) {
       swiperRef.current.slideTo(idx, 0);
     }
-  }, [displayedArticles, selectedId]);
+  }, [feedIndexById, selectedId]);
 
   const openOriginal = (article) => {
     const merged =
@@ -1053,6 +1164,8 @@ export default function MainPage() {
                     onClick={() => {
                       setManualSelectedArticle(null);
                       setArticleListMode("daily");
+                      setSelectedId(null);
+                      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
                     }}
                     aria-pressed={articleListMode === "daily"}
                   >
@@ -1064,6 +1177,8 @@ export default function MainPage() {
                     onClick={() => {
                       setManualSelectedArticle(null);
                       setArticleListMode("weekly");
+                      setSelectedId(null);
+                      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
                     }}
                     aria-pressed={articleListMode === "weekly"}
                   >
@@ -1147,13 +1262,25 @@ export default function MainPage() {
                 swiperRef.current = s;
               }}
               onSlideChange={(s) => {
-                const next = centerArticles[s.activeIndex];
+                const next = feedItems[s.activeIndex];
                 if (!next || manualSelectedArticle) return;
-                setSelectedId(String(next.id));
+                if (next.type === "article") {
+                  setSelectedId(String(next.article.id));
+                }
               }}
               className="mp-center-swiper"
             >
-              {centerArticles.map((article) => (
+              {feedItems.map((item, idx) => {
+                if (item.type === "ad") {
+                  return (
+                    <SwiperSlide key={`${item.ad?.id || "ad"}-${idx}`}>
+                      <AdSlide ad={item.ad} />
+                    </SwiperSlide>
+                  );
+                }
+                const article = item.article;
+                const isSaved = archiveKeys.has(getArchiveItemKey(article));
+                return (
                 <SwiperSlide key={article.id}>
                   <div className="mp-center-inner">
                     <div className="mp-head">
@@ -1196,9 +1323,10 @@ export default function MainPage() {
                         <button
                           className="mp-btn"
                           type="button"
+                          aria-pressed={isSaved}
                           onClick={() => onSaveArticle(article)}
                         >
-                          저장
+                          {isSaved ? "저장됨" : "저장"}
                         </button>
 
                         <button className="mp-btn" type="button">
@@ -1218,7 +1346,8 @@ export default function MainPage() {
                     />
                   </div>
                 </SwiperSlide>
-              ))}
+              );
+              })}
             </Swiper>
           )}
         </main>

@@ -376,6 +376,74 @@
   margin-top: 14px;
 }
 
+.mp-ad-card {
+  border: 1px solid #ffe3bf;
+  background: #fff8ee;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 10px 24px rgba(250, 204, 21, 0.12);
+}
+
+.mp-ad-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.mp-ad-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fff0d6;
+  color: #b45309;
+  border: 1px solid #f8d9a4;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mp-ad-sponsor {
+  font-size: 12px;
+  color: #7c5f2a;
+  font-weight: 700;
+}
+
+.mp-ad-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #3f2a0a;
+  margin-bottom: 8px;
+}
+
+.mp-ad-body {
+  font-size: 15px;
+  color: #5b4630;
+  line-height: 1.6;
+}
+
+.mp-ad-thumb {
+  margin-top: 14px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid #f4d2a5;
+}
+
+.mp-ad-thumb img {
+  width: 100%;
+  height: 240px;
+  object-fit: cover;
+  display: block;
+}
+
+.mp-ad-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+}
+
 .mp-btn {
   border: 1px solid #e6ebf2;
   background: #fff;
@@ -973,6 +1041,11 @@
   color: #64748b;
 }
 
+.als-news-card:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 3px;
+}
+
 .als-news-item-title {
   color: #0f172a;
   font-size: 14px;
@@ -1036,6 +1109,10 @@
 
 .article-detail-top {
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .article-detail-back {
@@ -1052,6 +1129,33 @@
   border-color: #2563eb;
   background: #2563eb;
   color: #ffffff;
+}
+
+.article-detail-save {
+  border: 1px solid #d8e2ef;
+  background: #f8fbff;
+  color: #1f3f66;
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.article-detail-save:hover {
+  border-color: #9fc2e6;
+  background: #eef5ff;
+}
+
+.article-detail-save.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.article-detail-save:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .article-detail-empty {

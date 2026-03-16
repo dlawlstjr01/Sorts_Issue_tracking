@@ -730,6 +730,7 @@ export default function ArticleListPage() {
     });
   }, [availablePresses]);
 
+
   useEffect(() => {
     if (!isSearchOpen) setIsHelpOpen(false);
   }, [isSearchOpen]);
@@ -773,6 +774,7 @@ export default function ArticleListPage() {
       return next;
     });
   };
+
 
   const applyQuickRange = (unit, amount) => {
     const end = new Date();

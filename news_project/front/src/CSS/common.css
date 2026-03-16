@@ -2828,6 +2828,34 @@ body {
   color: #9ca3af;
 }
 
+.archive-item-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.archive-item-remove {
+  border: 1px solid #f1b3b3;
+  background: #fff5f5;
+  color: #c81e1e;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.archive-item-remove:hover {
+  border-color: #e59aa0;
+  background: #ffe7e7;
+}
+
+.archive-item-remove:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+
 .archive-item-title {
   font-size: 16px;
   font-weight: 800;

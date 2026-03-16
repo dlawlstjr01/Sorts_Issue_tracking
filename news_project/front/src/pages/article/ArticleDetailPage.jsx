@@ -4,6 +4,13 @@ import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
 import { getNewsById, searchKoreanDictionary } from "../../api/newsApi";
 import {
+  ARCHIVE_STORAGE_KEY,
+  getArchiveItemKey,
+  getArchiveKeySet,
+  toggleArchiveItem,
+} from "../../utils/archiveStorage";
+import { addRecentItem } from "../../utils/recentStorage";
+import {
   getRememberedArticleDetail,
   rememberArticleDetail,
   toArticleDetailPayload,
@@ -97,6 +104,7 @@ export default function ArticleDetailPage() {
   const [dictionaryResults, setDictionaryResults] = useState([]);
   const [dictionaryTotal, setDictionaryTotal] = useState(0);
   const [dictionaryKeyword, setDictionaryKeyword] = useState("");
+  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
 
   const fetchedArticleIdRef = useRef("");
 
@@ -120,6 +128,31 @@ export default function ArticleDetailPage() {
     setDictionaryTotal(0);
     setDictionaryKeyword("");
   }, [article?.id]);
+
+  useEffect(() => {
+    setArchiveKeys(getArchiveKeySet());
+  }, [article?.id]);
+
+  useEffect(() => {
+    if (!article) return;
+    const payload = {
+      ...article,
+      published_at: article.publishedAt,
+      created_at: article.publishedAt,
+    };
+    addRecentItem(payload);
+  }, [article?.id]);
+
+  useEffect(() => {
+    const handleStorage = (event) => {
+      if (event.key === ARCHIVE_STORAGE_KEY) {
+        setArchiveKeys(getArchiveKeySet());
+      }
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   useEffect(() => {
     const loadMe = async () => {
@@ -288,6 +321,22 @@ export default function ArticleDetailPage() {
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
   );
+  const isSaved = useMemo(() => {
+    if (!article) return false;
+    const key = getArchiveItemKey(article);
+    return key ? archiveKeys.has(key) : false;
+  }, [article, archiveKeys]);
+
+  const handleToggleArchive = () => {
+    if (!article) return;
+    const payload = {
+      ...article,
+      published_at: article.publishedAt,
+      created_at: article.publishedAt,
+    };
+    const result = toggleArchiveItem(payload);
+    setArchiveKeys(getArchiveKeySet(result.items));
+  };
 
   const handleDictionarySearch = async () => {
     const keyword = searchInput.trim();
@@ -328,6 +377,15 @@ export default function ArticleDetailPage() {
           onClick={() => navigate(backTarget)}
         >
           기사 목록으로
+        </button>
+        <button
+          type="button"
+          className={`article-detail-save ${isSaved ? "active" : ""}`}
+          aria-pressed={isSaved}
+          onClick={handleToggleArchive}
+          disabled={!article}
+        >
+          {isSaved ? "저장됨" : "저장"}
         </button>
       </div>
 

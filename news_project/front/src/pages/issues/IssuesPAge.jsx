@@ -175,6 +175,23 @@ export default function IssuesPage() {
     [issues, reportForm.issueId]
   );
 
+  const summarySnapshot = useMemo(() => {
+    if (!issues.length) {
+      return {
+        keywords: "데이터 없음",
+        sentiment: "데이터 없음",
+        sectors: "데이터 없음",
+      };
+    }
+
+    const categories = [...new Set(issues.map((item) => item.category).filter(Boolean))];
+    return {
+      keywords: categories.slice(0, 3).join(" · ") || "데이터 없음",
+      sentiment: "데이터 없음",
+      sectors: "데이터 없음",
+    };
+  }, [issues]);
+
   const closeIssueModal = () => {
     setIssueModalOpen(false);
     setIssueFormError("");
@@ -428,15 +445,15 @@ export default function IssuesPage() {
             <div className="issue-side-title">오늘의 요약</div>
             <div className="issue-side-item">
               <div className="issue-side-label">핵심 키워드</div>
-              <div className="issue-side-value">금리 · 정책 · 공급망</div>
+              <div className="issue-side-value">{summarySnapshot.keywords}</div>
             </div>
             <div className="issue-side-item">
               <div className="issue-side-label">감성 추이</div>
-              <div className="issue-side-value">혼합</div>
+              <div className="issue-side-value">{summarySnapshot.sentiment}</div>
             </div>
             <div className="issue-side-item">
               <div className="issue-side-label">주목 섹터</div>
-              <div className="issue-side-value">산업재 · 금융</div>
+              <div className="issue-side-value">{summarySnapshot.sectors}</div>
             </div>
           </div>
         </aside>

@@ -10,6 +10,7 @@ router.get("/", newsController.list);
 router.get("/categories", newsController.categories);
 router.get("/dictionary/search", newsController.dictionarySearch);
 router.post("/summary", newsController.summary);
+router.get("/:id/terms", newsController.terms);
 // /news/123
 router.get("/:id", newsController.detail);
 

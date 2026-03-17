@@ -167,18 +167,20 @@
 /* .mp-left,
 .mp-right {
   /* position: sticky; */
-  /* top: 83px;        common.css의 .hdr 높이(83px)에 맞춤 */
-  /* top: 88px;                    헤더 높이 + 여백 */
-  /* align-self: start; grid에서 안정적으로 동작 */
-  /* align-self: flex-start; */
+/* top: 83px;        common.css의 .hdr 높이(83px)에 맞춤 */
+/* top: 88px;                    헤더 높이 + 여백 */
+/* align-self: start; grid에서 안정적으로 동작 */
+/* align-self: flex-start; */
 /* } */
 
 .mp-left .mp-panel,
 .mp-right .mp-panel {
-  height: calc(100vh - 120px);  /* ✅ 양쪽 높이 동일 */
+  height: calc(100vh - 120px);
+  /* ✅ 양쪽 높이 동일 */
   display: flex;
   flex-direction: column;
-  overflow-y: auto; /* 패널 내부 스크롤 */
+  overflow-y: auto;
+  /* 패널 내부 스크롤 */
   overflow-x: hidden;
 }
 
@@ -244,36 +246,46 @@
 }
 
 /* CENTER */
+.mp-center {
+  height: calc(100vh - 120px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mp-center-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 6px;
+  scroll-snap-type: y proximity;
+}
+
 .mp-center-inner {
   background: #fff;
   border: 1px solid #e9edf3;
   border-radius: 16px;
   padding: 18px;
   box-shadow: 0 8px 24px rgba(18, 38, 63, 0.06);
-}
 
-.mp-center {
-  height: calc(100vh - 120px);
-  overflow: hidden;
-}
+  min-height: calc(100vh - 140px);
+  margin-bottom: 16px;
+  scroll-snap-align: start;
 
-.mp-center-inner {
-  height: 100%;
-  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-.mp-center-scroll {
-  height: 100%;
+.mp-summary-scroll {
+  max-height: 320px;
   overflow-y: auto;
-  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
   padding-right: 6px;
 }
 
-.mp-center-inner {
-  min-height: 100vh;
-  scroll-snap-align: start;
+.mp-summary-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.7;
 }
 
 .mp-head {
@@ -512,6 +524,7 @@
 }
 
 @media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+
   .mp-article-item,
   .mp-related-item {
     transition:
@@ -529,6 +542,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .mp-article-item,
   .mp-related-item {
     transition: background 0.12s ease, border-color 0.12s ease;
@@ -571,6 +585,7 @@
   .mp-grid {
     grid-template-columns: 260px 1fr;
   }
+
   .mp-right {
     display: none;
   }
@@ -580,9 +595,11 @@
   .mp-grid {
     grid-template-columns: 1fr;
   }
+
   .mp-left {
     order: 2;
   }
+
   .mp-center {
     order: 1;
   }
@@ -606,7 +623,8 @@
   background: #ffffff;
   border-radius: 18px;
   padding: 22px;
-  box-shadow: none; /* ← 이게 핵심 */
+  box-shadow: none;
+  /* ← 이게 핵심 */
 }
 
 .mp-share-header {
@@ -724,14 +742,16 @@
 }
 
 .logo-main {
-  font-size: 27px;      /* 기존보다 키움 */
+  font-size: 27px;
+  /* 기존보다 키움 */
   font-weight: 800;
   letter-spacing: 0.5px;
   color: #1f4dff;
 }
 
 .logo-sub {
-  font-size: 14px;      /* 보조 텍스트도 살짝 키움 */
+  font-size: 14px;
+  /* 보조 텍스트도 살짝 키움 */
   font-weight: 600;
   letter-spacing: 1.6px;
   color: #6b7280;
@@ -742,52 +762,66 @@
    PATCH: 오른쪽 컬럼 잘림 방지 + 반응형
    (기존 CSS 맨 아래에 추가하세요)
 ================================ */
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
-.mp-wrap{
+.mp-wrap {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 32px 24px 60px;  /* 좌우 여백만 적당히 */
+  padding: 32px 24px 60px;
+  /* 좌우 여백만 적당히 */
   /* overflow-x: hidden;       ✅ 전체 가로 스크롤바 제거 */
 }
 
-.mp-grid{
+.mp-grid {
   width: 100%;
-  max-width: 1800px;          /* 화면 큰 경우 꽉 차게 */
+  max-width: 1800px;
+  /* 화면 큰 경우 꽉 차게 */
   margin: 0 auto;
 
   display: grid;
 
   /* ✅ 비율 기반 레이아웃 */
-  grid-template-columns: 
-    minmax(280px, 1.1fr)      /* 왼쪽 */
-    minmax(0, 2.8fr)          /* 가운데 */
-    minmax(320px, 1.2fr);     /* 오른쪽 */
+  grid-template-columns:
+    minmax(280px, 1.1fr)
+    /* 왼쪽 */
+    minmax(0, 2.8fr)
+    /* 가운데 */
+    minmax(320px, 1.2fr);
+  /* 오른쪽 */
 
   gap: 18px;
 }
 
-.mp-left, .mp-center, .mp-right,
-.mp-panel, .mp-center-inner{
-  min-width: 0; /* 이게 없으면 오른쪽이 밀려 잘릴 때가 많아요 */
+.mp-left,
+.mp-center,
+.mp-right,
+.mp-panel,
+.mp-center-inner {
+  min-width: 0;
+  /* 이게 없으면 오른쪽이 밀려 잘릴 때가 많아요 */
 }
 
 /* 화면이 좁아질 때: 오른쪽은 아래로 내려서 "안 잘리게" */
-@media (max-width: 1200px){
-  .mp-grid{
+@media (max-width: 1200px) {
+  .mp-grid {
     grid-template-columns: 260px minmax(0, 1fr);
   }
-  .mp-right{
+
+  .mp-right {
     grid-column: 1 / -1;
   }
 }
 
-@media (max-width: 860px){
-  .mp-grid{
+@media (max-width: 860px) {
+  .mp-grid {
     grid-template-columns: 1fr;
   }
-  .mp-left, .mp-right{
+
+  .mp-left,
+  .mp-right {
     grid-column: 1 / -1;
   }
 }
@@ -795,11 +829,11 @@
 /* ================================
    최신기사 슬라이더(요약 밑)
 ================================ */
-.mp-latest{
+.mp-latest {
   margin-top: 14px;
 }
 
-.mp-latest-head{
+.mp-latest-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -807,24 +841,24 @@
   margin-bottom: 8px;
 }
 
-.mp-latest-ctrl{
+.mp-latest-ctrl {
   display: flex;
   gap: 8px;
 }
 
-.mp-latest-btn{
-  border: 1px solid rgba(0,0,0,0.12);
+.mp-latest-btn {
+  border: 1px solid rgba(0, 0, 0, 0.12);
   background: #fff;
   border-radius: 10px;
   padding: 8px 10px;
   cursor: pointer;
 }
 
-.mp-latest-btn:hover{
+.mp-latest-btn:hover {
   filter: brightness(0.98);
 }
 
-.mp-latest-track{
+.mp-latest-track {
   display: flex;
   gap: 12px;
   overflow-x: auto;
@@ -836,28 +870,30 @@
   touch-action: pan-y;
 }
 
-.mp-latest-track.is-dragging{
+.mp-latest-track.is-dragging {
   cursor: grabbing;
   scroll-snap-type: none;
 }
 
-.mp-latest-track::-webkit-scrollbar{
+.mp-latest-track::-webkit-scrollbar {
   height: 10px;
 }
-.mp-latest-track::-webkit-scrollbar-thumb{
+
+.mp-latest-track::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(0,0,0,0.18);
-}
-.mp-latest-track::-webkit-scrollbar-track{
-  background: rgba(0,0,0,0.06);
+  background: rgba(0, 0, 0, 0.18);
 }
 
-.mp-latest-card{
+.mp-latest-track::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.mp-latest-card {
   flex: 0 0 auto;
   width: 260px;
   max-width: 260px;
   text-align: left;
-  border: 1px solid rgba(0,0,0,0.12);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   background: #fff;
   border-radius: 14px;
   padding: 12px;
@@ -865,12 +901,12 @@
   scroll-snap-align: start;
 }
 
-.mp-latest-card:hover{
+.mp-latest-card:hover {
   transform: translateY(-1px);
   transition: transform 120ms ease;
 }
 
-.mp-latest-top{
+.mp-latest-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -878,18 +914,18 @@
   margin-bottom: 8px;
 }
 
-.mp-latest-cat{
+.mp-latest-cat {
   font-size: 13px;
   opacity: 0.8;
 }
 
-.mp-latest-time{
+.mp-latest-time {
   font-size: 13px;
   opacity: 0.7;
   white-space: nowrap;
 }
 
-.mp-latest-title{
+.mp-latest-title {
   font-size: 15px;
   line-height: 1.35;
   font-weight: 700;
@@ -899,7 +935,7 @@
   overflow: hidden;
 }
 
-.mp-latest-hint{
+.mp-latest-hint {
   margin-top: 6px;
   font-size: 13px;
   opacity: 0.7;
@@ -945,12 +981,10 @@
   width: 68%;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    rgba(37, 99, 235, 0.86) 0%,
-    rgba(56, 189, 248, 0.6) 56%,
-    rgba(56, 189, 248, 0) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(37, 99, 235, 0.86) 0%,
+      rgba(56, 189, 248, 0.6) 56%,
+      rgba(56, 189, 248, 0) 100%);
 }
 
 .mp-section-title::after {
@@ -961,12 +995,10 @@
   width: 54%;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    rgba(37, 99, 235, 0.76) 0%,
-    rgba(56, 189, 248, 0.42) 56%,
-    rgba(56, 189, 248, 0) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(37, 99, 235, 0.76) 0%,
+      rgba(56, 189, 248, 0.42) 56%,
+      rgba(56, 189, 248, 0) 100%);
 }
 
 .mp-title {
@@ -993,12 +1025,10 @@
   width: min(190px, 54%);
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    rgba(37, 99, 235, 0.84) 0%,
-    rgba(56, 189, 248, 0.56) 50%,
-    rgba(56, 189, 248, 0) 100%
-  );
+  background: linear-gradient(90deg,
+      rgba(37, 99, 235, 0.84) 0%,
+      rgba(56, 189, 248, 0.56) 50%,
+      rgba(56, 189, 248, 0) 100%);
 }
 
 .mp-article-item-title {
@@ -1542,8 +1572,7 @@
   width: 16px;
   height: 16px;
   transform: translateY(-50%);
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><line x1='16.65' y1='16.65' x2='21' y2='21'/></svg>")
-    no-repeat center;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%233b82f6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><line x1='16.65' y1='16.65' x2='21' y2='21'/></svg>") no-repeat center;
   background-size: 16px 16px;
   opacity: 0.9;
 }

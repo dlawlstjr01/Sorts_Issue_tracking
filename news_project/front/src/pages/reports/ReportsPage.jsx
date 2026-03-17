@@ -1,36 +1,12 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
 import SideMenuCard from "../../components/SideMenuCard";
+import ConfirmModal from "../../components/ConfirmModal";
 
 const GENERATED_REPORTS_KEY = "generatedReports";
 
-const reports = [
-  {
-    id: "REP-001",
-    type: "주간 브리핑",
-    title: "이번 주 핵심 이슈 5분 정리",
-    updatedAt: "오늘",
-    desc: "상위 이슈 요약 + 타임라인 + 주요 키워드",
-    status: "신규",
-  },
-  {
-    id: "REP-002",
-    type: "이슈 리포트",
-    title: "정책 발표 이슈 리포트",
-    updatedAt: "어제",
-    desc: "쟁점/반론/근거 기사 링크 포함",
-    status: "업데이트",
-  },
-  {
-    id: "REP-003",
-    type: "주간 브리핑",
-    title: "산업 트렌드 요약 브리핑",
-    updatedAt: "2일 전",
-    desc: "주요 지표 변화 + 리스크 요인 정리",
-    status: "업데이트",
-  },
-];
+const reports = [];
 
 export default function ReportsPage() {
   const navigate = useNavigate();
@@ -39,17 +15,36 @@ export default function ReportsPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("전체");
 
-  const generatedReports = useMemo(() => {
+  const [generatedReports, setGeneratedReports] = useState([]);
+  const confirmActionRef = useRef(null);
+  const [confirmModal, setConfirmModal] = useState({ open: false, message: "" });
+
+  useEffect(() => {
     // ✅ 이슈 페이지에서 생성한 AI 리포트 초안을 함께 보여준다.
     try {
       const parsed = JSON.parse(localStorage.getItem(GENERATED_REPORTS_KEY) || "[]");
-      return Array.isArray(parsed) ? parsed : [];
+      setGeneratedReports(Array.isArray(parsed) ? parsed : []);
     } catch {
-      return [];
+      setGeneratedReports([]);
     }
   }, []);
 
   const allReports = useMemo(() => [...generatedReports, ...reports], [generatedReports]);
+  const generatedIdSet = useMemo(
+    () => new Set(generatedReports.map((item) => item.id)),
+    [generatedReports]
+  );
+
+  const recentUpdate = useMemo(() => {
+    if (allReports.length === 0) return "없음";
+    return allReports[0]?.updatedAt || "미정";
+  }, [allReports]);
+
+  const coreTopics = useMemo(() => {
+    if (allReports.length === 0) return "없음";
+    const types = [...new Set(allReports.map((item) => item.type).filter(Boolean))];
+    return types.slice(0, 2).join(" · ") || "미정";
+  }, [allReports]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -63,6 +58,32 @@ export default function ReportsPage() {
       return typeMatch && textMatch;
     });
   }, [allReports, query, filter]);
+
+  const handleDeleteReport = (event, reportId) => {
+    event.preventDefault();
+    event.stopPropagation();
+    confirmActionRef.current = () => {
+      const next = generatedReports.filter((item) => item.id !== reportId);
+      setGeneratedReports(next);
+      try {
+        localStorage.setItem(GENERATED_REPORTS_KEY, JSON.stringify(next));
+      } catch {
+        // Ignore storage exceptions.
+      }
+    };
+    setConfirmModal({ open: true, message: "리포트를 삭제할까요?" });
+  };
+
+  const closeConfirmModal = () => {
+    confirmActionRef.current = null;
+    setConfirmModal({ open: false, message: "" });
+  };
+
+  const handleConfirmModal = () => {
+    const action = confirmActionRef.current;
+    closeConfirmModal();
+    if (action) action();
+  };
 
   return (
     <div className="page reports-page">
@@ -80,11 +101,11 @@ export default function ReportsPage() {
           </div>
           <div className="reports-stat">
             <div className="reports-stat-label">최근 업데이트</div>
-            <div className="reports-stat-value">오늘</div>
+            <div className="reports-stat-value">{recentUpdate}</div>
           </div>
           <div className="reports-stat">
             <div className="reports-stat-label">핵심 주제</div>
-            <div className="reports-stat-value">정책 · 경제</div>
+            <div className="reports-stat-value">{coreTopics}</div>
           </div>
         </div>
       </div>
@@ -130,23 +151,47 @@ export default function ReportsPage() {
         {filtered.length === 0 ? (
           <div className="reports-empty">검색 결과가 없습니다.</div>
         ) : (
-          filtered.map((r) => (
-            <button key={r.id} className="report-card" onClick={() => open(r.id)} type="button">
-              <div className="report-card-top">
-                <span className="badge">{r.type}</span>
-                <span className={`report-status ${r.status === "신규" ? "new" : "update"}`}>
-                  {r.status}
-                </span>
-                <span className="report-date">{r.updatedAt}</span>
-              </div>
+          filtered.map((r) => {
+            const isGenerated = generatedIdSet.has(r.id);
+            return (
+              <div
+                key={r.id}
+                className="report-card"
+                role="button"
+                tabIndex={0}
+                onClick={() => open(r.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") open(r.id);
+                }}
+              >
+                <div className="report-card-top">
+                  <div className="report-card-meta">
+                    <span className="badge">{r.type}</span>
+                    <span className={`report-status ${r.status === "신규" ? "new" : "update"}`}>
+                      {r.status}
+                    </span>
+                    <span className="report-date">{r.updatedAt}</span>
+                  </div>
+                  {isGenerated && (
+                    <button
+                      type="button"
+                      className="report-delete"
+                      onClick={(event) => handleDeleteReport(event, r.id)}
+                      aria-label="리포트 삭제"
+                    >
+                      삭제
+                    </button>
+                  )}
+                </div>
               <div className="report-title">{r.title}</div>
               <div className="report-desc">{r.desc}</div>
               <div className="report-card-foot">
                 <span className="report-id">{r.id}</span>
                 <span className="report-link">열기</span>
               </div>
-            </button>
-          ))
+              </div>
+            );
+          })
         )}
       </div>
         </section>
@@ -154,6 +199,13 @@ export default function ReportsPage() {
           <SideMenuCard collapsible showScrollTop />
         </aside>
       </div>
+
+      <ConfirmModal
+        open={confirmModal.open}
+        message={confirmModal.message}
+        onClose={closeConfirmModal}
+        onConfirm={handleConfirmModal}
+      />
     </div>
   );
 }

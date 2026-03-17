@@ -63,4 +63,24 @@ export function removeRecentItem(item) {
   return { removed: next.length !== list.length, items: next, key };
 }
 
+export function removeRecentItemsByKeys(keys = []) {
+  const keySet = new Set(Array.isArray(keys) ? keys : []);
+  if (keySet.size === 0) return { removed: false, items: readRecentList() };
+
+  const list = readRecentList();
+  const next = list.filter((entry) => !keySet.has(getArchiveItemKey(entry)));
+  writeRecentList(next);
+  return { removed: next.length !== list.length, items: next };
+}
+
+export function clearRecentItems() {
+  if (typeof window === "undefined") return { items: [] };
+  try {
+    window.localStorage.removeItem(RECENT_STORAGE_KEY);
+  } catch (_) {
+    // Ignore storage exceptions.
+  }
+  return { items: [] };
+}
+
 export { RECENT_STORAGE_KEY };

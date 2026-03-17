@@ -1,8 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
-import { removeArchiveItem } from "../../utils/archiveStorage";
-import { removeRecentItem } from "../../utils/recentStorage";
+import ConfirmModal from "../../components/ConfirmModal";
+import {
+  clearArchiveItems,
+  getArchiveItemKey,
+  removeArchiveItem,
+  removeArchiveItemsByKeys,
+} from "../../utils/archiveStorage";
+import { clearRecentItems, removeRecentItem, removeRecentItemsByKeys } from "../../utils/recentStorage";
 
 // ✅ (있으면) 아카이브 컨텍스트 사용
 // 없으면 아래 try/catch fallback으로 localStorage에서 읽도록 처리함
@@ -47,6 +54,25 @@ function formatYMD(value) {
   return `${y}-${m}-${day}`;
 }
 
+function normalizeSummaryValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join(" ");
+  }
+  return String(value || "").trim();
+}
+
+function isPlaceholderSummary(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) return true;
+  return (
+    normalized === "기사를 클릭하면 상세 내용을 확인할 수 있습니다." ||
+    normalized === "요약 정보가 없습니다."
+  );
+}
+
 /**
  * ✅ saved/recent 공통 UI 아이템으로 안전 매핑
  * - archive 저장 구조(우리가 저장한 구조)
@@ -68,17 +94,254 @@ function mapAnyToArchiveItem(x) {
     x?.saved_at;
 
   const url = x?.url ?? raw?.url ?? raw?.link ?? "";
+  const summaryCandidate = [
+    x?.summary,
+    raw?.summary,
+    raw?.short_summary,
+    raw?.ultra_short,
+    raw?.description,
+  ]
+    .map(normalizeSummaryValue)
+    .find((text) => !isPlaceholderSummary(text));
 
   return {
     id: String(id),
     title,
     category: normalizeCategory(categoryRaw),
     date: formatYMD(dateRaw),
-    summary: url
-      ? "기사를 클릭하면 상세 내용을 확인할 수 있습니다."
-      : "요약 정보가 없습니다.",
+    summary:
+      summaryCandidate ||
+      (url ? "기사를 클릭하면 상세 내용을 확인할 수 있습니다." : "요약 정보가 없습니다."),
     raw: { ...raw, url },
   };
+}
+
+const DEFAULT_INTEREST_KEYWORDS = ["AI", "금리", "교통", "공급망", "문화행사"];
+const PRIMARY_INTEREST_KEYWORD_STORAGE_KEY = "archiveInterestKeywords";
+const INTEREST_KEYWORD_STORAGE_KEYS = [
+  PRIMARY_INTEREST_KEYWORD_STORAGE_KEY,
+  "interestKeywords",
+  "myInterestKeywords",
+  "userInterestKeywords",
+  "preferredKeywords",
+];
+
+function normalizeKeywordList(value) {
+  if (!Array.isArray(value)) return [];
+
+  const seen = new Set();
+  const keywords = [];
+
+  value.forEach((item) => {
+    const raw =
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object"
+          ? item.label ?? item.keyword ?? item.name ?? ""
+          : "";
+    const keyword = String(raw || "").trim();
+    const dedupeKey = keyword.toLowerCase();
+    if (!keyword || seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    keywords.push(keyword);
+  });
+
+  return keywords;
+}
+
+function readStoredInterestKeywords() {
+  if (typeof window === "undefined") return [];
+
+  for (const key of INTEREST_KEYWORD_STORAGE_KEYS) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeKeywordList(parsed);
+      if (normalized.length > 0) return normalized;
+    } catch {
+      // ignore malformed localStorage value
+    }
+  }
+  return [];
+}
+
+function writeStoredInterestKeywords(keywords) {
+  if (typeof window === "undefined") return;
+
+  const normalized = normalizeKeywordList(keywords);
+  const payload = JSON.stringify(normalized);
+  window.localStorage.setItem(PRIMARY_INTEREST_KEYWORD_STORAGE_KEY, payload);
+  // 기존 키를 읽는 코드와 호환되도록 함께 저장
+  window.localStorage.setItem("interestKeywords", payload);
+}
+
+function toTimestamp(value) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function getAlertItemKey(item) {
+  return String(
+    getArchiveItemKey(item) ||
+      item?.id ||
+      item?.raw?.id ||
+      item?.raw?.article_id ||
+      item?.raw?.articleId ||
+      item?.raw?.url ||
+      item?.url ||
+      `${String(item?.title || "").trim()}_${String(item?.date || "").trim()}`
+  );
+}
+
+function getArticleKeywordText(item) {
+  return [
+    item?.title,
+    item?.raw?.title,
+    item?.summary,
+    item?.raw?.summary,
+    item?.raw?.short_summary,
+    item?.raw?.ultra_short,
+    item?.raw?.description,
+  ]
+    .map(normalizeSummaryValue)
+    .filter((text) => !isPlaceholderSummary(text))
+    .join(" ")
+    .toLowerCase();
+}
+
+// Backward-compatible alias for older call sites.
+function getArticleSummaryText(item) {
+  return getArticleKeywordText(item);
+}
+
+function getMatchedKeywordLabels(item, keywordList) {
+  const sourceText = getArticleKeywordText(item);
+  if (!sourceText) return [];
+  return keywordList.filter((keyword) =>
+    sourceText.includes(String(keyword || "").trim().toLowerCase())
+  );
+}
+
+function buildHighlightChunks(text, terms) {
+  const content = String(text || "");
+  const normalizedTerms = [...new Set((terms || []).map((term) => String(term || "").trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+  if (!content || normalizedTerms.length === 0) return [{ text: content, hit: false }];
+
+  const escaped = normalizedTerms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const pattern = new RegExp(`(${escaped.join("|")})`, "gi");
+  return content.split(pattern).filter(Boolean).map((part) => {
+    const hit = normalizedTerms.some((term) => part.toLowerCase() === term.toLowerCase());
+    return { text: part, hit };
+  });
+}
+
+function getDetailBody(item) {
+  return normalizeSummaryValue(
+    item?.raw?.content ||
+      item?.raw?.body ||
+      item?.raw?.description ||
+      item?.raw?.short_summary ||
+      item?.raw?.summary ||
+      item?.summary ||
+      ""
+  );
+}
+
+function getItemUpdatedStamp(item) {
+  return String(
+    item?.raw?.updated_at ||
+      item?.raw?.updatedAt ||
+      item?.raw?.published_at ||
+      item?.raw?.created_at ||
+      item?.raw?.saved_at ||
+      item?.raw?.viewed_at ||
+      item?.updated_at ||
+      item?.updatedAt ||
+      item?.published_at ||
+      item?.created_at ||
+      item?.saved_at ||
+      item?.viewed_at ||
+      item?.date ||
+      ""
+  );
+}
+
+function getAlertItemSignature(item) {
+  const key = getAlertItemKey(item);
+  const stamp = getItemUpdatedStamp(item);
+  const keywordText = getArticleKeywordText(item);
+  return `${key}::${stamp}::${keywordText}`;
+}
+
+function readLocalArray(key) {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function mapTrackingIssueToArchiveItem(issue) {
+  const relatedArticles = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  const representative =
+    relatedArticles.find(
+      (article) =>
+        Number(article?.is_representative || 0) === 1 ||
+        String(article?.id || article?.article_id || "") === String(issue?.article_id || "")
+    ) || relatedArticles[0] || null;
+
+  const title = representative?.title || issue?.title || "(제목 없음)";
+  const summary = normalizeSummaryValue(
+    issue?.short_summary ||
+      issue?.ultra_short ||
+      issue?.summary ||
+      representative?.short_summary ||
+      representative?.ultra_short ||
+      representative?.summary ||
+      representative?.description ||
+      ""
+  );
+
+  const raw = {
+    ...issue,
+    ...(representative || {}),
+    id:
+      issue?.article_id ||
+      representative?.id ||
+      representative?.article_id ||
+      issue?.id ||
+      `${String(issue?.id || "").trim()}-${title}`,
+    article_id:
+      issue?.article_id ||
+      representative?.article_id ||
+      representative?.id ||
+      issue?.id ||
+      "",
+    title,
+    summary,
+    category: representative?.category || issue?.category || "기타",
+    published_at:
+      representative?.published_at ||
+      representative?.created_at ||
+      issue?.updated_at ||
+      issue?.created_at ||
+      "",
+    updated_at:
+      issue?.updated_at ||
+      representative?.updated_at ||
+      representative?.published_at ||
+      representative?.created_at ||
+      issue?.created_at ||
+      "",
+    url: representative?.url || issue?.url || "",
+  };
+
+  return mapAnyToArchiveItem(raw);
 }
 
 export default function ArchivePage() {
@@ -86,7 +349,27 @@ export default function ArchivePage() {
   const [activeTab, setActiveTab] = useState("saved");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState("latest");
-  const [activeKeyword, setActiveKeyword] = useState("AI");
+  const [interestKeywords, setInterestKeywords] = useState(() => {
+    const stored = readStoredInterestKeywords();
+    return stored.length > 0 ? stored : [...DEFAULT_INTEREST_KEYWORDS];
+  });
+  const [activeKeyword, setActiveKeyword] = useState(() => {
+    const stored = readStoredInterestKeywords();
+    const initial = stored.length > 0 ? stored : DEFAULT_INTEREST_KEYWORDS;
+    return initial[0] || "";
+  });
+  const [keywordInput, setKeywordInput] = useState("");
+  const [keywordToast, setKeywordToast] = useState("");
+  const [keywordAlertQueue, setKeywordAlertQueue] = useState([]);
+  const notifiedKeywordArticleSignaturesRef = useRef(new Set());
+  const queuedKeywordArticleSignaturesRef = useRef(new Set());
+  const seenKeywordArticleKeysRef = useRef(new Set());
+  const keywordAlertInitializedRef = useRef(false);
+  const keywordStatusInitializedRef = useRef(false);
+  const keywordStatusSignaturesRef = useRef(new Map());
+  const [keywordLiveStatusByKey, setKeywordLiveStatusByKey] = useState({});
+  const [keywordMatchOnly, setKeywordMatchOnly] = useState(true);
+  const [selectedArticleDetail, setSelectedArticleDetail] = useState(null);
   // ✅ 실시간 이슈 상세 모달 상태: 선택된 카드가 있을 때만 상세를 연다.
   const [selectedTrend, setSelectedTrend] = useState(null);
 
@@ -96,6 +379,12 @@ export default function ArchivePage() {
 
   const [savedItems, setSavedItems] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
+  const [mainFeedItems, setMainFeedItems] = useState([]);
+  const [mainFeedLoaded, setMainFeedLoaded] = useState(false);
+  const confirmActionRef = useRef(null);
+  const [confirmModal, setConfirmModal] = useState({ open: false, message: "" });
+  const [selectedSavedKeys, setSelectedSavedKeys] = useState(new Set());
+  const [selectedRecentKeys, setSelectedRecentKeys] = useState(new Set());
 
   // ✅ 로딩/에러
   const [loading, setLoading] = useState(false);
@@ -103,27 +392,30 @@ export default function ArchivePage() {
 
   // ✅ 페이지네이션
   const [page, setPage] = useState(1);
-  const size = 50;
+  const size = 8;
 
   // ✅ 관심 키워드 버튼: 숫자는 렌더 시 실제 기사 개수로 계산한다.
-  const keywordItems = [
-    { id: 21, label: "AI" },
-    { id: 22, label: "금리" },
-    { id: 23, label: "교통" },
-    { id: 24, label: "공급망" },
-    { id: 25, label: "문화행사" },
-  ];
+  const keywordItems = useMemo(
+    () => interestKeywords.map((label, index) => ({ id: `kw-${index}-${label}`, label })),
+    [interestKeywords]
+  );
 
-  const keywordArticles = {
-    AI: [
-      { id: "ai-1", title: "AI 서비스 확산… 개인정보·보안 기준 강화", category: "IT/과학", date: "2026-02-03", summary: "AI 서비스 확산에 따라 개인정보 보호 기준이 강화되는 추세입니다." },
-      { id: "ai-2", title: "클라우드 비용 최적화… 기업 IT 전략 재정비", category: "IT/과학", date: "2026-02-01", summary: "클라우드 비용 최적화 전략이 기업 IT 로드맵의 핵심이 되고 있습니다." },
-    ],
-    금리: [{ id: "rate-1", title: "금리 동결 전망 속 시장 관망세", category: "경제", date: "2026-02-02", summary: "금리 동결 가능성이 높아지며 시장 관망세가 이어지고 있습니다." }],
-    교통: [{ id: "traffic-1", title: "도심 교통 혼잡 완화 대책… 수요 분산", category: "사회", date: "2026-01-31", summary: "대중교통 확대와 수요 분산 정책이 추진되고 있습니다." }],
-    공급망: [{ id: "supply-1", title: "글로벌 공급망 재편… 산업 경쟁 지형 변화", category: "국제", date: "2026-01-30", summary: "공급망 재편으로 산업 경쟁 구도가 빠르게 변하고 있습니다." }],
-    문화행사: [{ id: "culture-1", title: "공연·전시 수요 회복… 지역 문화행사 활기", category: "문화", date: "2026-01-29", summary: "지역 문화행사가 다시 활성화되는 흐름입니다." }],
-  };
+  useEffect(() => {
+    writeStoredInterestKeywords(interestKeywords);
+  }, [interestKeywords]);
+
+  useEffect(() => {
+    if (!keywordItems.length) {
+      setActiveKeyword("");
+      return;
+    }
+    const exists = keywordItems.some((item) => item.label === activeKeyword);
+    if (!exists) setActiveKeyword(keywordItems[0].label);
+  }, [keywordItems, activeKeyword]);
+
+  useEffect(() => {
+    setSelectedArticleDetail(null);
+  }, [activeTab]);
 
   const trendingItems = [
     {
@@ -185,44 +477,98 @@ export default function ArchivePage() {
     // 컨텍스트가 있으면 그거 사용
     if (Array.isArray(savedFromCtx)) {
       setSavedItems(savedFromCtx.map(mapAnyToArchiveItem));
-      return;
+      return undefined;
     }
 
-    // fallback: localStorage("archive")
-    try {
-      const saved = JSON.parse(localStorage.getItem("archive") || "[]");
-      if (Array.isArray(saved)) setSavedItems(saved.map(mapAnyToArchiveItem));
-      else setSavedItems([]);
-    } catch {
-      setSavedItems([]);
-    }
-  }, [savedFromCtx]);
+    const syncSavedItems = () => {
+      const saved = readLocalArray("archive");
+      setSavedItems(saved.map(mapAnyToArchiveItem));
+    };
+
+    syncSavedItems();
+    const pollingMs = activeTab === "keywords" ? 5000 : 12000;
+    const timer = window.setInterval(syncSavedItems, pollingMs);
+    return () => window.clearInterval(timer);
+  }, [savedFromCtx, activeTab]);
 
   // ✅ recent: localStorage("recentArticles")에서 읽어서 표시
   // (나중에 서버 API 생기면 여기만 axios로 바꾸면 됨)
   useEffect(() => {
-    if (activeTab !== "recent") return;
+    const syncRecentItems = () => {
+      const recent = readLocalArray("recentArticles");
+      setRecentItems(recent.map(mapAnyToArchiveItem));
+    };
 
-    setLoading(true);
-    setError("");
-
-    try {
-      const recent = JSON.parse(localStorage.getItem("recentArticles") || "[]");
-      const arr = Array.isArray(recent) ? recent : [];
-      setRecentItems(arr.map(mapAnyToArchiveItem));
-    } catch (e) {
-      setRecentItems([]);
-      setError("최근 본 기사를 불러오지 못했습니다.");
-    } finally {
+    if (activeTab === "recent") {
+      setLoading(true);
+      setError("");
+      syncRecentItems();
       setLoading(false);
+    } else {
+      syncRecentItems();
     }
+
+    const pollingMs = activeTab === "keywords" ? 5000 : 12000;
+    const timer = window.setInterval(syncRecentItems, pollingMs);
+    return () => window.clearInterval(timer);
   }, [activeTab]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadMainFeedArticles = async () => {
+      try {
+        const res = await axios.get("/tracking/issues", {
+          params: { limit: 50 },
+        });
+        if (!mounted) return;
+
+        const items = res.data?.items || res.data?.issues || res.data?.data || [];
+        const onlyGrouped = items.filter((item) => Number(item?.related_count || 0) >= 2);
+        const mapped = onlyGrouped
+          .map(mapTrackingIssueToArchiveItem)
+          .filter((item) => item && item.id);
+
+        setMainFeedItems(mapped);
+        setMainFeedLoaded(true);
+      } catch (e) {
+        if (!mounted) return;
+        setMainFeedLoaded(true);
+      }
+    };
+
+    loadMainFeedArticles();
+    const pollingMs = activeTab === "keywords" ? 7000 : 20000;
+    const timer = window.setInterval(loadMainFeedArticles, pollingMs);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [activeTab]);
+
+  useEffect(() => {
+    const keySet = new Set(savedItems.map(getArchiveItemKey).filter(Boolean));
+    setSelectedSavedKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter((key) => keySet.has(key)));
+      return next;
+    });
+  }, [savedItems]);
+
+  useEffect(() => {
+    const keySet = new Set(recentItems.map(getArchiveItemKey).filter(Boolean));
+    setSelectedRecentKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter((key) => keySet.has(key)));
+      return next;
+    });
+  }, [recentItems]);
 
   // ✅ 탭별 목록 선택
   const listItems = activeTab === "saved" ? savedItems : recentItems;
 
   // ✅ 검색/정렬 + 페이지 처리
-  const filtered = useMemo(() => {
+  const filteredResult = useMemo(() => {
     const q = query.trim().toLowerCase();
 
     const items = (listItems || []).filter((item) => {
@@ -233,23 +579,92 @@ export default function ArchivePage() {
       );
     });
 
+    const getSortValue = (item) =>
+      toTimestamp(
+        item?.date ||
+          item?.saved_at ||
+          item?.raw?.saved_at ||
+          item?.raw?.viewed_at ||
+          item?.raw?.published_at ||
+          item?.raw?.created_at ||
+          item?.published_at ||
+          item?.created_at
+      );
+
     const sorted =
       sort === "oldest"
-        ? [...items].sort((a, b) => String(a.date).localeCompare(String(b.date)))
-        : [...items].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        ? [...items].sort((a, b) => getSortValue(a) - getSortValue(b))
+        : [...items].sort((a, b) => getSortValue(b) - getSortValue(a));
 
     // ✅ 간단한 프론트 페이지네이션(slice)
     const start = (page - 1) * size;
     const end = start + size;
-    return sorted.slice(start, end);
+    return { items: sorted.slice(start, end), total: sorted.length };
   }, [listItems, query, sort, page, size]);
 
-  // ✅ keywords 탭도 동일한 검색/정렬 규칙을 적용해 최신순/오래된순을 반영한다.
-  const keywordFiltered = (() => {
-    const q = query.trim().toLowerCase();
-    const items = [...(keywordArticles[activeKeyword] || [])];
+  const filtered = filteredResult.items;
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredResult.total / size)),
+    [filteredResult.total, size]
+  );
 
-    const searched = items.filter((item) => {
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  // ✅ 관심 키워드 탭/알림은 메인페이지 실시간 이슈 기사 소스를 기준으로 동작한다.
+  const keywordArticlePool = useMemo(() => {
+    const merged = [...mainFeedItems];
+    const deduped = new Map();
+
+    merged.forEach((item) => {
+      const key = getAlertItemKey(item);
+      const prev = deduped.get(key);
+      if (!prev) {
+        deduped.set(key, item);
+        return;
+      }
+
+      const prevStamp = toTimestamp(getItemUpdatedStamp(prev));
+      const nextStamp = toTimestamp(getItemUpdatedStamp(item));
+      if (nextStamp >= prevStamp) deduped.set(key, item);
+    });
+
+    return [...deduped.values()];
+  }, [mainFeedItems]);
+
+  const keywordCountsByLabel = useMemo(() => {
+    const counts = {};
+    keywordItems.forEach(({ label }) => {
+      const lower = String(label || "").toLowerCase();
+      counts[label] = keywordArticlePool.filter((item) =>
+        getArticleKeywordText(item).includes(lower)
+      ).length;
+    });
+    return counts;
+  }, [keywordItems, keywordArticlePool]);
+
+  // ✅ keywords 탭도 동일한 검색/정렬 규칙을 적용해 최신순/오래된순을 반영한다.
+  const activeKeywordMatchCount = useMemo(() => {
+    const targetKeyword = String(activeKeyword || "").trim().toLowerCase();
+    if (!targetKeyword) return keywordArticlePool.length;
+    return keywordArticlePool.filter((item) =>
+      getArticleKeywordText(item).includes(targetKeyword)
+    ).length;
+  }, [activeKeyword, keywordArticlePool]);
+
+  const keywordFiltered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const targetKeyword = String(activeKeyword || "").trim().toLowerCase();
+
+    const keywordMatched = keywordArticlePool.filter((item) => {
+      if (!targetKeyword) return true;
+      return getArticleKeywordText(item).includes(targetKeyword);
+    });
+
+    const baseItems = keywordMatchOnly ? keywordMatched : keywordArticlePool;
+
+    const searched = baseItems.filter((item) => {
       if (!q) return true;
       return (
         String(item.title || "").toLowerCase().includes(q) ||
@@ -257,12 +672,323 @@ export default function ArchivePage() {
       );
     });
 
+    const sortValue = (item) => toTimestamp(getItemUpdatedStamp(item));
     return sort === "oldest"
-      ? searched.sort((a, b) => String(a.date).localeCompare(String(b.date)))
-      : searched.sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  })();
+      ? searched.sort((a, b) => sortValue(a) - sortValue(b))
+      : searched.sort((a, b) => sortValue(b) - sortValue(a));
+  }, [query, activeKeyword, sort, keywordArticlePool, keywordMatchOnly]);
 
-  // ✅ 목록 클릭 시 원문 열기(저장/최근 모두)
+  useEffect(() => {
+    const prev = keywordStatusSignaturesRef.current;
+    const next = new Map();
+
+    if (!keywordArticlePool.length) {
+      keywordStatusSignaturesRef.current = next;
+      if (keywordStatusInitializedRef.current) setKeywordLiveStatusByKey({});
+      return;
+    }
+
+    const nextStatuses = {};
+    keywordArticlePool.forEach((item) => {
+      const key = getAlertItemKey(item);
+      const signature = getAlertItemSignature(item);
+      next.set(key, signature);
+
+      if (!keywordStatusInitializedRef.current) return;
+      if (!prev.has(key)) {
+        nextStatuses[key] = "new";
+        return;
+      }
+      if (prev.get(key) !== signature) {
+        nextStatuses[key] = "updated";
+      }
+    });
+
+    keywordStatusSignaturesRef.current = next;
+    if (!keywordStatusInitializedRef.current) {
+      keywordStatusInitializedRef.current = true;
+      setKeywordLiveStatusByKey({});
+      return;
+    }
+    setKeywordLiveStatusByKey(nextStatuses);
+  }, [keywordArticlePool]);
+
+  useEffect(() => {
+    if (!mainFeedLoaded) return;
+
+    const normalizedKeywords = interestKeywords
+      .map((keyword) => String(keyword || "").trim())
+      .filter(Boolean)
+      .map((keyword) => ({ original: keyword, lower: keyword.toLowerCase() }));
+    if (normalizedKeywords.length === 0) return;
+    if (!keywordArticlePool.length) {
+      keywordAlertInitializedRef.current = true;
+      return;
+    }
+
+    const nextAlerts = [];
+
+    keywordArticlePool.forEach((item) => {
+      const searchText = getArticleKeywordText(item);
+      if (!searchText) return;
+
+      const matchedKeywords = normalizedKeywords
+        .filter(({ lower }) => searchText.includes(lower))
+        .map(({ original }) => original);
+      if (!matchedKeywords.length) return;
+
+      const signature = getAlertItemSignature(item);
+      const articleKey = getAlertItemKey(item);
+      const isUpdate = seenKeywordArticleKeysRef.current.has(articleKey);
+      seenKeywordArticleKeysRef.current.add(articleKey);
+
+      // 초기 렌더 시 이미 떠 있는 기사로는 알림을 보내지 않는다.
+      if (!keywordAlertInitializedRef.current) {
+        notifiedKeywordArticleSignaturesRef.current.add(signature);
+        return;
+      }
+
+      if (notifiedKeywordArticleSignaturesRef.current.has(signature)) return;
+      if (queuedKeywordArticleSignaturesRef.current.has(signature)) return;
+
+      queuedKeywordArticleSignaturesRef.current.add(signature);
+      nextAlerts.push({
+        signature,
+        title: String(item?.title || "제목 없음"),
+        matchedKeywords,
+        eventType: isUpdate ? "updated" : "new",
+      });
+    });
+
+    if (!keywordAlertInitializedRef.current) {
+      keywordAlertInitializedRef.current = true;
+    }
+    if (nextAlerts.length > 0) {
+      setKeywordAlertQueue((prev) => [...prev, ...nextAlerts]);
+    }
+  }, [keywordArticlePool, interestKeywords, mainFeedLoaded]);
+
+  useEffect(() => {
+    if (keywordToast || keywordAlertQueue.length === 0) return;
+
+    const [nextAlert, ...restAlerts] = keywordAlertQueue;
+    setKeywordAlertQueue(restAlerts);
+    queuedKeywordArticleSignaturesRef.current.delete(nextAlert.signature);
+    notifiedKeywordArticleSignaturesRef.current.add(nextAlert.signature);
+
+    const firstKeyword = nextAlert.matchedKeywords[0];
+    const extraCount = Math.max(0, nextAlert.matchedKeywords.length - 1);
+    const keywordSuffix = extraCount > 0 ? ` 외 ${extraCount}` : "";
+    const eventLabel = nextAlert.eventType === "updated" ? "업데이트" : "신규";
+    setKeywordToast(`관심 키워드 [${firstKeyword}${keywordSuffix}] ${eventLabel} 기사: ${nextAlert.title}`);
+  }, [keywordAlertQueue, keywordToast]);
+
+  useEffect(() => {
+    if (!keywordToast) return undefined;
+    const timer = window.setTimeout(() => setKeywordToast(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [keywordToast]);
+
+  const handleAddInterestKeyword = (event) => {
+    event.preventDefault();
+    const keyword = keywordInput.trim();
+    if (!keyword) return;
+
+    const exists = interestKeywords.some(
+      (item) => String(item || "").toLowerCase() === keyword.toLowerCase()
+    );
+    if (exists) {
+      setKeywordToast(`관심 키워드 [${keyword}]는 이미 등록되어 있습니다.`);
+      setKeywordInput("");
+      return;
+    }
+
+    setInterestKeywords((prev) => [...prev, keyword]);
+    setActiveKeyword(keyword);
+    setKeywordInput("");
+    setKeywordToast(`관심 키워드 [${keyword}]를 등록했습니다.`);
+  };
+
+  const handleRemoveInterestKeyword = (keyword) => {
+    if (!keyword) return;
+    if (interestKeywords.length <= 1) {
+      setKeywordToast("관심 키워드는 최소 1개 이상 유지해야 합니다.");
+      return;
+    }
+
+    setInterestKeywords((prev) =>
+      prev.filter((item) => String(item || "").toLowerCase() !== String(keyword).toLowerCase())
+    );
+    setKeywordToast(`관심 키워드 [${keyword}]를 삭제했습니다.`);
+  };
+
+  // ✅ 목록은 축약본으로 보여주고, 상세 모달에서 전체 내용을 확인한다.
+  const highlightQueryTerm = query.trim();
+
+  const renderHighlightedText = (text, terms) =>
+    buildHighlightChunks(text, terms).map((chunk, index) =>
+      chunk.hit ? (
+        <mark key={`hl-${index}-${chunk.text}`} className="archive-mark">
+          {chunk.text}
+        </mark>
+      ) : (
+        <React.Fragment key={`tx-${index}-${chunk.text}`}>{chunk.text}</React.Fragment>
+      )
+    );
+
+  const openArticleDetail = (item) => {
+    if (!item) return;
+    setSelectedArticleDetail(item);
+  };
+
+  const closeArticleDetail = () => {
+    setSelectedArticleDetail(null);
+  };
+
+  const renderArchiveCard = ({
+    item,
+    selectable = false,
+    itemKey = "",
+    isSelected = false,
+    onToggleSelect = null,
+    onRemove = null,
+    removeAriaLabel = "",
+    showLiveBadge = false,
+  }) => {
+    const matchedKeywords = getMatchedKeywordLabels(item, interestKeywords);
+    const highlightTerms = [highlightQueryTerm];
+    if (activeTab === "keywords") {
+      highlightTerms.push(activeKeyword);
+      matchedKeywords.forEach((keyword) => highlightTerms.push(keyword));
+    }
+    const terms = [...new Set(highlightTerms.map((term) => String(term || "").trim()).filter(Boolean))];
+    const liveBadgeType = showLiveBadge ? keywordLiveStatusByKey[getAlertItemKey(item)] || "" : "";
+    const liveBadgeLabel = liveBadgeType === "updated" ? "UPDATED" : liveBadgeType === "new" ? "NEW" : "";
+
+    const handleOpenDetail = (event) => {
+      if (event.defaultPrevented) return;
+      const target = event.target;
+      if (target && typeof target.closest === "function") {
+        if (
+          target.closest(".archive-item-check") ||
+          target.closest(".archive-item-remove") ||
+          target.closest(".archive-item-more") ||
+          target.closest(".archive-item-origin")
+        ) {
+          return;
+        }
+      }
+      openArticleDetail(item);
+    };
+
+    return (
+      <article
+        key={item.id}
+        className="archive-item archive-item-compact"
+        role="button"
+        tabIndex={0}
+        onClick={handleOpenDetail}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") openArticleDetail(item);
+        }}
+      >
+        <div className="archive-item-head">
+          <div className="archive-item-head-left">
+            {selectable && (
+              <label
+                className="archive-item-check"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (onToggleSelect) onToggleSelect(item);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(itemKey && isSelected)}
+                  disabled={!itemKey}
+                  readOnly
+                />
+              </label>
+            )}
+            <span className="archive-item-cat">{item.category}</span>
+          </div>
+          <div className="archive-item-actions">
+            <span className="archive-item-date">{item.date}</span>
+            {liveBadgeLabel && (
+              <span className={`archive-item-live-badge ${liveBadgeType}`}>{liveBadgeLabel}</span>
+            )}
+            {onRemove && (
+              <button
+                type="button"
+                className="archive-item-remove"
+                onClick={(event) => onRemove(event, item)}
+                aria-label={removeAriaLabel}
+              >
+                삭제
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="archive-item-title clamp-2">{renderHighlightedText(item.title, terms)}</div>
+        <div className="archive-item-summary clamp-3">{renderHighlightedText(item.summary, terms)}</div>
+
+        <div className="archive-item-foot">
+          {matchedKeywords.length > 0 ? (
+            <div className="archive-item-keywords">
+              {matchedKeywords.slice(0, 3).map((keyword) => (
+                <span key={`${item.id}-${keyword}`} className="archive-item-keyword-chip">
+                  #{keyword}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="archive-item-keywords-empty"> </span>
+          )}
+          <div className="archive-item-foot-actions">
+            <button
+              type="button"
+              className="archive-item-more"
+              onClick={(event) => {
+                event.stopPropagation();
+                openArticleDetail(item);
+              }}
+            >
+              상세 보기
+            </button>
+            <button
+              type="button"
+              className="archive-item-origin"
+              onClick={(event) => {
+                event.stopPropagation();
+                openItem(item);
+              }}
+              disabled={!item?.raw?.url}
+            >
+              원문
+            </button>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  const selectedArticleDetailKeywords = useMemo(
+    () => (selectedArticleDetail ? getMatchedKeywordLabels(selectedArticleDetail, interestKeywords) : []),
+    [selectedArticleDetail, interestKeywords]
+  );
+
+  const selectedArticleDetailTerms = useMemo(() => {
+    if (!selectedArticleDetail) return [];
+    const terms = [highlightQueryTerm, activeKeyword];
+    selectedArticleDetailKeywords.forEach((keyword) => terms.push(keyword));
+    return [...new Set(terms.map((term) => String(term || "").trim()).filter(Boolean))];
+  }, [selectedArticleDetail, highlightQueryTerm, activeKeyword, selectedArticleDetailKeywords]);
+
+  const selectedArticleDetailLiveBadge = selectedArticleDetail
+    ? keywordLiveStatusByKey[getAlertItemKey(selectedArticleDetail)] || ""
+    : "";
+
   const openItem = (item) => {
     const url = item?.raw?.url;
     if (!url) return;
@@ -276,11 +1002,84 @@ export default function ArchivePage() {
     setSavedItems(result.items.map(mapAnyToArchiveItem));
   };
 
+  const toggleSavedSelection = (item) => {
+    const key = getArchiveItemKey(item);
+    if (!key) return;
+    setSelectedSavedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedSaved = () => {
+    if (selectedSavedKeys.size === 0) return;
+    const count = selectedSavedKeys.size;
+    confirmActionRef.current = () => {
+      const result = removeArchiveItemsByKeys([...selectedSavedKeys]);
+      setSavedItems(result.items.map(mapAnyToArchiveItem));
+    };
+    setConfirmModal({ open: true, message: `선택한 기사 ${count}개를 삭제할까요?` });
+  };
+
+  const handleClearSaved = () => {
+    if (savedItems.length === 0) return;
+    confirmActionRef.current = () => {
+      clearArchiveItems();
+      setSavedItems([]);
+      setPage(1);
+    };
+    setConfirmModal({ open: true, message: "저장한 기사 전체를 삭제할까요?" });
+  };
+
   const handleRemoveRecent = (event, item) => {
     event.preventDefault();
     event.stopPropagation();
     const result = removeRecentItem(item);
     setRecentItems(result.items.map(mapAnyToArchiveItem));
+  };
+
+  const toggleRecentSelection = (item) => {
+    const key = getArchiveItemKey(item);
+    if (!key) return;
+    setSelectedRecentKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedRecent = () => {
+    if (selectedRecentKeys.size === 0) return;
+    const count = selectedRecentKeys.size;
+    confirmActionRef.current = () => {
+      const result = removeRecentItemsByKeys([...selectedRecentKeys]);
+      setRecentItems(result.items.map(mapAnyToArchiveItem));
+    };
+    setConfirmModal({ open: true, message: `선택한 기사 ${count}개를 삭제할까요?` });
+  };
+
+  const handleClearRecent = () => {
+    if (recentItems.length === 0) return;
+    confirmActionRef.current = () => {
+      clearRecentItems();
+      setRecentItems([]);
+      setPage(1);
+    };
+    setConfirmModal({ open: true, message: "최근 본 기사 전체를 삭제할까요?" });
+  };
+
+  const closeConfirmModal = () => {
+    confirmActionRef.current = null;
+    setConfirmModal({ open: false, message: "" });
+  };
+
+  const handleConfirmModal = () => {
+    const action = confirmActionRef.current;
+    closeConfirmModal();
+    if (action) action();
   };
 
   // ✅ 상세 데이터가 있는 카드만 모달을 열어 3번(비활성 처리) 기준을 지킨다.
@@ -291,13 +1090,18 @@ export default function ArchivePage() {
 
   // ✅ ESC 키로 상세 모달을 닫아 키보드 사용성도 맞춘다.
   useEffect(() => {
-    if (!selectedTrend) return undefined;
+    if (!selectedTrend && !selectedArticleDetail) return undefined;
     const handleEscape = (event) => {
-      if (event.key === "Escape") setSelectedTrend(null);
+      if (event.key !== "Escape") return;
+      if (selectedArticleDetail) {
+        setSelectedArticleDetail(null);
+        return;
+      }
+      setSelectedTrend(null);
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [selectedTrend]);
+  }, [selectedTrend, selectedArticleDetail]);
 
   return (
     <div className="page archive-page">
@@ -388,6 +1192,94 @@ export default function ArchivePage() {
               >
                 오래된순
               </motion.button>
+              {activeTab === "saved" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleDeleteSelectedSaved}
+                  disabled={loading || selectedSavedKeys.size === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  선택삭제
+                </motion.button>
+              )}
+              {activeTab === "saved" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleClearSaved}
+                  disabled={loading || savedItems.length === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  모두삭제
+                </motion.button>
+              )}
+              {activeTab === "recent" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleDeleteSelectedRecent}
+                  disabled={loading || selectedRecentKeys.size === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  선택삭제
+                </motion.button>
+              )}
+              {activeTab === "recent" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleClearRecent}
+                  disabled={loading || recentItems.length === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  모두삭제
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -403,47 +1295,30 @@ export default function ArchivePage() {
 
               {!loading &&
                 !error &&
-                filtered.map((item) => (
-                  <article
-                    key={item.id}
-                    className="archive-item"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openItem(item)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") openItem(item);
-                    }}
-                  >
-                    <div className="archive-item-head">
-                      <span className="archive-item-cat">{item.category}</span>
-                      <div className="archive-item-actions">
-                        <span className="archive-item-date">{item.date}</span>
-                        {activeTab === "saved" && (
-                          <button
-                            type="button"
-                            className="archive-item-remove"
-                            onClick={(event) => handleRemoveSaved(event, item)}
-                            aria-label="저장된 기사 삭제"
-                          >
-                            삭제
-                          </button>
-                        )}
-                        {activeTab === "recent" && (
-                          <button
-                            type="button"
-                            className="archive-item-remove"
-                            onClick={(event) => handleRemoveRecent(event, item)}
-                            aria-label="최근 본 기사 삭제"
-                          >
-                            삭제
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="archive-item-title">{item.title}</div>
-                    <div className="archive-item-summary">{item.summary}</div>
-                  </article>
-                ))}
+                filtered.map((item) => {
+                  const itemKey = getArchiveItemKey(item);
+                  const isSelected =
+                    activeTab === "saved"
+                      ? selectedSavedKeys.has(itemKey)
+                      : selectedRecentKeys.has(itemKey);
+                  const toggleSelection =
+                    activeTab === "saved" ? toggleSavedSelection : toggleRecentSelection;
+                  const removeHandler =
+                    activeTab === "saved" ? handleRemoveSaved : handleRemoveRecent;
+                  const removeAria =
+                    activeTab === "saved" ? "remove saved article" : "remove recent article";
+
+                  return renderArchiveCard({
+                    item,
+                    selectable: true,
+                    itemKey,
+                    isSelected,
+                    onToggleSelect: toggleSelection,
+                    onRemove: removeHandler,
+                    removeAriaLabel: removeAria,
+                    showLiveBadge: false,
+                  });
+                })}
 
               {!loading && !error && filtered.length === 0 && (
                 <div className="archive-empty">
@@ -464,7 +1339,7 @@ export default function ArchivePage() {
                 <button
                   type="button"
                   className="mp-btn"
-                  disabled={loading}
+                  disabled={loading || page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                 >
                   다음
@@ -476,48 +1351,92 @@ export default function ArchivePage() {
           {/* ✅ keywords 탭 더미 유지 */}
           {activeTab === "keywords" && (
             <div className="archive-keywords-wrap">
+              <form className="archive-keyword-form" onSubmit={handleAddInterestKeyword}>
+                <input
+                  className="archive-keyword-input"
+                  type="text"
+                  value={keywordInput}
+                  onChange={(event) => setKeywordInput(event.target.value)}
+                  placeholder="관심 키워드 추가 (예: 반도체)"
+                  maxLength={24}
+                />
+                <button type="submit" className="archive-keyword-add">
+                  키워드 추가
+                </button>
+              </form>
+
+              <div className="archive-keyword-controls">
+                <label className="archive-match-toggle">
+                  <input
+                    type="checkbox"
+                    checked={keywordMatchOnly}
+                    onChange={(event) => setKeywordMatchOnly(event.target.checked)}
+                  />
+                  <span>매칭 기사만 보기</span>
+                </label>
+                <span className="archive-match-meta">
+                  {activeKeyword || "전체"} 매칭 {activeKeywordMatchCount}건
+                </span>
+              </div>
+
               <div className="archive-keywords">
                 {keywordItems.map((k) => (
-                  <motion.button
-                    key={k.id}
-                    type="button"
-                    className={`archive-keyword ${activeKeyword === k.label ? "active" : ""}`}
-                    onClick={() => setActiveKeyword(k.label)}
-                    whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
-                    whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
-                    transition={
-                      reduceMotion
-                        ? undefined
-                        : {
-                            type: "spring",
-                            stiffness: 420,
-                            damping: 28,
-                            mass: 0.55,
-                          }
-                    }
-                  >
-                    <span className="archive-keyword-label">{k.label}</span>
-                    {/* ✅ 하드코딩 숫자 대신 실제 키워드 기사 수를 표시한다. */}
-                    <span className="archive-keyword-count">
-                      {(keywordArticles[k.label] || []).length}
-                    </span>
-                  </motion.button>
+                  <div key={k.id} className="archive-keyword-item">
+                    <motion.button
+                      type="button"
+                      className={`archive-keyword ${activeKeyword === k.label ? "active" : ""}`}
+                      onClick={() => setActiveKeyword(k.label)}
+                      whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                      whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                      transition={
+                        reduceMotion
+                          ? undefined
+                          : {
+                              type: "spring",
+                              stiffness: 420,
+                              damping: 28,
+                              mass: 0.55,
+                            }
+                      }
+                    >
+                      <span className="archive-keyword-label">{k.label}</span>
+                      <span className="archive-keyword-count">
+                        {keywordCountsByLabel[k.label] || 0}
+                      </span>
+                    </motion.button>
+                    <button
+                      type="button"
+                      className="archive-keyword-remove"
+                      onClick={() => handleRemoveInterestKeyword(k.label)}
+                      disabled={keywordItems.length <= 1}
+                      aria-label={`${k.label} 키워드 삭제`}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
 
+              {keywordMatchOnly && activeKeyword && activeKeywordMatchCount === 0 && (
+                <div className="archive-empty">
+                  현재 [{activeKeyword}] 키워드와 일치하는 기사가 없습니다. 메인페이지 기사 신규/업데이트 시
+                  알림이 뜹니다.
+                </div>
+              )}
+
               <div key={activeKeyword} className="archive-keyword-list is-animated">
-                {keywordFiltered.map((item) => (
-                  <article key={item.id} className="archive-item">
-                    <div className="archive-item-head">
-                      <span className="archive-item-cat">{item.category}</span>
-                      <span className="archive-item-date">{item.date}</span>
-                    </div>
-                    <div className="archive-item-title">{item.title}</div>
-                    <div className="archive-item-summary">{item.summary}</div>
-                  </article>
-                ))}
+                {keywordFiltered.map((item) =>
+                  renderArchiveCard({
+                    item,
+                    showLiveBadge: true,
+                  })
+                )}
                 {keywordFiltered.length === 0 && (
-                  <div className="archive-empty">조건에 맞는 키워드 기사가 없습니다.</div>
+                  <div className="archive-empty">
+                    {keywordMatchOnly
+                      ? "조건에 맞는 키워드 기사가 없습니다."
+                      : "표시할 기사가 없습니다."}
+                  </div>
                 )}
               </div>
             </div>
@@ -571,6 +1490,67 @@ export default function ArchivePage() {
         </aside>
       </div>
 
+      {selectedArticleDetail && (
+        <div
+          className="archive-article-modal-overlay"
+          role="presentation"
+          onClick={closeArticleDetail}
+        >
+          <section
+            className="archive-article-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="archive-article-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="archive-article-modal-head">
+              <div className="archive-item-head-left">
+                <span className="archive-item-cat">{selectedArticleDetail.category}</span>
+                {selectedArticleDetailKeywords.slice(0, 3).map((keyword) => (
+                  <span key={`modal-${keyword}`} className="archive-item-keyword-chip">
+                    #{keyword}
+                  </span>
+                ))}
+              </div>
+              <div className="archive-item-actions">
+                <span className="archive-item-date">{selectedArticleDetail.date}</span>
+                {selectedArticleDetailLiveBadge && (
+                  <span className={`archive-item-live-badge ${selectedArticleDetailLiveBadge}`}>
+                    {selectedArticleDetailLiveBadge === "updated" ? "UPDATED" : "NEW"}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <h3 id="archive-article-modal-title" className="archive-article-modal-title">
+              {renderHighlightedText(selectedArticleDetail.title, selectedArticleDetailTerms)}
+            </h3>
+
+            <p className="archive-article-modal-summary">
+              {renderHighlightedText(selectedArticleDetail.summary, selectedArticleDetailTerms)}
+            </p>
+
+            <div className="archive-article-modal-body">
+              {renderHighlightedText(getDetailBody(selectedArticleDetail), selectedArticleDetailTerms)}
+            </div>
+
+            <div className="archive-article-modal-foot">
+              <button
+                type="button"
+                className="mp-btn"
+                onClick={() => openItem(selectedArticleDetail)}
+                disabled={!selectedArticleDetail?.raw?.url}
+              >
+                원문 보기
+              </button>
+              <button type="button" className="mp-btn" onClick={closeArticleDetail}>
+                닫기
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {selectedTrend && (
         <div
           className="archive-trend-modal-overlay"
@@ -620,6 +1600,19 @@ export default function ArchivePage() {
           </section>
         </div>
       )}
+
+      {keywordToast && (
+        <div className="archive-quick-toast" role="status" aria-live="polite">
+          {keywordToast}
+        </div>
+      )}
+
+      <ConfirmModal
+        open={confirmModal.open}
+        message={confirmModal.message}
+        onClose={closeConfirmModal}
+        onConfirm={handleConfirmModal}
+      />
     </div>
   );
 }

@@ -144,4 +144,28 @@ export function removeArchiveItem(item) {
   };
 }
 
+export function removeArchiveItemsByKeys(keys = []) {
+  const keySet = new Set(Array.isArray(keys) ? keys : []);
+  if (keySet.size === 0) return { removed: false, items: readArchiveList() };
+
+  const list = readArchiveList();
+  const next = list.filter((entry) => !keySet.has(getArchiveItemKey(entry)));
+  writeArchiveList(next);
+
+  return {
+    removed: next.length !== list.length,
+    items: next,
+  };
+}
+
+export function clearArchiveItems() {
+  if (typeof window === "undefined") return { items: [] };
+  try {
+    window.localStorage.removeItem(ARCHIVE_STORAGE_KEY);
+  } catch (_) {
+    // Ignore storage exceptions.
+  }
+  return { items: [] };
+}
+
 export { ARCHIVE_STORAGE_KEY };

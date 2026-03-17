@@ -23,6 +23,17 @@ exports.detail = async (req, res) => {
   }
 };
 
+// GET /news/:id/terms
+exports.terms = async (req, res) => {
+  try {
+    const data = await newsService.getArticleTerms(req.params.id);
+    return res.json(data);
+  } catch (err) {
+    console.error("[newsController.terms]", err);
+    return res.status(err.statusCode || 500).json({ message: err.message || "server error" });
+  }
+};
+
 // GET /news/categories
 exports.categories = async (req, res) => {
   try {

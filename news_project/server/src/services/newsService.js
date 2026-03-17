@@ -476,6 +476,42 @@ exports.getArticle = async (id) => {
   };
 };
 
+exports.getArticleTerms = async (id) => {
+  const articleId = Number(id);
+  if (!Number.isFinite(articleId)) {
+    throw makeError("invalid article id", 400);
+  }
+
+  const [articleRows] = await db.query(
+    `
+    SELECT id
+    FROM articles
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [articleId]
+  );
+  if (!articleRows.length) {
+    throw makeError("article not found", 404);
+  }
+
+  const [rows] = await db.query(
+    `
+    SELECT article_id, category, term, source_file, line_no, created_at
+    FROM article_terms
+    WHERE article_id = ?
+    ORDER BY line_no ASC, id ASC
+    `,
+    [articleId]
+  );
+
+  return {
+    article_id: articleId,
+    count: rows.length,
+    items: rows,
+  };
+};
+
 exports.listCategories = async () => {
   const [rows] = await db.query(
     `

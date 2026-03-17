@@ -7,6 +7,7 @@ import { Mousewheel } from "swiper/modules";
 import "swiper/css";
 import "swiper/css/mousewheel";
 
+import NoticeModal from "../components/NoticeModal";
 import { fetchNews } from "../api/newsApi";
 import {
   getArchiveItemKey,
@@ -648,6 +649,7 @@ export default function MainPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
   const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
 
   const [page, setPage] = useState(1);
@@ -1118,7 +1120,7 @@ export default function MainPage() {
         : article;
     const normalized = rememberArticleDetail(merged);
     if (!normalized) {
-      alert("기사 정보를 확인할 수 없습니다.");
+      setNoticeModal({ open: true, message: "기사 정보를 확인할 수 없습니다." });
       return;
     }
 
@@ -1411,6 +1413,12 @@ export default function MainPage() {
           </div>
         </aside>
       </div>
+
+      <NoticeModal
+        open={noticeModal.open}
+        message={noticeModal.message}
+        onClose={() => setNoticeModal({ open: false, message: "" })}
+      />
     </div>
   );
 }

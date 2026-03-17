@@ -1441,6 +1441,13 @@ body {
   flex-wrap: wrap;
 }
 
+.report-card-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .report-date {
   font-size: 13px;
   color: #9ca3af;
@@ -1480,6 +1487,28 @@ body {
   font-weight: 700;
 }
 
+.report-delete {
+  border: 1px solid #f1b3b3;
+  background: #fff5f5;
+  color: #c81e1e;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.report-delete:hover {
+  border-color: #e59aa0;
+  background: #ffe7e7;
+}
+
+.report-delete:focus-visible {
+  outline: 2px solid #fca5a5;
+  outline-offset: 2px;
+}
+
 .report-status {
   font-size: 12px;
   font-weight: 800;
@@ -1507,6 +1536,10 @@ body {
 
 .report-detail-top {
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .report-back {
@@ -2785,11 +2818,28 @@ body {
   cursor: pointer;
 }
 
+.archive-sort button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .archive-sort button.active {
   background: #eff7ff;
   border-color: #cfe4ff;
   color: #1d4ed8;
   font-weight: 700;
+}
+
+.archive-sort .archive-clear {
+  border-color: #f1b3b3;
+  background: #fff5f5;
+  color: #c81e1e;
+  font-weight: 700;
+}
+
+.archive-sort .archive-clear:not(:disabled):hover {
+  border-color: #e59aa0;
+  background: #ffe7e7;
 }
 
 .archive-list {
@@ -2813,6 +2863,42 @@ body {
   gap: 12px;
   margin-bottom: 8px;
   font-size: 13px;
+}
+
+.archive-item-head-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.archive-item-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.archive-item-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2b4cff;
+  cursor: pointer;
+  margin: 0;
+}
+
+.archive-item-check:hover {
+  border-color: #b9d1ff;
+  background: #eef2ff;
+}
+
+.archive-item-check input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .archive-item-cat {

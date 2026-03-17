@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import SideMenuCard from "../../components/SideMenuCard";
-import { removeArchiveItem } from "../../utils/archiveStorage";
-import { removeRecentItem } from "../../utils/recentStorage";
+import ConfirmModal from "../../components/ConfirmModal";
+import {
+  clearArchiveItems,
+  getArchiveItemKey,
+  removeArchiveItem,
+  removeArchiveItemsByKeys,
+} from "../../utils/archiveStorage";
+import { clearRecentItems, removeRecentItem, removeRecentItemsByKeys } from "../../utils/recentStorage";
 
 // ✅ (있으면) 아카이브 컨텍스트 사용
 // 없으면 아래 try/catch fallback으로 localStorage에서 읽도록 처리함
@@ -96,6 +102,10 @@ export default function ArchivePage() {
 
   const [savedItems, setSavedItems] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
+  const confirmActionRef = useRef(null);
+  const [confirmModal, setConfirmModal] = useState({ open: false, message: "" });
+  const [selectedSavedKeys, setSelectedSavedKeys] = useState(new Set());
+  const [selectedRecentKeys, setSelectedRecentKeys] = useState(new Set());
 
   // ✅ 로딩/에러
   const [loading, setLoading] = useState(false);
@@ -103,7 +113,7 @@ export default function ArchivePage() {
 
   // ✅ 페이지네이션
   const [page, setPage] = useState(1);
-  const size = 50;
+  const size = 8;
 
   // ✅ 관심 키워드 버튼: 숫자는 렌더 시 실제 기사 개수로 계산한다.
   const keywordItems = [
@@ -218,11 +228,29 @@ export default function ArchivePage() {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    const keySet = new Set(savedItems.map(getArchiveItemKey).filter(Boolean));
+    setSelectedSavedKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter((key) => keySet.has(key)));
+      return next;
+    });
+  }, [savedItems]);
+
+  useEffect(() => {
+    const keySet = new Set(recentItems.map(getArchiveItemKey).filter(Boolean));
+    setSelectedRecentKeys((prev) => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter((key) => keySet.has(key)));
+      return next;
+    });
+  }, [recentItems]);
+
   // ✅ 탭별 목록 선택
   const listItems = activeTab === "saved" ? savedItems : recentItems;
 
   // ✅ 검색/정렬 + 페이지 처리
-  const filtered = useMemo(() => {
+  const filteredResult = useMemo(() => {
     const q = query.trim().toLowerCase();
 
     const items = (listItems || []).filter((item) => {
@@ -233,16 +261,44 @@ export default function ArchivePage() {
       );
     });
 
+    const toTimestamp = (value) => {
+      if (!value) return 0;
+      const time = new Date(value).getTime();
+      return Number.isNaN(time) ? 0 : time;
+    };
+
+    const getSortValue = (item) =>
+      toTimestamp(
+        item?.date ||
+          item?.saved_at ||
+          item?.raw?.saved_at ||
+          item?.raw?.viewed_at ||
+          item?.raw?.published_at ||
+          item?.raw?.created_at ||
+          item?.published_at ||
+          item?.created_at
+      );
+
     const sorted =
       sort === "oldest"
-        ? [...items].sort((a, b) => String(a.date).localeCompare(String(b.date)))
-        : [...items].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+        ? [...items].sort((a, b) => getSortValue(a) - getSortValue(b))
+        : [...items].sort((a, b) => getSortValue(b) - getSortValue(a));
 
     // ✅ 간단한 프론트 페이지네이션(slice)
     const start = (page - 1) * size;
     const end = start + size;
-    return sorted.slice(start, end);
+    return { items: sorted.slice(start, end), total: sorted.length };
   }, [listItems, query, sort, page, size]);
+
+  const filtered = filteredResult.items;
+  const totalPages = useMemo(
+    () => Math.max(1, Math.ceil(filteredResult.total / size)),
+    [filteredResult.total, size]
+  );
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
 
   // ✅ keywords 탭도 동일한 검색/정렬 규칙을 적용해 최신순/오래된순을 반영한다.
   const keywordFiltered = (() => {
@@ -276,11 +332,84 @@ export default function ArchivePage() {
     setSavedItems(result.items.map(mapAnyToArchiveItem));
   };
 
+  const toggleSavedSelection = (item) => {
+    const key = getArchiveItemKey(item);
+    if (!key) return;
+    setSelectedSavedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedSaved = () => {
+    if (selectedSavedKeys.size === 0) return;
+    const count = selectedSavedKeys.size;
+    confirmActionRef.current = () => {
+      const result = removeArchiveItemsByKeys([...selectedSavedKeys]);
+      setSavedItems(result.items.map(mapAnyToArchiveItem));
+    };
+    setConfirmModal({ open: true, message: `선택한 기사 ${count}개를 삭제할까요?` });
+  };
+
+  const handleClearSaved = () => {
+    if (savedItems.length === 0) return;
+    confirmActionRef.current = () => {
+      clearArchiveItems();
+      setSavedItems([]);
+      setPage(1);
+    };
+    setConfirmModal({ open: true, message: "저장한 기사 전체를 삭제할까요?" });
+  };
+
   const handleRemoveRecent = (event, item) => {
     event.preventDefault();
     event.stopPropagation();
     const result = removeRecentItem(item);
     setRecentItems(result.items.map(mapAnyToArchiveItem));
+  };
+
+  const toggleRecentSelection = (item) => {
+    const key = getArchiveItemKey(item);
+    if (!key) return;
+    setSelectedRecentKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleDeleteSelectedRecent = () => {
+    if (selectedRecentKeys.size === 0) return;
+    const count = selectedRecentKeys.size;
+    confirmActionRef.current = () => {
+      const result = removeRecentItemsByKeys([...selectedRecentKeys]);
+      setRecentItems(result.items.map(mapAnyToArchiveItem));
+    };
+    setConfirmModal({ open: true, message: `선택한 기사 ${count}개를 삭제할까요?` });
+  };
+
+  const handleClearRecent = () => {
+    if (recentItems.length === 0) return;
+    confirmActionRef.current = () => {
+      clearRecentItems();
+      setRecentItems([]);
+      setPage(1);
+    };
+    setConfirmModal({ open: true, message: "최근 본 기사 전체를 삭제할까요?" });
+  };
+
+  const closeConfirmModal = () => {
+    confirmActionRef.current = null;
+    setConfirmModal({ open: false, message: "" });
+  };
+
+  const handleConfirmModal = () => {
+    const action = confirmActionRef.current;
+    closeConfirmModal();
+    if (action) action();
   };
 
   // ✅ 상세 데이터가 있는 카드만 모달을 열어 3번(비활성 처리) 기준을 지킨다.
@@ -388,6 +517,94 @@ export default function ArchivePage() {
               >
                 오래된순
               </motion.button>
+              {activeTab === "saved" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleDeleteSelectedSaved}
+                  disabled={loading || selectedSavedKeys.size === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  선택삭제
+                </motion.button>
+              )}
+              {activeTab === "saved" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleClearSaved}
+                  disabled={loading || savedItems.length === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  모두삭제
+                </motion.button>
+              )}
+              {activeTab === "recent" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleDeleteSelectedRecent}
+                  disabled={loading || selectedRecentKeys.size === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  선택삭제
+                </motion.button>
+              )}
+              {activeTab === "recent" && (
+                <motion.button
+                  type="button"
+                  className="archive-clear"
+                  onClick={handleClearRecent}
+                  disabled={loading || recentItems.length === 0}
+                  whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
+                  whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
+                  transition={
+                    reduceMotion
+                      ? undefined
+                      : {
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
+                  }
+                >
+                  모두삭제
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -403,47 +620,82 @@ export default function ArchivePage() {
 
               {!loading &&
                 !error &&
-                filtered.map((item) => (
-                  <article
-                    key={item.id}
-                    className="archive-item"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openItem(item)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") openItem(item);
-                    }}
-                  >
-                    <div className="archive-item-head">
-                      <span className="archive-item-cat">{item.category}</span>
-                      <div className="archive-item-actions">
-                        <span className="archive-item-date">{item.date}</span>
-                        {activeTab === "saved" && (
-                          <button
-                            type="button"
-                            className="archive-item-remove"
-                            onClick={(event) => handleRemoveSaved(event, item)}
-                            aria-label="저장된 기사 삭제"
+                filtered.map((item) => {
+                  const itemKey = getArchiveItemKey(item);
+                  const isSelected =
+                    activeTab === "saved"
+                      ? selectedSavedKeys.has(itemKey)
+                      : selectedRecentKeys.has(itemKey);
+                  const toggleSelection =
+                    activeTab === "saved" ? toggleSavedSelection : toggleRecentSelection;
+
+                  const handleOpen = (event) => {
+                    if (event.defaultPrevented) return;
+                    const target = event.target;
+                    if (target && typeof target.closest === "function") {
+                      if (target.closest(".archive-item-check")) return;
+                    }
+                    openItem(item);
+                  };
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="archive-item"
+                      role="button"
+                      tabIndex={0}
+                      onClick={handleOpen}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") openItem(item);
+                      }}
+                    >
+                      <div className="archive-item-head">
+                        <div className="archive-item-head-left">
+                          <label
+                            className="archive-item-check"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleSelection(item);
+                            }}
                           >
-                            삭제
-                          </button>
-                        )}
-                        {activeTab === "recent" && (
-                          <button
-                            type="button"
-                            className="archive-item-remove"
-                            onClick={(event) => handleRemoveRecent(event, item)}
-                            aria-label="최근 본 기사 삭제"
-                          >
-                            삭제
-                          </button>
-                        )}
+                            <input
+                              type="checkbox"
+                              checked={Boolean(itemKey && isSelected)}
+                              disabled={!itemKey}
+                              readOnly
+                            />
+                          </label>
+                          <span className="archive-item-cat">{item.category}</span>
+                        </div>
+                        <div className="archive-item-actions">
+                          <span className="archive-item-date">{item.date}</span>
+                          {activeTab === "saved" && (
+                            <button
+                              type="button"
+                              className="archive-item-remove"
+                              onClick={(event) => handleRemoveSaved(event, item)}
+                              aria-label="저장된 기사 삭제"
+                            >
+                              삭제
+                            </button>
+                          )}
+                          {activeTab === "recent" && (
+                            <button
+                              type="button"
+                              className="archive-item-remove"
+                              onClick={(event) => handleRemoveRecent(event, item)}
+                              aria-label="최근 본 기사 삭제"
+                            >
+                              삭제
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="archive-item-title">{item.title}</div>
-                    <div className="archive-item-summary">{item.summary}</div>
-                  </article>
-                ))}
+                      <div className="archive-item-title">{item.title}</div>
+                      <div className="archive-item-summary">{item.summary}</div>
+                    </article>
+                  );
+                })}
 
               {!loading && !error && filtered.length === 0 && (
                 <div className="archive-empty">
@@ -464,7 +716,7 @@ export default function ArchivePage() {
                 <button
                   type="button"
                   className="mp-btn"
-                  disabled={loading}
+                  disabled={loading || page >= totalPages}
                   onClick={() => setPage((p) => p + 1)}
                 >
                   다음
@@ -620,6 +872,13 @@ export default function ArchivePage() {
           </section>
         </div>
       )}
+
+      <ConfirmModal
+        open={confirmModal.open}
+        message={confirmModal.message}
+        onClose={closeConfirmModal}
+        onConfirm={handleConfirmModal}
+      />
     </div>
   );
 }

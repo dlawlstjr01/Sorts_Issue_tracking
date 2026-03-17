@@ -71,6 +71,125 @@ function isNumericArticleId(value) {
   return /^\d+$/.test(String(value || "").trim());
 }
 
+const CATEGORY_LABELS = {
+  politics: "정치",
+  economy: "경제",
+  society: "사회",
+  world: "국제",
+  it: "IT/과학",
+  culture: "문화",
+  sports: "스포츠",
+};
+
+const CATEGORY_RULES = {
+  politics: ["국회", "대통령", "총리", "정당", "선거", "공천", "탄핵", "외교", "정부", "장관", "의원", "정책", "국정"],
+  economy: [
+    "금리",
+    "물가",
+    "환율",
+    "주가",
+    "증시",
+    "코스피",
+    "코스닥",
+    "비트코인",
+    "가상자산",
+    "부동산",
+    "경제",
+    "경기",
+    "실적",
+    "매출",
+    "영업이익",
+    "투자",
+    "수출",
+    "수입",
+    "고용",
+    "실업",
+    "인플레이션",
+  ],
+  society: [
+    "사건",
+    "사고",
+    "범죄",
+    "경찰",
+    "검찰",
+    "법원",
+    "재판",
+    "구속",
+    "화재",
+    "붕괴",
+    "실종",
+    "폭행",
+    "사망",
+    "노동",
+    "파업",
+    "교육",
+    "학교",
+    "복지",
+    "의료",
+    "질병",
+  ],
+  world: ["미국", "중국", "일본", "러시아", "우크라이나", "유럽", "EU", "UN", "이스라엘", "가자", "중동", "나토", "해외", "국제", "외신", "정상회담", "관세"],
+  it: [
+    "AI",
+    "인공지능",
+    "챗GPT",
+    "오픈AI",
+    "구글",
+    "애플",
+    "메타",
+    "MS",
+    "마이크로소프트",
+    "엔비디아",
+    "반도체",
+    "스마트폰",
+    "보안",
+    "해킹",
+    "클라우드",
+    "데이터",
+    "서버",
+    "알고리즘",
+    "로봇",
+    "과학",
+    "우주",
+  ],
+  culture: ["영화", "드라마", "OTT", "넷플릭스", "디즈니", "음악", "가수", "아이돌", "공연", "전시", "미술", "문학", "문화", "축제", "패션", "연예", "방송"],
+  sports: ["축구", "야구", "농구", "배구", "골프", "테니스", "UFC", "EPL", "K리그", "MLB", "NBA", "KBO", "올림픽", "월드컵", "선수", "감독", "경기", "득점"],
+};
+
+function normalizeText(s) {
+  return String(s || "").toLowerCase();
+}
+
+function inferCategoryFromNews(n) {
+  const text = normalizeText(
+    [n?.title, n?.description, n?.summary, n?.content, n?.body, n?.pressName, n?.press_name]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  if (!text) return "society";
+
+  let bestKey = "society";
+  let bestScore = 0;
+
+  for (const [key, keywords] of Object.entries(CATEGORY_RULES)) {
+    let score = 0;
+    for (const kw of keywords) {
+      if (text.includes(String(kw).toLowerCase())) score += 1;
+    }
+    if (score > bestScore) {
+      bestKey = key;
+      bestScore = score;
+    }
+  }
+
+  return bestScore > 0 ? bestKey : "society";
+}
+
+function getCategoryLabel(key) {
+  return CATEGORY_LABELS[key] || "기타";
+}
+
 export default function ArticleDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -316,7 +435,26 @@ export default function ArticleDetailPage() {
   }, []);
 
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
+
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
+
+  const displayCategory = useMemo(() => {
+    if (!article) return "society";
+
+    const rawCategory = String(article.category || "").trim().toLowerCase();
+
+    if (
+      rawCategory &&
+      rawCategory !== "기타" &&
+      rawCategory !== "etc" &&
+      rawCategory !== "all"
+    ) {
+      return rawCategory;
+    }
+
+    return inferCategoryFromNews(article);
+  }, [article]);
+
   const backTarget = useMemo(
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
@@ -418,7 +556,7 @@ export default function ArticleDetailPage() {
         <>
           <section className="article-detail-hero">
             <div className="article-detail-meta">
-              <span className="badge">{article.category || "기타"}</span>
+              <span className="badge">{getCategoryLabel(displayCategory)}</span>
               {article.pressName && (
                 <span className="article-detail-press">{article.pressName}</span>
               )}

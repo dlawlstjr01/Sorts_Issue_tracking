@@ -2,10 +2,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import "../CSS/main.css";
 import axios from "axios";
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Mousewheel } from "swiper/modules";
-import "swiper/css";
-import "swiper/css/mousewheel";
 import { getNewsById } from "../api/newsApi";
 
 import { rememberArticleDetail } from "../utils/articleDetail";
@@ -554,11 +550,13 @@ export default function MainPage() {
   const [articleListMode, setArticleListMode] = useState("daily");
   const [activeIssueArticleId, setActiveIssueArticleId] = useState(null);
   const [issueArticleDetails, setIssueArticleDetails] = useState({});
-  const swiperRef = useRef(null);
   const [recoLoading, setRecoLoading] = useState(false);
+  const articleScrollRef = useRef(null);
   const [recoReady, setRecoReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState(null);
 
   const [userId, setUserId] = useState(null);
   const [trackRelated, setTrackRelated] = useState([]);
@@ -691,8 +689,8 @@ export default function MainPage() {
       selectedCategory === "all"
         ? articles
         : articles.filter(
-            (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
-          );
+          (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
+        );
 
     const sorted = [...source].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
@@ -915,17 +913,8 @@ export default function MainPage() {
 
     if (!exists) {
       setSelectedId(String(displayedArticles[0].id));
-      if (swiperRef.current) swiperRef.current.slideTo(0, 0);
     }
   }, [displayedArticles, selectedCategory, articleListMode, selectedId]);
-
-  useEffect(() => {
-    if (!swiperRef.current) return;
-    const idx = displayedArticles.findIndex((a) => String(a.id) === String(selectedId));
-    if (idx >= 0 && swiperRef.current.activeIndex !== idx) {
-      swiperRef.current.slideTo(idx, 0);
-    }
-  }, [displayedArticles, selectedId]);
 
   const openOriginal = (article) => {
     const source = article?.raw || article;
@@ -942,6 +931,92 @@ export default function MainPage() {
         from: `${location.pathname}${location.search}`,
       },
     });
+  };
+
+  useEffect(() => {
+    if (!window.Kakao) return;
+    if (!window.Kakao.isInitialized()) {
+      window.Kakao.init(import.meta.env.VITE_KAKAO_JS_KEY);
+    }
+  }, []);
+
+  const openShareModal = (article) => {
+    const target = article?.raw ? article : article?.raw || article;
+    setShareTarget(target);
+    setShareOpen(true);
+  };
+
+  const closeShareModal = () => {
+    setShareOpen(false);
+    setShareTarget(null);
+  };
+
+  const buildShareData = (article) => {
+    const source = article?.raw || article || {};
+    const title = source.title || "기사 공유";
+    const description =
+      source.short_summary ||
+      source.ultra_short ||
+      source.summary ||
+      "기사를 확인해보세요.";
+    const url = source.url || window.location.href;
+    const imageUrl =
+      source.thumbnail ||
+      activeIssueArticle?.thumbnailUrl ||
+      selectedArticle?.thumbnailUrl ||
+      "";
+
+    return { title, description, url, imageUrl };
+  };
+
+  const shareToKakao = () => {
+    const { title, description, url, imageUrl } = buildShareData(shareTarget);
+
+    if (!window.Kakao || !window.Kakao.isInitialized()) {
+      alert("카카오 공유 설정이 아직 완료되지 않았습니다.");
+      return;
+    }
+
+    window.Kakao.Share.sendDefault({
+      objectType: "feed",
+      content: {
+        title,
+        description,
+        imageUrl,
+        link: {
+          mobileWebUrl: url,
+          webUrl: url,
+        },
+      },
+      buttons: [
+        {
+          title: "기사 보기",
+          link: {
+            mobileWebUrl: url,
+            webUrl: url,
+          },
+        },
+      ],
+    });
+  };
+
+  const shareToEmail = () => {
+    const { title, description, url } = buildShareData(shareTarget);
+    const subject = encodeURIComponent(`[기사 공유] ${title}`);
+    const body = encodeURIComponent(`${description}\n\n${url}`);
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+
+  const copyShareLink = async () => {
+    const { url } = buildShareData(shareTarget);
+
+    try {
+      await navigator.clipboard.writeText(url);
+      alert("링크가 복사되었습니다.");
+    } catch (e) {
+      console.error(e);
+      alert("링크 복사에 실패했습니다.");
+    }
   };
 
   return (
@@ -1027,28 +1102,66 @@ export default function MainPage() {
               {loading ? "불러오는 중..." : "표시할 기사가 없습니다."}
             </div>
           ) : (
-            <Swiper
-              key={`${selectedCategory}-${articleListMode}`}
-              direction="vertical"
-              slidesPerView={1}
-              mousewheel={{ forceToAxis: true, releaseOnEdges: false }}
-              speed={600}
-              modules={[Mousewheel]}
-              onSwiper={(s) => {
-                swiperRef.current = s;
-              }}
-              onSlideChange={(s) => {
-                const next = displayedArticles[s.activeIndex];
-                if (next) setSelectedId(String(next.id));
-              }}
-              className="mp-center-swiper"
-            >
-              {displayedIssueArticles.map((article) => (
-                <SwiperSlide key={article.id}>
-                  <div className="mp-center-inner">
+            <div className="mp-center-scroll" ref={articleScrollRef}>
+              {displayedIssueArticles.map((article) => {
+                const isSelected = String(article.id) === String(selectedId);
+
+                const currentIssue =
+                  latestIssues.find(
+                    (it) => String(it.articleId) === String(article.id)
+                  ) || null;
+
+                const currentIssueGroup = Array.isArray(currentIssue?.related_articles)
+                  ? currentIssue.related_articles.map((item, idx) => {
+                    const articleId = String(item.article_id ?? item.id ?? "");
+
+                    const category =
+                      normalizeCategoryKey(item.category) ||
+                      inferCategoryFromNews({
+                        title: item.title || "",
+                        summary: item.ultra_short || "",
+                        description: item.short_summary || "",
+                        content: item.content || "",
+                      }) ||
+                      currentIssue?.category ||
+                      "society";
+
+                    const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
+
+                    return {
+                      id: articleId || String(idx),
+                      articleId,
+                      category,
+                      title: item.title || "(제목 없음)",
+                      thumbnailUrl: resolveThumbnailUrl(
+                        item.thumbnail,
+                        fallbackThumb
+                      ),
+                      ultraShort: item.ultra_short || "",
+                      shortSummary: item.short_summary || "",
+                      url: item.url || "",
+                      content: item.content || "",
+                      raw: {
+                        ...item,
+                        id: articleId,
+                      },
+                    };
+                  })
+                  : [];
+
+                return (
+                  <section
+                    key={article.id}
+                    className={`mp-center-inner ${isSelected ? "active" : ""}`}
+                    onMouseEnter={() => setSelectedId(String(article.id))}
+                  >
                     <div className="mp-head">
                       <h1 className="mp-title">
-                        {activeIssueArticle?.title || selectedIssue?.title || article.title}
+                        {isSelected
+                          ? activeIssueArticle?.title ||
+                          currentIssue?.title ||
+                          article.title
+                          : article.title}
                       </h1>
                       <Badge type={article.badge} />
                     </div>
@@ -1056,7 +1169,11 @@ export default function MainPage() {
                     <div className="mp-thumb-wrap">
                       <img
                         className="mp-thumb"
-                        src={activeIssueArticle?.thumbnailUrl || article.thumbnailUrl}
+                        src={
+                          isSelected
+                            ? activeIssueArticle?.thumbnailUrl || article.thumbnailUrl
+                            : article.thumbnailUrl
+                        }
                         alt="article thumbnail"
                         loading="lazy"
                         onError={withImageFallback}
@@ -1069,56 +1186,132 @@ export default function MainPage() {
 
                       <div className="mp-summary-lines">
                         <p className="mp-summary-line">
-                          {activeIssueArticle?.shortSummary ||
+                          {isSelected
+                            ? activeIssueArticle?.shortSummary ||
                             activeIssueArticle?.ultraShort ||
-                            selectedIssue?.shortSummary ||
-                            "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요."}
+                            currentIssue?.shortSummary ||
+                            "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요."
+                            : article.summary?.[0] || "요약 정보가 없습니다."}
                         </p>
                       </div>
 
                       <div className="mp-actions">
                         <button
-                          className="mp-btn"
+                          className="mp-btn primary"
                           type="button"
-                          onClick={() => onSaveArticle(activeIssueArticle || article)}
+                          onClick={() =>
+                            onSaveArticle(
+                              isSelected ? activeIssueArticle || article : article
+                            )
+                          }
                         >
                           저장
                         </button>
 
-                        <button className="mp-btn" type="button">
+                        <button
+                          className="mp-btn primary"
+                          type="button"
+                          onClick={() =>
+                            openShareModal(
+                              isSelected ? activeIssueArticle || article : article
+                            )
+                          }
+                        >
                           공유
                         </button>
                       </div>
+
+                      {shareOpen && (
+                        <div className="mp-share-overlay" onClick={closeShareModal}>
+                          <div
+                            className="mp-share-modal"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="mp-share-header">
+                              <h3>공유</h3>
+                              <button
+                                type="button"
+                                className="mp-share-close"
+                                onClick={closeShareModal}
+                              >
+                                ×
+                              </button>
+                            </div>
+
+                            <div className="mp-share-actions">
+                              <button
+                                type="button"
+                                className="mp-share-icon-btn kakao"
+                                onClick={shareToKakao}
+                              >
+                                <span className="mp-share-icon">톡</span>
+                                <span>카카오톡</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                className="mp-share-icon-btn email"
+                                onClick={shareToEmail}
+                              >
+                                <span className="mp-share-icon">✉</span>
+                                <span>이메일</span>
+                              </button>
+                            </div>
+
+                            <div className="mp-share-link-box">
+                              <input
+                                type="text"
+                                readOnly
+                                value={shareTarget ? buildShareData(shareTarget).url : ""}
+                                className="mp-share-link-input"
+                              />
+                              <button
+                                type="button"
+                                className="mp-share-copy-btn"
+                                onClick={copyShareLink}
+                              >
+                                복사
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </section>
 
-                    <LatestIssuesCarousel
-                      items={selectedIssueGroup}
-                      count={selectedIssueGroup.length}
-                      activeArticleId={activeIssueArticleId}
-                      onItemClick={async (issue) => {
-                        const nextId = String(issue.articleId || issue.id || "").trim();
-                        if (!nextId) return;
+                    {isSelected && (
+                      <LatestIssuesCarousel
+                        items={currentIssueGroup}
+                        count={currentIssueGroup.length}
+                        activeArticleId={activeIssueArticleId}
+                        onItemClick={async (issue) => {
+                          const nextId = String(
+                            issue.articleId || issue.id || ""
+                          ).trim();
+                          if (!nextId) return;
 
-                        let targetArticle = issue?.raw || issue;
+                          let targetArticle = issue?.raw || issue;
 
-                        const hasEnoughData =
-                          targetArticle &&
-                          (targetArticle.url || targetArticle.content || targetArticle.title);
+                          const hasEnoughData =
+                            targetArticle &&
+                            (targetArticle.url ||
+                              targetArticle.content ||
+                              targetArticle.title);
 
-                        if (!hasEnoughData) {
-                          const detail = await fetchArticleDetailById(nextId);
-                          if (detail) {
-                            targetArticle = detail;
+                          if (!hasEnoughData) {
+                            const detail = await fetchArticleDetailById(nextId);
+                            if (detail) {
+                              targetArticle = detail;
+                            }
                           }
-                        }
 
-                        openOriginal(targetArticle);
-                      }}
-                    />
-                  </div>
-                </SwiperSlide>
-              ))}
-            </Swiper>
+                          openOriginal(targetArticle);
+                        }}
+                      />
+                    )}
+                  </section>
+                );
+              })}
+            </div>
           )}
         </main>
 

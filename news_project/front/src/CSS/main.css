@@ -257,23 +257,23 @@
   overflow: hidden;
 }
 
-.mp-center-swiper {
-  height: 100%;
-}
-
-.mp-center-swiper .swiper-wrapper {
-  height: 100%;
-}
-
-.mp-center-swiper .swiper-slide {
-  height: 100%;
-}
-
 .mp-center-inner {
   height: 100%;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.mp-center-scroll {
+  height: 100%;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  padding-right: 6px;
+}
+
+.mp-center-inner {
+  min-height: 100vh;
+  scroll-snap-align: start;
 }
 
 .mp-head {
@@ -448,28 +448,39 @@
   border: 1px solid #e6ebf2;
   background: #fff;
   color: #111827;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
   font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
-  transition: transform 0.06s ease, background 0.15s ease, border 0.15s ease;
+  transition: all 0.15s ease;
 }
 
+/* 기본 hover (흰 버튼) */
 .mp-btn:hover {
   transform: translateY(-1px);
   background: #f7f9fc;
   border-color: #d7e3ff;
 }
 
+/* 메인 버튼 (파란색) */
 .mp-btn.primary {
-  background: #2b4cff;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: #fff;
-  border-color: #2b4cff;
+  border: none;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
+/* 메인 버튼 hover */
 .mp-btn.primary:hover {
-  background: #2443e6;
-  border-color: #2443e6;
+  background: linear-gradient(135deg, #1e40af, #1d4ed8);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+
+/* 클릭 느낌 */
+.mp-btn:active {
+  transform: scale(0.97);
 }
 
 /* RIGHT */
@@ -575,6 +586,134 @@
   .mp-center {
     order: 1;
   }
+}
+
+.mp-share-overlay {
+  position: fixed;
+  inset: 0;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.mp-share-modal {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: none; /* ← 이게 핵심 */
+}
+
+.mp-share-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.mp-share-header h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #111827;
+  font-weight: 700;
+}
+
+.mp-share-close {
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+}
+
+.mp-share-actions {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.mp-share-icon-btn {
+  flex: 1;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 16px;
+  padding: 16px 10px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  transition: all 0.15s ease;
+}
+
+.mp-share-icon-btn:hover {
+  transform: translateY(-1px);
+  border-color: #c7d2fe;
+  background: #f8fbff;
+}
+
+.mp-share-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.mp-share-icon-btn.kakao .mp-share-icon {
+  background: #fee500;
+  color: #191919;
+}
+
+.mp-share-icon-btn.email .mp-share-icon {
+  background: #2563eb;
+  color: #fff;
+}
+
+.mp-share-link-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 8px;
+}
+
+.mp-share-link-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 14px;
+  color: #111827;
+}
+
+.mp-share-copy-btn {
+  border: none;
+  background: #2563eb;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mp-share-copy-btn:hover {
+  background: #1d4ed8;
 }
 
 /* ===== Header Logo ===== */

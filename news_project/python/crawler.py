@@ -6,7 +6,7 @@ import time
 import random
 import threading
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from contextlib import asynccontextmanager
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse
@@ -16,6 +16,11 @@ import pymysql
 from fastapi import FastAPI
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+try:
+    import tldextract
+except ImportError:
+    tldextract = None
 
 # -----------------------------
 # Config
@@ -33,28 +38,31 @@ MAX_URL_LEN = int(os.getenv("MAX_URL_LEN", "500"))
 DB_LOCK_NAME = os.getenv("DB_LOCK_NAME", "news_project_crawler_lock")
 TRACKING_CSV_PATH = os.getenv("TRACKING_CSV_PATH", "/app/data/korea.csv")
 
-# GDELT RAW
 GDELT_MASTERFILE_URL = os.getenv(
     "GDELT_MASTERFILE_URL",
     "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt",
 ).strip()
 
-# 범위는 넓게
-GDELT_LOOKBACK_FILES = int(os.getenv("GDELT_LOOKBACK_FILES", "192"))   # 15분 단위 약 48시간
+GDELT_LOOKBACK_FILES = int(os.getenv("GDELT_LOOKBACK_FILES", "384"))
 GDELT_MAX_ITEMS_PER_RUN = int(os.getenv("GDELT_MAX_ITEMS_PER_RUN", "1000"))
 GDELT_DOWNLOAD_TIMEOUT_CONNECT = int(os.getenv("GDELT_DOWNLOAD_TIMEOUT_CONNECT", "10"))
 GDELT_DOWNLOAD_TIMEOUT_READ = int(os.getenv("GDELT_DOWNLOAD_TIMEOUT_READ", "180"))
 
-# 기사 메타/본문 보강
 FETCH_ARTICLE_TEXT = os.getenv("FETCH_ARTICLE_TEXT", "true").strip().lower() in ("1", "true", "yes", "y")
 FETCH_ARTICLE_TEXT_MAXLEN = int(os.getenv("FETCH_ARTICLE_TEXT_MAXLEN", "8000"))
 ARTICLE_FETCH_WORKERS = int(os.getenv("ARTICLE_FETCH_WORKERS", "12"))
 
-# 한국 언론사 도메인 필터
 CRAWL_DOMAIN_ALLOWLIST = os.getenv("CRAWL_DOMAIN_ALLOWLIST", "").strip()
+MIN_CONTENT_LEN = int(os.getenv("MIN_CONTENT_LEN", "80"))
 
-# 최소 품질
-MIN_CONTENT_LEN = int(os.getenv("MIN_CONTENT_LEN", "120"))
+# 최근 며칠치만 저장할지 (오늘 포함 4일 = 오늘, 어제, 2일 전, 3일 전)
+RECENT_DAYS_INCLUDING_TODAY = int(os.getenv("RECENT_DAYS_INCLUDING_TODAY", "4"))
+
+# -----------------------------
+# Timezone
+# -----------------------------
+UTC = timezone.utc
+KST = timezone(timedelta(hours=9))
 
 # -----------------------------
 # Runtime state
@@ -72,12 +80,13 @@ _is_running = False
 
 _session = requests.Session()
 _session.headers.update({
-    "User-Agent": "news_project_crawler/1.0",
-    "Accept": "text/plain, application/json, application/xml, text/xml, */*",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+    "Accept": "text/plain, application/json, application/xml, text/xml, text/html, */*",
+    "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.7",
 })
 
 # -----------------------------
-# GKG column indexes (GDELT GKG 2.1)
+# GKG column indexes
 # -----------------------------
 IDX_GKGRECORDID = 0
 IDX_DATE = 1
@@ -134,33 +143,85 @@ def parse_dt(raw_dt):
     s = str(raw_dt).strip()
 
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
     except Exception:
         pass
 
     try:
         dt = parsedate_to_datetime(s)
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+            dt = dt.replace(tzinfo=UTC)
+        return dt.astimezone(UTC)
     except Exception:
         pass
 
     try:
         if re.fullmatch(r"\d{14}", s):
             dt = datetime.strptime(s, "%Y%m%d%H%M%S")
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
     except Exception:
         pass
 
     try:
         if re.fullmatch(r"\d{8}", s):
             dt = datetime.strptime(s, "%Y%m%d")
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=UTC)
     except Exception:
         pass
 
     return None
+
+
+def get_recent_window():
+    """
+    예: 오늘이 2026-03-17(KST)면
+    시작 = 2026-03-14 00:00:00 KST
+    끝   = 현재 시각 KST
+    """
+    now_kst = datetime.now(KST)
+    start_day = (now_kst - timedelta(days=max(RECENT_DAYS_INCLUDING_TODAY - 1, 0))).date()
+    start_kst = datetime.combine(start_day, datetime.min.time(), tzinfo=KST)
+    end_kst = now_kst
+    return start_kst, end_kst
+
+
+def is_recent_dt(raw_dt) -> bool:
+    dt = parse_dt(raw_dt)
+    if not dt:
+        return False
+
+    start_kst, end_kst = get_recent_window()
+    dt_kst = dt.astimezone(KST)
+    return start_kst <= dt_kst <= end_kst
+
+
+def parse_gkg_filename_dt(file_url: str):
+    """
+    GDELT 파일명 예:
+    http://data.gdeltproject.org/gdeltv2/20260309071500.gkg.csv.zip
+    """
+    try:
+        name = file_url.rsplit("/", 1)[-1]
+        m = re.match(r"^(\d{14})\.gkg\.csv\.zip$", name)
+        if not m:
+            return None
+        dt = datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+        return dt.replace(tzinfo=UTC)
+    except Exception:
+        return None
+
+
+def is_recent_gkg_file(file_url: str) -> bool:
+    file_dt = parse_gkg_filename_dt(file_url)
+    if not file_dt:
+        return False
+
+    start_kst, end_kst = get_recent_window()
+    file_kst = file_dt.astimezone(KST)
+    return start_kst <= file_kst <= end_kst
 
 
 def sleep_full_jitter(max_sec: float):
@@ -201,41 +262,56 @@ def release_db_lock():
             conn.close()
 
 
+def normalize_host(raw: str) -> str:
+    if not raw:
+        return ""
+
+    raw = str(raw).strip().lower()
+
+    if "://" not in raw:
+        raw = "http://" + raw
+
+    try:
+        parsed = urlparse(raw)
+        host = parsed.netloc or parsed.path
+    except Exception:
+        host = raw
+
+    host = host.strip().lower()
+    host = host.split("@")[-1]
+    host = host.split(":")[0]
+
+    if host.startswith("www."):
+        host = host[4:]
+
+    if tldextract:
+        try:
+            ext = tldextract.extract(host)
+            if ext.domain and ext.suffix:
+                return f"{ext.domain}.{ext.suffix}".lower()
+        except Exception:
+            pass
+
+    return host
+
+
 def get_domain(url: str) -> str:
     try:
-        netloc = urlparse(url).netloc.lower().strip()
-        if netloc.startswith("www."):
-            netloc = netloc[4:]
-        return netloc
+        if not url:
+            return ""
+        parsed = urlparse(url)
+        host = (parsed.netloc or "").lower().strip()
+        host = host.split("@")[-1]
+        host = host.split(":")[0]
+        if host.startswith("www."):
+            host = host[4:]
+        return host
     except Exception:
         return ""
 
 
-def is_blocked_domain(domain: str) -> bool:
-    if not domain:
-        return False
-
-    domain = domain.lower().strip()
-
-    blocked_exact = {
-        "world.kbs.co.kr",
-        "english.hani.co.kr",
-        "en.yna.co.kr",
-        "english.chosun.com",
-        "koreajoongangdaily.joins.com",
-    }
-
-    blocked_prefixes = (
-        "world.",
-        "english.",
-        "en.",
-        "global.",
-    )
-
-    if domain in blocked_exact:
-        return True
-
-    return domain.startswith(blocked_prefixes)
+def get_root_domain(value: str) -> str:
+    return normalize_host(value)
 
 
 def is_english_url(url: str) -> bool:
@@ -246,93 +322,88 @@ def is_english_url(url: str) -> bool:
 
     blocked_patterns = [
         "/english/",
-        "/world/",
+        "/english_edition/",
+        "/english-edition/",
         "/englishnews/",
-        "/worldnews/",
-        "lang=en",
-        "lang=e",
-        "locale=en",
-        "/eng/",
-        "/en/",
         "/english-news/",
+        "/eng/",
+        "lang=e",
+        "lang=en",
+        "locale=en",
+        "hl=en",
+        "/en/",
+        "/en-us/",
         "/global/",
     ]
-
     return any(p in u for p in blocked_patterns)
 
 
-def detect_korean_ratio(text: str) -> float:
+def clean_text(text: str) -> str:
     if not text:
-        return 0.0
-
+        return ""
     text = str(text)
-    hangul = re.findall(r"[가-힣]", text)
-    letters = re.findall(r"[A-Za-z가-힣]", text)
-
-    if not letters:
-        return 0.0
-
-    return len(hangul) / len(letters)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
-def has_enough_korean(text: str, min_ratio: float = 0.08, min_count: int = 10) -> bool:
+def count_hangul(text: str) -> int:
     if not text:
-        return False
-
-    hangul_count = len(re.findall(r"[가-힣]", str(text)))
-    ratio = detect_korean_ratio(text)
-    return hangul_count >= min_count and ratio >= min_ratio
+        return 0
+    return len(re.findall(r"[가-힣]", str(text)))
 
 
-def is_korean_page_meta(soup: BeautifulSoup) -> bool:
-    try:
-        html_tag = soup.find("html")
-        if html_tag:
-            lang = (html_tag.get("lang") or "").lower().strip()
-            if lang.startswith("ko"):
-                return True
-            if lang.startswith("en"):
-                return False
+def has_korean_article_signal(title: str, content: str) -> bool:
+    title = clean_text(title)
+    content = clean_text(content)
 
-        meta = soup.find("meta", attrs={"property": "og:locale"})
-        if meta and meta.get("content"):
-            locale = str(meta.get("content")).lower().strip()
-            if locale.startswith("ko"):
-                return True
-            if locale.startswith("en"):
-                return False
+    title_h = count_hangul(title)
+    content_h = count_hangul(content)
+    merged_h = count_hangul(f"{title} {content[:3000]}")
 
-        sample_texts = []
+    if title_h >= 1 and content_h >= 20:
+        return True
 
-        if soup.title and soup.title.string:
-            sample_texts.append(soup.title.string)
+    if content_h >= 50:
+        return True
 
-        h1 = soup.find("h1")
-        if h1:
-            sample_texts.append(h1.get_text(" ", strip=True))
+    if merged_h >= 40:
+        return True
 
-        body_text = soup.get_text(" ", strip=True)[:1500]
-        if body_text:
-            sample_texts.append(body_text)
-
-        merged = " ".join(sample_texts)
-        return has_enough_korean(merged, min_ratio=0.05, min_count=8)
-
-    except Exception:
-        return False
+    return False
 
 
 def domain_matches(domain: str, allow_domains: set[str]) -> bool:
+    """
+    allow_domains에 root domain이 들어있으면
+    news.kbs.co.kr / m.yna.co.kr 같은 서브도메인도 허용
+    """
     if not allow_domains:
         return True
     if not domain:
         return False
 
-    domain = domain.lower().strip()
-    for d in allow_domains:
-        d = d.lower().strip()
-        if domain == d or domain.endswith("." + d):
+    domain = str(domain).strip().lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+
+    # 영어판/글로벌판 서브도메인 차단
+    if domain.startswith(("world.", "english.", "en.", "global.")):
+        return False
+
+    root = get_root_domain(domain)
+
+    if domain in allow_domains:
+        return True
+    if root in allow_domains:
+        return True
+
+    for base in allow_domains:
+        base = str(base).strip().lower()
+        if not base:
+            continue
+        if domain == base or domain.endswith("." + base):
             return True
+
     return False
 
 
@@ -343,14 +414,14 @@ def extract_domain_from_text(value: str) -> str:
     value = str(value).strip()
 
     if value.startswith("http://") or value.startswith("https://"):
-        return get_domain(value)
+        return get_root_domain(value)
 
     value = value.lower().strip().strip("/")
     if value.startswith("www."):
         value = value[4:]
 
     if "." in value and " " not in value:
-        return value
+        return get_root_domain(value)
 
     return ""
 
@@ -365,9 +436,7 @@ def load_allowed_domains_from_csv(path: str) -> set[str]:
         with open(path, "r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
             fieldnames = [x.strip() for x in (reader.fieldnames or []) if x]
-            preferred_cols = [
-                "domain", "domains", "url", "site", "source", "press", "link", "homepage"
-            ]
+            preferred_cols = ["domain", "domains", "url", "site", "source", "press", "link", "homepage"]
 
             target_cols = [c for c in fieldnames if c.lower() in preferred_cols]
             if not target_cols:
@@ -414,7 +483,6 @@ def is_bad_thumb(img: str) -> bool:
         return True
 
     s = img.lower().strip()
-
     if "favicon" in s or "icon" in s:
         return True
     if "logo" in s and ("google" in s or "gstatic" in s):
@@ -486,7 +554,7 @@ def extract_page_image(soup: BeautifulSoup):
 
 
 def extract_page_text(soup: BeautifulSoup):
-    for tag in soup(["script", "style", "noscript", "iframe", "header", "footer", "aside"]):
+    for tag in soup(["script", "style", "noscript", "iframe", "header", "footer", "aside", "nav"]):
         tag.decompose()
 
     article = soup.find("article")
@@ -508,11 +576,11 @@ def extract_page_text(soup: BeautifulSoup):
         else:
             ps = soup.find_all("p")
             if ps:
-                text = " ".join(p.get_text(" ", strip=True) for p in ps[:50])
+                text = " ".join(p.get_text(" ", strip=True) for p in ps[:100])
             else:
                 text = soup.get_text(" ", strip=True)
 
-    text = re.sub(r"\s+", " ", text).strip()
+    text = clean_text(text)
     if not text:
         return None
 
@@ -522,46 +590,110 @@ def extract_page_text(soup: BeautifulSoup):
     return text
 
 
-def fetch_page_meta(url: str) -> dict:
+def fetch_page_meta(url: str, allow_domains: set[str]) -> dict:
     if not url:
-        return {"title": None, "thumbnail": None, "content": None, "is_korean": False}
+        return {
+            "title": None,
+            "thumbnail": None,
+            "content": None,
+            "is_korean": False,
+            "final_url": None,
+            "final_domain": None,
+        }
 
-    if url in _meta_cache:
-        return _meta_cache[url]
+    cache_key = f"{url}|{len(allow_domains)}"
+    if cache_key in _meta_cache:
+        return _meta_cache[cache_key]
 
-    result = {"title": None, "thumbnail": None, "content": None, "is_korean": False}
+    result = {
+        "title": None,
+        "thumbnail": None,
+        "content": None,
+        "is_korean": False,
+        "final_url": None,
+        "final_domain": None,
+    }
 
     try:
         r = _session.get(
             url,
-            timeout=(6, 15),
+            timeout=(6, 20),
             allow_redirects=True,
-            headers={"User-Agent": "Mozilla/5.0"},
+            headers={
+                "User-Agent": _session.headers["User-Agent"],
+                "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.6",
+            },
         )
+
         if r.status_code >= 400:
-            _meta_cache[url] = result
+            _meta_cache[cache_key] = result
             return result
 
-        soup = BeautifulSoup(r.text, "html.parser")
+        final_url = str(r.url or url).strip()
+        final_domain = get_domain(final_url)
 
-        result["title"] = extract_page_title(soup)
-        result["thumbnail"] = extract_page_image(soup)
+        if is_english_url(final_url):
+            _meta_cache[cache_key] = result
+            return result
 
-        if FETCH_ARTICLE_TEXT:
-            result["content"] = extract_page_text(soup)
+        if allow_domains and not domain_matches(final_domain, allow_domains):
+            _meta_cache[cache_key] = result
+            return result
 
-        joined = f"{result.get('title') or ''} {result.get('content') or ''}".strip()
-        result["is_korean"] = is_korean_page_meta(soup) or has_enough_korean(joined, min_ratio=0.05, min_count=8)
+        try:
+            apparent = (r.apparent_encoding or "").strip()
+        except Exception:
+            apparent = ""
 
-        # 한국어 아니면 최종 차단
-        if not result["is_korean"]:
-            result = {"title": None, "thumbnail": None, "content": None, "is_korean": False}
+        if apparent:
+            try:
+                r.encoding = apparent
+            except Exception:
+                pass
+        elif not r.encoding or r.encoding.lower() == "iso-8859-1":
+            r.encoding = "utf-8"
 
-        _meta_cache[url] = result
+        html = r.text or ""
+        if not html:
+            _meta_cache[cache_key] = result
+            return result
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        title = clean_text(extract_page_title(soup) or "")
+        thumbnail = extract_page_image(soup)
+        content = clean_text(extract_page_text(soup) or "") if FETCH_ARTICLE_TEXT else ""
+
+        if not has_korean_article_signal(title, content):
+            print(
+                "[crawler] non-korean fail",
+                {
+                    "url": final_url,
+                    "title_preview": title[:100],
+                    "title_hangul": count_hangul(title),
+                    "content_hangul": count_hangul(content),
+                    "content_preview": content[:150],
+                },
+                flush=True
+            )
+            _meta_cache[cache_key] = result
+            return result
+
+        result = {
+            "title": title if title else None,
+            "thumbnail": thumbnail,
+            "content": content if content else None,
+            "is_korean": True,
+            "final_url": final_url,
+            "final_domain": final_domain,
+        }
+
+        _meta_cache[cache_key] = result
         return result
 
-    except Exception:
-        _meta_cache[url] = result
+    except Exception as e:
+        print("[crawler] fetch_page_meta error:", repr(e), "url=", url, flush=True)
+        _meta_cache[cache_key] = result
         return result
 
 
@@ -573,7 +705,7 @@ def fetch_og_image(url: str):
         return _og_cache[url]
 
     try:
-        meta = fetch_page_meta(url)
+        meta = fetch_page_meta(url, get_allowed_domains())
         img = meta.get("thumbnail")
         if img and is_bad_thumb(img):
             img = None
@@ -586,7 +718,7 @@ def fetch_og_image(url: str):
 
 def chunked(lst, n: int):
     for i in range(0, len(lst), n):
-        yield lst[i:i+n]
+        yield lst[i:i + n]
 
 
 def fetch_existing_urls(urls: list[str]) -> set[str]:
@@ -605,7 +737,7 @@ def fetch_existing_urls(urls: list[str]) -> set[str]:
                     tuple(part),
                 )
                 for row in cur.fetchall():
-                    existing.add(row["url"])
+                    existing.add(normalize_url(row["url"]))
         return existing
     except Exception as e:
         print("[crawler] fetch_existing_urls db error:", repr(e), flush=True)
@@ -679,10 +811,11 @@ def extract_latest_gkg_file_urls(lines: list[str]) -> list[str]:
         low = url.lower()
 
         if low.endswith(".gkg.csv.zip") and "/gdeltv2/" in low:
-            file_urls.append(url)
+            if is_recent_gkg_file(url):
+                file_urls.append(url)
 
-    file_urls = file_urls[-GDELT_LOOKBACK_FILES:]
-    return file_urls
+    file_urls = sorted(set(file_urls))
+    return file_urls[-GDELT_LOOKBACK_FILES:]
 
 
 def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
@@ -702,15 +835,17 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
         print("[crawler] gkg zip request error:", repr(e), flush=True)
         return []
 
-    items = []
+    matched_items = []
     seen = set()
 
     total_rows = 0
     skipped_bad_url = 0
     skipped_english_url = 0
-    skipped_english_domain = 0
+    skipped_old_date = 0
     skipped_domain = 0
     duplicate_rows = 0
+
+    sample_unmatched_domains = []
 
     try:
         with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
@@ -749,17 +884,27 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
                         continue
                     seen.add(url)
 
+                    published_raw = cols[IDX_DATE] if len(cols) > IDX_DATE else None
+                    if not is_recent_dt(published_raw):
+                        skipped_old_date += 1
+                        continue
+
                     domain = get_domain(url)
 
-                    if is_blocked_domain(domain):
-                        skipped_english_domain += 1
+                    if "lang=e" in url.lower():
+                        skipped_english_url += 1
                         continue
 
-                    if not domain_matches(domain, allow_domains):
+                    if domain.startswith(("world.", "english.", "en.", "global.")):
+                        skipped_english_url += 1
+                        continue
+
+                    if allow_domains and not domain_matches(domain, allow_domains):
                         skipped_domain += 1
+                        if len(sample_unmatched_domains) < 20:
+                            sample_unmatched_domains.append(domain)
                         continue
 
-                    published_raw = cols[IDX_DATE] if len(cols) > IDX_DATE else None
                     source_common_name = cols[IDX_SOURCE_COMMON_NAME] if len(cols) > IDX_SOURCE_COMMON_NAME else ""
 
                     thumb = None
@@ -775,7 +920,7 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
                     if thumb and is_bad_thumb(thumb):
                         thumb = None
 
-                    items.append({
+                    matched_items.append({
                         "url": url,
                         "title": None,
                         "thumbnail": thumb,
@@ -786,7 +931,7 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
                         "domain": domain,
                     })
 
-                    if len(items) >= GDELT_MAX_ITEMS_PER_RUN:
+                    if len(matched_items) >= GDELT_MAX_ITEMS_PER_RUN:
                         break
 
     except Exception as e:
@@ -794,25 +939,31 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
         return []
 
     print(
-        f"[crawler] parsed items from zip={len(items)} total_rows={total_rows} "
+        f"[crawler] parsed items from zip={len(matched_items)} total_rows={total_rows} "
         f"skipped_bad_url={skipped_bad_url} skipped_english_url={skipped_english_url} "
-        f"skipped_english_domain={skipped_english_domain} skipped_domain={skipped_domain} "
+        f"skipped_old_date={skipped_old_date} skipped_domain={skipped_domain} "
         f"duplicate_rows={duplicate_rows}",
         flush=True
     )
-    return items
+
+    if sample_unmatched_domains:
+        print(f"[crawler] sample unmatched domains={sample_unmatched_domains}", flush=True)
+
+    return matched_items
 
 
-def enrich_items(raw_items: list[dict]) -> list[dict]:
+def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
     if not raw_items:
         return []
 
-    urls = [x["url"] for x in raw_items if x.get("url")]
+    urls = [normalize_url(x["url"]) for x in raw_items if x.get("url")]
     existing = fetch_existing_urls(urls)
 
-    targets = [x for x in raw_items if x["url"] not in existing]
-    print(f"[crawler] enrich targets={len(targets)} existing={len(existing)}", flush=True)
+    print(f"[crawler] raw candidate urls={urls}", flush=True)
+    print(f"[crawler] existing matched urls={[u for u in urls if u in existing]}", flush=True)
 
+    targets = [x for x in raw_items if normalize_url(x["url"]) not in existing]
+    print(f"[crawler] enrich targets={len(targets)} existing={len(existing)}", flush=True)
     if not targets:
         return []
 
@@ -821,14 +972,29 @@ def enrich_items(raw_items: list[dict]) -> list[dict]:
 
     skipped_no_title = 0
     skipped_non_korean = 0
+    skipped_short_content = 0
+    skipped_old_after_fetch = 0
+    skipped_existing_final_url = 0
+
+    final_existing_cache = set(existing)
+    batch_final_seen = set()
 
     with ThreadPoolExecutor(max_workers=max(1, ARTICLE_FETCH_WORKERS)) as ex:
         for item in targets:
-            futures[ex.submit(fetch_page_meta, item["url"])] = item
+            futures[ex.submit(fetch_page_meta, item["url"], allow_domains)] = item
 
         for fut in as_completed(futures):
             item = futures[fut]
-            meta = {"title": None, "thumbnail": None, "content": None, "is_korean": False}
+
+            meta = {
+                "title": None,
+                "thumbnail": None,
+                "content": None,
+                "is_korean": False,
+                "final_url": None,
+                "final_domain": None,
+            }
+
             try:
                 meta = fut.result()
             except Exception:
@@ -838,23 +1004,38 @@ def enrich_items(raw_items: list[dict]) -> list[dict]:
                 skipped_non_korean += 1
                 continue
 
-            title = (meta.get("title") or "").strip()
+            if not is_recent_dt(item.get("published_at")):
+                skipped_old_after_fetch += 1
+                continue
+
+            final_url = normalize_url(meta.get("final_url") or item["url"] or "")
+            title = clean_text(meta.get("title") or "")
+            content = clean_text(meta.get("content") or "")
+
+            if not final_url:
+                skipped_non_korean += 1
+                continue
+
+            if final_url in final_existing_cache or final_url in batch_final_seen:
+                skipped_existing_final_url += 1
+                continue
+
+            batch_final_seen.add(final_url)
+
             thumb = item.get("thumbnail")
             if (not thumb) or is_bad_thumb(thumb):
-                thumb = meta.get("thumbnail") or fetch_og_image(item["url"])
-
-            content = item.get("content")
-            if not content and FETCH_ARTICLE_TEXT:
-                content = meta.get("content")
-
-            content = (content or "").strip()
+                thumb = meta.get("thumbnail") or fetch_og_image(final_url)
 
             if not title:
                 skipped_no_title += 1
                 continue
 
+            if content and len(content) < MIN_CONTENT_LEN and len(title) < 8:
+                skipped_short_content += 1
+                continue
+
             results.append({
-                "url": item["url"],
+                "url": final_url,
                 "title": title,
                 "thumbnail": thumb,
                 "content": content,
@@ -863,14 +1044,26 @@ def enrich_items(raw_items: list[dict]) -> list[dict]:
             })
 
     print(
-        f"[crawler] enrich done={len(results)} skipped_no_title={skipped_no_title} "
-        f"skipped_non_korean={skipped_non_korean}",
+        f"[crawler] enrich done={len(results)} "
+        f"skipped_no_title={skipped_no_title} "
+        f"skipped_non_korean={skipped_non_korean} "
+        f"skipped_short_content={skipped_short_content} "
+        f"skipped_old_after_fetch={skipped_old_after_fetch} "
+        f"skipped_existing_final_url={skipped_existing_final_url}",
         flush=True
     )
+
     return results
 
 
 def fetch_news_items():
+    start_kst, end_kst = get_recent_window()
+    print(
+        f"[crawler] recent window KST start={start_kst.strftime('%Y-%m-%d %H:%M:%S %Z')} "
+        f"end={end_kst.strftime('%Y-%m-%d %H:%M:%S %Z')}",
+        flush=True
+    )
+
     lines = fetch_masterfile_lines()
     if not lines:
         return []
@@ -879,7 +1072,7 @@ def fetch_news_items():
     file_urls = extract_latest_gkg_file_urls(lines)
 
     if not file_urls:
-        print("[crawler] no gkg file urls found in masterfilelist", flush=True)
+        print("[crawler] no recent gkg file urls found in masterfilelist", flush=True)
         return []
 
     file_urls = list(reversed(file_urls))
@@ -920,8 +1113,7 @@ def fetch_news_items():
     if not all_raw_items:
         return []
 
-    enriched = enrich_items(all_raw_items)
-    return enriched
+    return enrich_items(all_raw_items, allow_domains)
 
 
 def upsert_articles(items: list[dict]):
@@ -944,7 +1136,9 @@ def upsert_articles(items: list[dict]):
             continue
         seen_in_batch.add(url)
 
-        title = (it.get("title", "") or "").strip()
+        title = clean_text(it.get("title", "") or "")
+        content = clean_text(it.get("content") or "")
+
         if not title:
             continue
 
@@ -954,13 +1148,16 @@ def upsert_articles(items: list[dict]):
         if not thumb:
             thumb = fetch_og_image(url)
 
-        content = (it.get("content") or "").strip()
         raw_dt = it.get("published_at")
         pub_dt = parse_dt(raw_dt)
-        category = (it.get("category") or "").strip() or "기타"
 
-        if len(content) < MIN_CONTENT_LEN and len(title) < 12:
+        if not pub_dt:
             continue
+
+        if not is_recent_dt(pub_dt):
+            continue
+
+        category = (it.get("category") or "").strip() or "기타"
 
         cleaned.append({
             "url": url,
@@ -990,7 +1187,7 @@ def upsert_articles(items: list[dict]):
                     tuple(part),
                 )
                 for row in cur.fetchall():
-                    existing.add(row["url"])
+                    existing.add(normalize_url(row["url"]))
 
             to_insert = [c for c in cleaned if c["url"] not in existing]
 

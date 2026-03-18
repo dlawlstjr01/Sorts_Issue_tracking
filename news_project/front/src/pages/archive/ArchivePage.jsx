@@ -189,22 +189,22 @@ function getSavedItemKey(item) {
 function getRecentItemKey(item) {
   return String(
     item?.id ||
-      item?.raw?.id ||
-      item?.raw?.article_id ||
-      item?.raw?.url ||
-      `${String(item?.title || "").trim()}_${String(item?.date || "").trim()}`
+    item?.raw?.id ||
+    item?.raw?.article_id ||
+    item?.raw?.url ||
+    `${String(item?.title || "").trim()}_${String(item?.date || "").trim()}`
   );
 }
 
 function getDetailBody(item) {
   return normalizeSummaryValue(
     item?.raw?.content ||
-      item?.raw?.body ||
-      item?.raw?.description ||
-      item?.raw?.short_summary ||
-      item?.raw?.summary ||
-      item?.summary ||
-      ""
+    item?.raw?.body ||
+    item?.raw?.description ||
+    item?.raw?.short_summary ||
+    item?.raw?.summary ||
+    item?.summary ||
+    ""
   );
 }
 
@@ -331,11 +331,11 @@ export default function ArchivePage() {
     const getSortValue = (item) =>
       toTimestamp(
         item?.raw?.saved_at ||
-          item?.raw?.viewed_at ||
-          item?.raw?.last_viewed_at ||
-          item?.raw?.published_at ||
-          item?.raw?.created_at ||
-          item?.date
+        item?.raw?.viewed_at ||
+        item?.raw?.last_viewed_at ||
+        item?.raw?.published_at ||
+        item?.raw?.created_at ||
+        item?.date
       );
 
     const sorted =
@@ -343,17 +343,17 @@ export default function ArchivePage() {
         ? [...items].sort((a, b) => getSortValue(a) - getSortValue(b))
         : [...items].sort((a, b) => getSortValue(b) - getSortValue(a));
 
-    const start = (page - 1) * size;
-    const end = start + size;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
 
     return {
       items: sorted.slice(start, end),
       total: sorted.length,
     };
-  }, [listItems, query, sort, page]);
+  }, [listItems, query, sort, pageSize]);
 
   const filtered = filteredResult.items;
-  const totalPages = Math.max(1, Math.ceil(filteredResult.total / size));
+  const totalPages = Math.max(1, Math.ceil(filteredResult.total / pageSize));
 
   useEffect(() => {
     if (page > totalPages) {
@@ -419,8 +419,8 @@ export default function ArchivePage() {
           (savedItem) =>
             String(
               savedItem?.raw?.issueSummaryId ||
-                savedItem?.raw?.issue_summary_id ||
-                savedItem?.id
+              savedItem?.raw?.issue_summary_id ||
+              savedItem?.id
             ) !== String(issueSummaryId)
         )
       );
@@ -698,11 +698,11 @@ export default function ArchivePage() {
                   reduceMotion
                     ? undefined
                     : {
-                        type: "spring",
-                        stiffness: 420,
-                        damping: 28,
-                        mass: 0.55,
-                      }
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 28,
+                      mass: 0.55,
+                    }
                 }
               >
                 {t.label}
@@ -733,11 +733,11 @@ export default function ArchivePage() {
                   reduceMotion
                     ? undefined
                     : {
-                        type: "spring",
-                        stiffness: 420,
-                        damping: 28,
-                        mass: 0.55,
-                      }
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 28,
+                      mass: 0.55,
+                    }
                 }
               >
                 최신순
@@ -753,11 +753,11 @@ export default function ArchivePage() {
                   reduceMotion
                     ? undefined
                     : {
-                        type: "spring",
-                        stiffness: 420,
-                        damping: 28,
-                        mass: 0.55,
-                      }
+                      type: "spring",
+                      stiffness: 420,
+                      damping: 28,
+                      mass: 0.55,
+                    }
                 }
               >
                 오래된순
@@ -776,11 +776,11 @@ export default function ArchivePage() {
                       reduceMotion
                         ? undefined
                         : {
-                            type: "spring",
-                            stiffness: 420,
-                            damping: 28,
-                            mass: 0.55,
-                          }
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
                     }
                   >
                     선택삭제
@@ -797,11 +797,11 @@ export default function ArchivePage() {
                       reduceMotion
                         ? undefined
                         : {
-                            type: "spring",
-                            stiffness: 420,
-                            damping: 28,
-                            mass: 0.55,
-                          }
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
                     }
                   >
                     모두삭제
@@ -822,11 +822,11 @@ export default function ArchivePage() {
                       reduceMotion
                         ? undefined
                         : {
-                            type: "spring",
-                            stiffness: 420,
-                            damping: 28,
-                            mass: 0.55,
-                          }
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
                     }
                   >
                     선택삭제
@@ -843,11 +843,11 @@ export default function ArchivePage() {
                       reduceMotion
                         ? undefined
                         : {
-                            type: "spring",
-                            stiffness: 420,
-                            damping: 28,
-                            mass: 0.55,
-                          }
+                          type: "spring",
+                          stiffness: 420,
+                          damping: 28,
+                          mass: 0.55,
+                        }
                     }
                   >
                     모두삭제

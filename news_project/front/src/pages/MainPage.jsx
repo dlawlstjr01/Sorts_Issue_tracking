@@ -159,98 +159,9 @@ const CATEGORY_RULES = {
   culture: ["영화", "드라마", "OTT", "넷플릭스", "디즈니", "음악", "가수", "아이돌", "공연", "전시", "미술", "문학", "문화", "축제", "패션", "연예", "방송"],
   sports: ["축구", "야구", "농구", "배구", "골프", "테니스", "UFC", "EPL", "K리그", "MLB", "NBA", "KBO", "올림픽", "월드컵", "선수", "감독", "경기", "득점"],
 };
-const SEOUL_TZ = "Asia/Seoul";
-const DAY_MS = 1000 * 60 * 60 * 24;
-const WEEKDAY_INDEX = {
-  Sun: 0,
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-};
 
 function normalizeText(s) {
   return String(s || "").toLowerCase();
-}
-
-function parseTimestamp(...candidates) {
-  for (const value of candidates) {
-    if (!value) continue;
-
-    if (typeof value === "number") {
-      const ts = value < 1_000_000_000_000 ? value * 1000 : value;
-      if (Number.isFinite(ts) && ts > 0) return ts;
-      continue;
-    }
-
-    const raw = String(value).trim();
-    if (!raw) continue;
-
-    if (/^\d+$/.test(raw)) {
-      const n = Number(raw);
-      if (Number.isFinite(n) && n > 0) {
-        return n < 1_000_000_000_000 ? n * 1000 : n;
-      }
-    }
-
-    const normalized = raw.includes("T")
-      ? raw
-      : raw.replace(" ", "T");
-
-    const ts = new Date(normalized).getTime();
-    if (Number.isFinite(ts)) return ts;
-  }
-  return null;
-}
-
-function getSeoulYmdParts(ts = Date.now()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: SEOUL_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date(ts));
-
-  const year = parts.find((p) => p.type === "year")?.value;
-  const month = parts.find((p) => p.type === "month")?.value;
-  const day = parts.find((p) => p.type === "day")?.value;
-
-  return { year, month, day };
-}
-
-function getSeoulMidnightTs(ts = Date.now()) {
-  const { year, month, day } = getSeoulYmdParts(ts);
-  if (!year || !month || !day) return Date.now();
-  return new Date(`${year}-${month}-${day}T00:00:00+09:00`).getTime();
-}
-
-function getSeoulWeekdayIndex(ts = Date.now()) {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: SEOUL_TZ,
-    weekday: "short",
-  }).format(new Date(ts));
-
-  return WEEKDAY_INDEX[weekday] ?? 0;
-}
-
-function getSeoulDayRange(ts = Date.now()) {
-  const start = getSeoulMidnightTs(ts);
-  return { start, end: start + DAY_MS };
-}
-
-function getSeoulDateKey(ts = Date.now()) {
-  const { year, month, day } = getSeoulYmdParts(ts);
-  if (!year || !month || !day) return "";
-  return `${year}-${month}-${day}`;
-}
-
-function getSeoulWeekRange(ts = Date.now()) {
-  const todayStart = getSeoulMidnightTs(ts);
-  const weekdayIndex = getSeoulWeekdayIndex(ts); // Sun(0) ~ Sat(6)
-  const start = todayStart - weekdayIndex * DAY_MS;
-  return { start, end: start + DAY_MS * 7 };
 }
 
 function normalizeCategoryKey(value) {
@@ -434,15 +345,6 @@ function mapIssueSummaryToLatestUI(it) {
       body: representative?.body || "",
       press_name: representative?.press_name || "",
     });
-  const createdAt =
-    parseTimestamp(
-      it.created_at,
-      representative?.created_at,
-      representative?.published_at,
-      representative?.updated_at,
-      it.published_at,
-      it.updated_at
-    ) || 0;
 
   return {
     id: String(it.id ?? it.article_id ?? ""),
@@ -456,7 +358,7 @@ function mapIssueSummaryToLatestUI(it) {
     related_articles: relatedArticles,
     shortSummary: it.short_summary || "",
     ultraShort: it.ultra_short || "",
-    createdAt,
+    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
     representativeUrl: representative?.url || it.url || "",
     representativeThumbnail: representative?.thumbnail || "",
     representativeContent: representative?.content || "",
@@ -484,15 +386,6 @@ function mapIssueSummaryToMainArticle(it) {
       body: representative?.body || "",
       press_name: representative?.press_name || "",
     });
-  const createdAt =
-    parseTimestamp(
-      it.created_at,
-      representative?.created_at,
-      representative?.published_at,
-      representative?.updated_at,
-      it.published_at,
-      it.updated_at
-    ) || 0;
 
   const fallbackThumb = `${THUMB[inferredCategory || "society"] || THUMB.it}${UQ}`;
 
@@ -512,7 +405,7 @@ function mapIssueSummaryToMainArticle(it) {
       fallbackThumb
     ),
     summary: [it.short_summary || "요약 정보가 없습니다."],
-    createdAt,
+    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
     raw: {
       ...it,
       title: representative?.title || it.title || "(이슈 제목 없음)",
@@ -602,8 +495,9 @@ function mapArticleDetailToView(article, fallbackCategory = "society") {
       article.summary ||
       "요약 정보가 없습니다. 본문 보기로 원문을 확인하세요.",
     ],
-    createdAt:
-      parseTimestamp(article.created_at, article.published_at, article.updated_at) || 0,
+    createdAt: article.published_at
+      ? new Date(article.published_at).getTime()
+      : Date.now(),
     raw: article,
   };
 }
@@ -780,42 +674,11 @@ export default function MainPage() {
         );
 
     const sorted = [...source].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    const now = Date.now();
-    const { start: todayStart, end: todayEnd } = getSeoulDayRange(now);
-    const { start: weekStart, end: weekEnd } = getSeoulWeekRange(now);
-
-    if (articleListMode === "daily") {
-      const todayItems = sorted.filter((a) => {
-        const t = a.createdAt || 0;
-        return t >= todayStart && t < todayEnd;
-      });
-
-      if (todayItems.length) return todayItems;
-      if (!sorted.length) return [];
-
-      // 오늘 데이터가 아직 없으면 최신 데이터 날짜를 일간으로 보여준다.
-      const latestDateKey = getSeoulDateKey(sorted[0].createdAt || 0);
-      return sorted.filter(
-        (a) => getSeoulDateKey(a.createdAt || 0) === latestDateKey
-      );
-    }
 
     if (articleListMode === "weekly") {
-      const currentWeekItems = sorted.filter((a) => {
-        const t = a.createdAt || 0;
-        return t >= weekStart && t < weekEnd;
-      });
-
-      if (currentWeekItems.length) return currentWeekItems;
-      if (!sorted.length) return [];
-
-      // 이번 주 데이터가 없으면 최신 데이터가 속한 주간을 보여준다.
-      const latestTs = sorted[0].createdAt || 0;
-      const { start, end } = getSeoulWeekRange(latestTs);
-      return sorted.filter((a) => {
-        const t = a.createdAt || 0;
-        return t >= start && t < end;
-      });
+      const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
+      const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
+      return weekly.length ? weekly : sorted;
     }
 
     return sorted;
@@ -1022,6 +885,26 @@ export default function MainPage() {
     const nextId = String(nextArticle.id);
     setSelectedId(nextId);
     setActiveIssueArticleId(null);
+
+    const targetEl = sectionRefs.current[nextId];
+    if (targetEl) {
+      targetEl.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  };
+
+  const selectIssueInCenter = (article) => {
+    const nextId = String(article?.id || "");
+    if (!nextId) return;
+
+    setSelectedId(nextId);
+
+    const matchedIssue =
+      latestIssues.find((it) => String(it.articleId) === nextId) || null;
+
+    setActiveIssueArticleId(String(matchedIssue?.articleId || nextId));
 
     const targetEl = sectionRefs.current[nextId];
     if (targetEl) {
@@ -1324,21 +1207,28 @@ export default function MainPage() {
               </div>
 
               <div className="mp-article-list">
-                {displayedArticles.map((a) => (
-                  <button
-                    key={a.id}
-                    type="button"
-                    className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
-                    onClick={() => {
-                      focusArticleInCenter(a);
-                    }}
-                  >
-                    <div className="mp-article-item-top">
-                      <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                    </div>
-                    <div className="mp-article-item-title">{a.title}</div>
-                  </button>
-                ))}
+                {displayedArticles.map((a) => {
+                  const matchedIssue =
+                    latestIssues.find((it) => String(it.articleId) === String(a.id)) || null;
+
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
+                      onClick={() => {
+                        selectIssueInCenter(a);
+                      }}
+                    >
+                      <div className="mp-article-item-top">
+                        <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
+                      </div>
+                      <div className="mp-article-item-title">
+                        {matchedIssue?.title || a.title}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
               {error && (
@@ -1415,16 +1305,13 @@ export default function MainPage() {
                       sectionRefs.current[String(article.id)] = el;
                     }}
                     className={`mp-center-inner ${isSelected ? "active" : ""}`}
-                    ref={(el) => {
-                      const key = String(article.id);
-                      if (el) centerSectionRefs.current.set(key, el);
-                      else centerSectionRefs.current.delete(key);
-                    }}
                     onMouseEnter={() => setSelectedId(String(article.id))}
                   >
                     <div className="mp-head">
                       <h1 className="mp-title">
-                        {currentIssue?.title || article.title}
+                        {isSelected
+                          ? activeIssueArticle?.title || currentIssue?.title || article.title
+                          : currentIssue?.title || article.title}
                       </h1>
                       <Badge type={article.badge} />
                     </div>
@@ -1432,7 +1319,13 @@ export default function MainPage() {
                     <div className="mp-thumb-wrap">
                       <img
                         className="mp-thumb"
-                        src={article.thumbnailUrl}
+                        src={
+                          isSelected
+                            ? activeIssueArticle?.thumbnailUrl ||
+                            currentIssueGroup[0]?.thumbnailUrl ||
+                            article.thumbnailUrl
+                            : article.thumbnailUrl
+                        }
                         alt="article thumbnail"
                         loading="lazy"
                         onError={withImageFallback}
@@ -1490,7 +1383,7 @@ export default function MainPage() {
                         </button>
 
                         <button
-                          className="mp-btn primary"
+                          className="mp-btn secondary"
                           type="button"
                           onClick={() => openShareModal(article)}
                         >
@@ -1668,3 +1561,5 @@ export default function MainPage() {
     </div>
   );
 }
+
+// 깃 푸쉬용

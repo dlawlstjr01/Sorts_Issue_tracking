@@ -575,6 +575,15 @@ def extract_page_text(soup: BeautifulSoup):
     for tag in soup(["script", "style", "noscript", "iframe", "header", "footer", "aside", "nav"]):
         tag.decompose()
 
+    noise_attr_re = re.compile(
+        r"(related|recommend|popular|rank|ranking|comment|reply|share|subscribe|banner|advert|promo|outbrain|taboola|mostview)",
+        re.I,
+    )
+    for tag in soup.find_all(attrs={"id": noise_attr_re}):
+        tag.decompose()
+    for tag in soup.find_all(attrs={"class": noise_attr_re}):
+        tag.decompose()
+
     article = soup.find("article")
     if article:
         text = article.get_text(" ", strip=True)

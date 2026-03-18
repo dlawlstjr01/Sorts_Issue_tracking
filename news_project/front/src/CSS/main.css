@@ -372,13 +372,31 @@
   color: #1f2937;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+  padding: 2px 0 2px 2px;
 }
 
 .mp-summary-line {
   margin: 0;
   font-size: 15px;
-  line-height: 1.7;
+  line-height: 1.78;
+  color: #1f2937;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+}
+
+.mp-summary-marker {
+  color: #2563eb;
+  font-weight: 800;
+  line-height: 1.78;
+}
+
+.mp-summary-text {
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 /* Actions */

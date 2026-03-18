@@ -361,11 +361,105 @@ KEYWORD_VERBISH_ENDINGS = (
 )
 SUMMARY_NEAR_DUP_JACC = 0.84
 SUMMARY_MIN_NORM_LEN = 24
+SUMMARY_SHORT_MIN_LINES = 5
+SUMMARY_SHORT_TARGET_LINES = 6
+SUMMARY_SHORT_MAX_LINES = 7
+SUMMARY_SHORT_HEADLINE_LINES = 0
+SUMMARY_SHORT_MAX_CHARS = 60
+SUMMARY_COMPLETE_SOFT_MAX_CHARS = 96
+SUMMARY_COMPLETE_HARD_MAX_CHARS = 140
+SUMMARY_SHORT_MIN_CHARS = 14
 REVIEW_KEYWORD_MIN_K = 3
 REVIEW_KEYWORD_BLOCKLIST = {
     "못하고", "못한", "못해", "하며", "하면서", "같은", "가운데", "현재", "이어",
 }
 REVIEW_KEYWORD_BAD_SUFFIXES = ("하고", "하며", "하면서", "되는", "됐다", "했다", "한다")
+
+SUMMARY_BULLET_SPLIT_RE = re.compile(r"(?:^|\s)-\s+")
+SUMMARY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+")
+SUMMARY_REPORTER_TAIL_RE = re.compile(
+    r"\s*(?:[-|/]\s*)?(?:[가-힣]{2,6}|[A-Za-z][A-Za-z .-]{1,30})\s*기자\b.*$",
+    re.IGNORECASE,
+)
+SUMMARY_PREFIX_NOISE_RE = re.compile(
+    r"^(?:[●■◆▷▶]\s*|"
+    r"\d{4}\.\d{1,2}\.\d{1,2}\s*(?:뉴스1|뉴시스|연합뉴스)\s*|"
+    r"(?:[가-힣A-Za-z]+(?:=[A-Za-z]+)?\s+)?(?:뉴스1|뉴시스|연합뉴스)\s+|"
+    r"[가-힣A-Za-z]+=(?:AP|AFP|Reuters|로이터)\s*(?:뉴스1|뉴시스|연합뉴스)?\s*)",
+    re.IGNORECASE,
+)
+SUMMARY_CAPTION_PHRASES = (
+    "발언을 듣고 있다",
+    "진화 작업을 벌이고 있다",
+    "기념촬영을 하고 있다",
+    "포즈를 취하고 있다",
+    "이동하고 있다",
+    "질문에 답하고 있다",
+    "브리핑을 하고 있다",
+)
+SUMMARY_OFFTOPIC_PHRASES = (
+    "감사드립니다",
+    "가장 소중한 것은 결국 사람",
+    "독자 여러분",
+    "함께해주신 모든 분들께",
+    "디지털랩",
+    "언이 닿아",
+    "읽어주신",
+)
+SUMMARY_COMPLETE_END_RE = re.compile(
+    r"(?:[.!?。！？]|"
+    r"(?:한다|했다|된다|됐다|이다|였다|있다|없다|밝혔다|전했다|알려졌다|나왔다|나섰다|"
+    r"보인다|예상된다|전망된다|가능하다|필요하다|우려된다|확인됐다|집계됐다|추정된다|"
+    r"말했다|설명했다|강조했다|평가했다|지적했다|촉구했다|요구했다|제시했다|전해졌다|"
+    r"드러났다|발표했다|보도했다|주장했다|당부했다))"
+    r"[\"'”’)\]]*$"
+)
+SUMMARY_COMPLETE_PREFIX_RE = re.compile(
+    r"(?:[.!?。！？]|"
+    r"(?:한다|했다|된다|됐다|이다|였다|있다|없다|밝혔다|전했다|알려졌다|나왔다|나섰다|"
+    r"보인다|예상된다|전망된다|가능하다|필요하다|우려된다|확인됐다|집계됐다|추정된다|"
+    r"말했다|설명했다|강조했다|평가했다|지적했다|촉구했다|요구했다|제시했다|전해졌다|"
+    r"드러났다|발표했다|보도했다|주장했다|당부했다))"
+    r"(?:[\"'”’)\]]|$)"
+)
+SUMMARY_TRIM_MARKERS = (
+    "관련 기사",
+    "관련기사",
+    "많이 본 기사",
+    "많이본기사",
+    "추천 기사",
+    "추천기사",
+    "추천 뉴스",
+    "추천뉴스",
+    "실시간 랭킹",
+    "랭킹 뉴스",
+    "이 시각 주요뉴스",
+    "기사 원문",
+    "원문보기",
+    "전체기사 보기",
+    "더보기",
+    "구독",
+    "댓글",
+    "공유",
+    "카카오톡",
+    "페이스북",
+    "유튜브",
+    "영상 보기",
+    "동영상 뉴스",
+    "무단 전재",
+    "재배포 금지",
+    "Copyright",
+)
+SUMMARY_REPEAT_NOISE_RE = re.compile(
+    r"(?:속보|단독|많이 본|관련 기사|추천 기사|실시간 랭킹|[가-힣]{2,6}\s*기자)"
+)
+DISPLAY_MATCH_STOPWORDS = {
+    "경찰", "검찰", "법원", "정부", "국회", "여야",
+    "남성", "여성", "시민", "주민", "용의자", "피의자",
+    "구속", "검거", "송치", "기소", "체포", "조사", "수사",
+    "혐의", "사건", "사고", "논란", "대응", "발표",
+    "10대", "20대", "30대", "40대", "50대", "60대", "70대", "80대", "90대",
+}
 
 def normalize_text(s: str) -> str:
     s = s or ""
@@ -524,6 +618,304 @@ def clean_html_text(value):
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
+def clean_summary_text(value):
+    if not value:
+        return ""
+
+    text = str(value)
+    text = html.unescape(text)
+    text = re.sub(r"(?i)<\s*br\s*/?\s*>", "\n", text)
+
+    try:
+        text = BeautifulSoup(text, "html.parser").get_text("\n", strip=True)
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", text)
+
+    lines: List[str] = []
+    for raw in re.split(r"\n+", text):
+        s = re.sub(r"[ \t\r\f\v]+", " ", raw).strip()
+        if s:
+            lines.append(s)
+    return "\n".join(lines)
+
+def sanitize_summary_source_text(value, title: str = "") -> str:
+    text = clean_html_text(value)
+    if not text:
+        return ""
+
+    clean_title = normalize_text(title)
+    if clean_title and text.startswith(clean_title):
+        text = text[len(clean_title):].lstrip(" -:|")
+
+    text = re.sub(r"^\[[^\]]{1,24}\]\s*", "", text)
+    text = re.sub(r"^(?:[가-힣]{2,6}\s*기자\s*=?\s*)", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+
+    cut_at = None
+    for marker in SUMMARY_TRIM_MARKERS:
+        pos = text.find(marker)
+        if pos >= 180:
+            cut_at = pos if cut_at is None else min(cut_at, pos)
+
+    noise_hits = list(SUMMARY_REPEAT_NOISE_RE.finditer(text))
+    if len(noise_hits) >= 3:
+        for hit in noise_hits[1:]:
+            if hit.start() >= 260:
+                cut_at = hit.start() if cut_at is None else min(cut_at, hit.start())
+                break
+
+    if cut_at is not None:
+        text = text[:cut_at].rstrip(" -:|/,.;")
+
+    return re.sub(r"\s+", " ", text).strip()
+
+def summary_source_usable(title: str, content: str) -> bool:
+    c = sanitize_summary_source_text(content, title=title)
+    if len(c) < max(int(SUSP_MIN_CONTENT_CHARS), 80):
+        return False
+    toks = title_tokens(title)
+    if not toks:
+        return True
+    head = c[: int(SUSP_HEAD_MAX_CHARS)].lower()
+    hits = sum(1 for t in toks if t in head)
+    need = int(SUSP_NEED_HITS_LONG if len(toks) >= 4 else SUSP_NEED_HITS_SHORT)
+    return hits >= need
+
+def _summary_line_key(text: str) -> str:
+    return re.sub(r"[^0-9A-Za-z가-힣]+", "", str(text or "").lower())
+
+def _compact_summary_piece(text: str, max_chars: int) -> str:
+    s = clean_html_text(text)
+    s = re.sub(r"^[\-\*\u2022\u25E6\u00B7]+\s*", "", s)
+    s = SUMMARY_PREFIX_NOISE_RE.sub("", s).strip()
+    s = SUMMARY_REPORTER_TAIL_RE.sub("", s).strip()
+    s = re.sub(r"^(?:속보|단독)\s+", "", s).strip()
+    s = re.sub(r"\s+", " ", s).strip(" -:;,/")
+    if len(s) < int(SUMMARY_SHORT_MIN_CHARS):
+        return ""
+    return _truncate_with_ellipsis(s, int(max_chars))
+
+def _looks_complete_sentence(text: str) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if "..." in s or "…" in s:
+        return False
+    return bool(SUMMARY_COMPLETE_END_RE.search(s))
+
+def _strip_lead_fragment_before_date(text: str) -> str:
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    match = re.search(r"\b\d{1,2}일\b", s)
+    if not match or match.start() < 12:
+        return s
+    prefix = s[: match.start()].strip(" -:;,/")
+    if not prefix:
+        return s
+    if re.search(r"[.!?。！？]$", prefix) or SUMMARY_COMPLETE_END_RE.search(prefix):
+        return s
+    return s[match.start():].lstrip(" -:;,/")
+
+def _finalize_complete_sentence(text: str) -> str:
+    s = str(text or "").strip().strip(" -:;,/")
+    if not s:
+        return ""
+    if "..." in s or "…" in s or "크게보기" in s:
+        return ""
+    if any(phrase in s for phrase in SUMMARY_CAPTION_PHRASES):
+        return ""
+    if any(phrase in s for phrase in SUMMARY_OFFTOPIC_PHRASES):
+        return ""
+    if re.search(r"[.!?。！？][\"'”’)\]]*$", s):
+        return s
+    if SUMMARY_COMPLETE_END_RE.search(s):
+        m = re.search(r"[\"'”’)\]]*$", s)
+        if m:
+            suffix = m.group(0)
+            core = s[: len(s) - len(suffix)]
+            return core.rstrip() + "." + suffix
+        return s + "."
+    return ""
+
+def _complete_summary_piece(
+    text: str,
+    soft_max_chars: int = SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+    hard_max_chars: int = SUMMARY_COMPLETE_HARD_MAX_CHARS,
+) -> str:
+    s = clean_html_text(text)
+    s = re.sub(r"^[\-\*\u2022\u25E6\u00B7]+\s*", "", s)
+    s = SUMMARY_PREFIX_NOISE_RE.sub("", s).strip()
+    s = SUMMARY_REPORTER_TAIL_RE.sub("", s).strip()
+    s = re.sub(r"^(?:속보|단독)\s+", "", s).strip()
+    s = re.sub(r"\s+", " ", s).strip(" -:;,/")
+    s = _strip_lead_fragment_before_date(s)
+    if len(s) < int(SUMMARY_SHORT_MIN_CHARS):
+        return ""
+
+    if len(s) <= int(soft_max_chars) and _looks_complete_sentence(s):
+        return _finalize_complete_sentence(s)
+
+    probe = s[: int(hard_max_chars)]
+    candidates: List[str] = []
+    for match in SUMMARY_COMPLETE_PREFIX_RE.finditer(probe):
+        candidate = probe[: match.end()].strip(" -:;,/")
+        if len(candidate) < int(SUMMARY_SHORT_MIN_CHARS):
+            continue
+        finalized = _finalize_complete_sentence(candidate)
+        if finalized:
+            candidates.append(finalized)
+
+    if candidates:
+        within_soft = [c for c in candidates if len(c) <= int(soft_max_chars)]
+        if within_soft:
+            return within_soft[-1]
+        return candidates[0]
+
+    if len(s) <= int(hard_max_chars) and _looks_complete_sentence(s):
+        return _finalize_complete_sentence(s)
+
+    return ""
+
+def complete_summary_lines(
+    lines_or_text: Any,
+    max_lines: int = SUMMARY_SHORT_MAX_LINES,
+    soft_max_chars: int = SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+    hard_max_chars: int = SUMMARY_COMPLETE_HARD_MAX_CHARS,
+) -> List[str]:
+    raw_items: List[str] = []
+    if isinstance(lines_or_text, (list, tuple)):
+        raw_items = [str(x) for x in lines_or_text if str(x or "").strip()]
+    else:
+        raw = str(lines_or_text or "").strip()
+        if raw:
+            raw_items = [raw]
+
+    if not raw_items:
+        return []
+
+    picked: List[str] = []
+    seen_keys: List[str] = []
+
+    def _push(candidate: str) -> None:
+        if not candidate:
+            return
+        key = _summary_line_key(candidate)
+        if len(key) < int(SUMMARY_SHORT_MIN_CHARS):
+            return
+        for prev in seen_keys:
+            if key == prev:
+                return
+            if len(key) >= 18 and len(prev) >= 18 and (key in prev or prev in key):
+                return
+        seen_keys.append(key)
+        picked.append("- " + candidate)
+
+    for raw in raw_items:
+        text = clean_summary_text(raw)
+        if not text:
+            continue
+        for block in re.split(r"\n+", text):
+            block = str(block or "").strip()
+            if not block:
+                continue
+            bullet_parts = [p.strip() for p in SUMMARY_BULLET_SPLIT_RE.split(block) if p.strip()]
+            if not bullet_parts:
+                bullet_parts = [block]
+            for part in bullet_parts:
+                sentence_parts = [p.strip() for p in split_sentences_ko(part) if p.strip()]
+                if not sentence_parts:
+                    sentence_parts = [part]
+                for sent in sentence_parts:
+                    _push(
+                        _complete_summary_piece(
+                            sent,
+                            soft_max_chars=soft_max_chars,
+                            hard_max_chars=hard_max_chars,
+                        )
+                    )
+                    if len(picked) >= int(max_lines):
+                        return picked[: int(max_lines)]
+
+    return picked[: int(max_lines)]
+
+def compact_summary_lines(
+    lines_or_text: Any,
+    max_lines: int = SUMMARY_SHORT_MAX_LINES,
+    max_chars: int = SUMMARY_SHORT_MAX_CHARS,
+) -> List[str]:
+    raw_items: List[str] = []
+    if isinstance(lines_or_text, (list, tuple)):
+        raw_items = [str(x) for x in lines_or_text if str(x or "").strip()]
+    else:
+        raw = str(lines_or_text or "").strip()
+        if raw:
+            raw_items = [raw]
+
+    if not raw_items:
+        return []
+
+    picked: List[str] = []
+    seen_keys: List[str] = []
+
+    def _push(candidate: str) -> None:
+        if not candidate:
+            return
+        key = _summary_line_key(candidate)
+        if len(key) < int(SUMMARY_SHORT_MIN_CHARS):
+            return
+        for prev in seen_keys:
+            if key == prev:
+                return
+            if len(key) >= 18 and len(prev) >= 18 and (key in prev or prev in key):
+                return
+        seen_keys.append(key)
+        picked.append("- " + candidate)
+
+    for raw in raw_items:
+        text = clean_summary_text(raw)
+        if not text:
+            continue
+        for block in re.split(r"\n+", text):
+            block = str(block or "").strip()
+            if not block:
+                continue
+            bullet_parts = [p.strip() for p in SUMMARY_BULLET_SPLIT_RE.split(block) if p.strip()]
+            if not bullet_parts:
+                bullet_parts = [block]
+            for part in bullet_parts:
+                sentence_parts = [p.strip() for p in SUMMARY_SENTENCE_SPLIT_RE.split(part) if p.strip()]
+                if not sentence_parts:
+                    sentence_parts = [part]
+                for sent in sentence_parts:
+                    _push(_compact_summary_piece(sent, max_chars=max_chars))
+                    if len(picked) >= int(max_lines):
+                        return picked[: int(max_lines)]
+
+    if picked:
+        return picked[: int(max_lines)]
+
+    for raw in raw_items:
+        candidate = _compact_summary_piece(raw, max_chars=max_chars)
+        if candidate:
+            _push(candidate)
+        if len(picked) >= int(max_lines):
+            break
+    return picked[: int(max_lines)]
+
+def compact_short_summary_text(
+    lines_or_text: Any,
+    max_lines: int = SUMMARY_SHORT_MAX_LINES,
+    max_chars: int = SUMMARY_SHORT_MAX_CHARS,
+) -> str:
+    return "\n".join(
+        compact_summary_lines(
+            lines_or_text,
+            max_lines=max_lines,
+            max_chars=max_chars,
+        )
+    ).strip()
+
 def _extract_geo_tokens(text: str) -> set:
     toks = TOKEN_RE.findall((text or "").lower())
     out: set = set()
@@ -592,16 +984,8 @@ def prune_geo_mismatch_members(
     return kept, dropped
 
 def content_suspicious(title: str, content: str, cfg: PipelineConfig) -> bool:
-    c = (content or "").strip()
-    if len(c) < cfg.SUSP_MIN_CONTENT_CHARS:
-        return True
-    toks = title_tokens(title)
-    if not toks:
-        return False
-    head = c[: cfg.SUSP_HEAD_MAX_CHARS].lower()
-    hits = sum(1 for t in toks if t in head)
-    need = cfg.SUSP_NEED_HITS_LONG if len(toks) >= 4 else cfg.SUSP_NEED_HITS_SHORT
-    return hits < need
+    _ = cfg
+    return not summary_source_usable(title, content)
 
 def drop_suspicious_rows(df: pd.DataFrame, cfg: PipelineConfig) -> Tuple[pd.DataFrame, int]:
     if df is None or len(df) == 0 or (not cfg.DROP_SUSPICIOUS_ROWS):
@@ -957,6 +1341,8 @@ def post_clean_summary_lines(lines: List[str]) -> List[str]:
             continue
         if len(re.findall(r"\d{4}\.\d{2}\.\d{2}", s)) >= 2:
             continue
+        if len(SUMMARY_REPEAT_NOISE_RE.findall(s)) >= 3:
+            continue
         key = sha1(s.lower())
         if key in seen:
             continue
@@ -1101,15 +1487,12 @@ def refine_summary_lines_by_focus(
         return post_clean_summary_lines(norm_lines)[:max_lines]
 
     strong = [x for x in scored if x[2] > 0.0]
-    if len(strong) >= int(min_lines):
+    if strong:
         picked = sorted(strong, key=lambda x: (-x[2], x[0]))[: int(max_lines)]
     else:
-        need = min(int(max_lines), max(int(min_lines), len(scored)))
-        picked = sorted(scored, key=lambda x: (-x[2], x[0]))[:need]
+        return []
     picked = sorted(picked, key=lambda x: x[0])
     out = post_clean_summary_lines([x[1] for x in picked])
-    if len(out) < int(min_lines):
-        out = post_clean_summary_lines(norm_lines[: int(max_lines)])
     return out[: int(max_lines)]
 
 def _truncate_with_ellipsis(s: str, max_chars: int) -> str:
@@ -1145,6 +1528,434 @@ def _title_token_set(title: str) -> set:
                 if not is_noise_keyword(tok):
                     out.add(tok)
     return out
+
+def _is_geo_like_match_token(tok: str) -> bool:
+    t = (tok or "").strip().lower()
+    if not t:
+        return False
+    if t in GEO_CORE_TOKENS:
+        return True
+    return len(t) >= 2 and t.endswith(GEO_SUFFIXES)
+
+def _title_match_token_set(title: str) -> set:
+    out = set()
+    geo_tokens = set()
+    for tok in _title_token_set(title):
+        if tok in DISPLAY_MATCH_STOPWORDS:
+            continue
+        if _is_geo_like_match_token(tok):
+            geo_tokens.add(tok)
+            continue
+        out.add(tok)
+    return out or geo_tokens
+
+def _compact_title_summary(title: str, max_chars: int = SUMMARY_SHORT_MAX_CHARS) -> str:
+    t = _clean_title_text(title)
+    t = re.sub(r"^(?:속보|단독)\s+", "", t).strip()
+    parts = [
+        p.strip(" -:;,/[]()")
+        for p in re.split(r"\s*(?:\.\.\.|…|:| - )\s*", t)
+        if p and p.strip(" -:;,/[]()")
+    ]
+    if len(parts) >= 2 and len(parts[0]) <= max(12, int(max_chars * 0.7)):
+        t = f"{parts[0]}, {parts[1]}"
+    elif parts:
+        t = parts[0]
+    t = re.sub(r"\s+", " ", t).strip(" -:;,/")
+    return _truncate_with_ellipsis(t, int(max_chars))
+
+def _title_to_complete_sentence(title: str) -> str:
+    t = _clean_title_text(title)
+    t = re.sub(r"\s*(?:\.\.\.|…)\s*", ", ", t).strip()
+    t = re.sub(r"\s+", " ", t).strip(" -:;,/")
+    if not t:
+        return ""
+    if "간추린 뉴스" in t or t.endswith(" 外") or t.endswith(" 외"):
+        return ""
+    if _looks_complete_sentence(t):
+        return _finalize_complete_sentence(t)
+
+    if re.search(r"(?:처음|최초|최대|최저)$", t):
+        return t + "이다."
+    if re.search(r"(?:가능성|우려|논란|관측|전망)$", t):
+        return t + "이 제기됐다."
+    if re.search(
+        r"(?:축소|확대|폐지|개편|강화|완화|공개|발표|추진|중단|재개|검토|지원|출시|출범|"
+        r"선출|확정|돌파|급등|급락|급증|급감|상승|하락|증가|감소|구속|체포|기소|사퇴|"
+        r"복귀|방문|회동|합의|거부|승인|통과|부결|제안|발사|요격|배치|도입|철수|해체)$",
+        t,
+    ):
+        return t + "됐다."
+    return t + "."
+
+def _normalize_complete_summary_output(lines_or_text: Any, max_lines: int) -> List[str]:
+    raw_items: List[str] = []
+    if isinstance(lines_or_text, (list, tuple)):
+        raw_items = [str(x) for x in lines_or_text if str(x or "").strip()]
+    else:
+        raw = str(lines_or_text or "").strip()
+        if raw:
+            raw_items = [raw]
+
+    picked: List[str] = []
+    seen: List[str] = []
+    for raw in raw_items:
+        text = clean_summary_text(raw)
+        for block in re.split(r"\n+", text):
+            s = str(block or "").lstrip("- ").strip()
+            if not s:
+                continue
+            if "..." in s or "…" in s:
+                continue
+            finalized = _finalize_complete_sentence(s)
+            if not finalized:
+                continue
+            key = _summary_line_key(finalized)
+            if not key or key in seen:
+                continue
+            seen.append(key)
+            picked.append("- " + finalized)
+            if len(picked) >= int(max_lines):
+                return picked[: int(max_lines)]
+    return picked[: int(max_lines)]
+
+def build_headline_summary_lines(
+    representative_title: str,
+    articles: List[Dict[str, Any]],
+    max_lines: int = SUMMARY_SHORT_MAX_LINES,
+    max_chars: int = SUMMARY_SHORT_MAX_CHARS,
+) -> List[str]:
+    candidates: List[str] = []
+    if representative_title:
+        candidates.append(representative_title)
+    for article in (articles or []):
+        title = str(article.get("title", "") or "").strip()
+        if title:
+            candidates.append(title)
+
+    out: List[str] = []
+    seen_keys: List[str] = []
+    rep_title = _clean_title_text(representative_title)
+    rep_tokens = _title_match_token_set(rep_title)
+
+    for raw in candidates:
+        line = _compact_title_summary(raw, max_chars=max_chars)
+        if not line:
+            continue
+        key = _summary_line_key(line)
+        if not key:
+            continue
+        duplicate = False
+        for prev in seen_keys:
+            if key == prev or key in prev or prev in key:
+                duplicate = True
+                break
+        if duplicate:
+            continue
+
+        if out and rep_tokens:
+            toks = _title_match_token_set(line)
+            if toks and not (toks & rep_tokens) and title_jaccard(rep_title, line) < 0.08:
+                continue
+
+        out.append("- " + line)
+        seen_keys.append(key)
+        if len(out) >= int(max_lines):
+            break
+
+    return out[: int(max_lines)]
+
+def _issue_article_focus_score(
+    representative_title: str,
+    representative_content: str,
+    article_title: str,
+    article_content: str,
+) -> float:
+    rep_title = _clean_title_text(representative_title) or clean_html_text(representative_title)
+    art_title = _clean_title_text(article_title) or clean_html_text(article_title)
+    rep_content = sanitize_summary_source_text(representative_content, title=rep_title)
+    art_content = sanitize_summary_source_text(article_content, title=art_title)
+
+    rep_focus = _title_match_token_set(rep_title)
+    art_focus = _title_match_token_set(art_title)
+    shared_focus = len(rep_focus & art_focus)
+    title_sim = title_jaccard(rep_title, art_title)
+    text_sim = text_token_jaccard(
+        f"{rep_title} {rep_content[:800]}",
+        f"{art_title} {art_content[:800]}",
+        max_tok=120,
+    )
+    return float((title_sim * 4.0) + (text_sim * 2.5) + (min(shared_focus, 4) * 0.6))
+
+def pick_issue_articles_for_summary(
+    representative_title: str,
+    representative_content: str,
+    articles: List[Dict[str, Any]],
+    max_articles: int = 5,
+) -> List[Dict[str, Any]]:
+    if not articles:
+        return []
+
+    scored: List[Tuple[float, int, Dict[str, Any]]] = []
+    for idx, article in enumerate(articles):
+        title = str(article.get("title", "") or "")
+        content = str(article.get("content", "") or "")
+        score = _issue_article_focus_score(
+            representative_title=representative_title,
+            representative_content=representative_content,
+            article_title=title,
+            article_content=content,
+        )
+        if bool(article.get("is_representative")):
+            score += 0.35
+        scored.append((float(score), int(idx), article))
+
+    scored.sort(key=lambda x: (-x[0], x[1]))
+
+    picked: List[Dict[str, Any]] = []
+    representative_picked = False
+    for score, _idx, article in scored:
+        if bool(article.get("is_representative")) and not representative_picked:
+            picked.append(article)
+            representative_picked = True
+            break
+
+    if not representative_picked:
+        picked.append(scored[0][2])
+
+    for score, _idx, article in scored:
+        if article in picked:
+            continue
+        title = str(article.get("title", "") or "")
+        content = str(article.get("content", "") or "")
+        keep = (
+            score >= 0.55
+            or title_jaccard(representative_title, title) >= 0.10
+            or text_token_jaccard(
+                f"{representative_title} {sanitize_summary_source_text(representative_content, representative_title)[:800]}",
+                f"{title} {sanitize_summary_source_text(content, title)[:800]}",
+                max_tok=120,
+            ) >= 0.10
+        )
+        if not keep:
+            continue
+        picked.append(article)
+        if len(picked) >= int(max_articles):
+            break
+
+    if len(picked) < min(2, len(articles)):
+        for _score, _idx, article in scored:
+            if article in picked:
+                continue
+            picked.append(article)
+            if len(picked) >= min(int(max_articles), len(articles)):
+                break
+
+    return picked[: int(max_articles)]
+
+def filter_issue_articles_for_display(
+    representative_title: str,
+    representative_content: str,
+    representative_category: str,
+    articles: List[Dict[str, Any]],
+    min_articles: int = 2,
+    max_articles: int = 10,
+) -> List[Dict[str, Any]]:
+    if not articles:
+        return []
+
+    rep_title = _clean_title_text(representative_title) or clean_html_text(representative_title)
+    rep_content = sanitize_summary_source_text(representative_content, title=rep_title)
+    rep_bcat = broad_category(representative_category)
+    rep_tokens = _title_match_token_set(rep_title)
+
+    kept: List[Dict[str, Any]] = []
+    representative_added = False
+
+    for article in articles:
+        title = _clean_title_text(article.get("title", "") or "") or clean_html_text(article.get("title", "") or "")
+        content = sanitize_summary_source_text(article.get("content", "") or "", title=title)
+        cat = str(article.get("category", "") or "")
+        bcat = broad_category(cat)
+        is_representative = bool(article.get("is_representative"))
+
+        title_sim = title_jaccard(rep_title, title)
+        text_sim = text_token_jaccard(
+            f"{rep_title} {rep_content[:800]}",
+            f"{title} {content[:800]}",
+            max_tok=120,
+        )
+        article_tokens = _title_match_token_set(title)
+        focus_overlap = len(rep_tokens & article_tokens)
+        score = _issue_article_focus_score(
+            representative_title=rep_title,
+            representative_content=rep_content,
+            article_title=title,
+            article_content=content,
+        )
+
+        if rep_bcat != "unknown" and bcat != "unknown" and rep_bcat != bcat:
+            score -= 0.35
+
+        keep = is_representative
+        if not keep:
+            keep = (
+                score >= 1.05
+                or (title_sim >= 0.14 and text_sim >= 0.10)
+                or (focus_overlap >= 2 and text_sim >= 0.08)
+            )
+            if rep_tokens and article_tokens and focus_overlap == 0:
+                keep = keep and text_sim >= 0.18 and title_sim >= 0.12
+            if rep_bcat != "unknown" and bcat != "unknown" and rep_bcat != bcat:
+                keep = keep and score >= 1.35
+
+        if not keep:
+            continue
+
+        next_article = dict(article)
+        next_article["title"] = title
+        next_article["content"] = content
+        kept.append(next_article)
+        representative_added = representative_added or is_representative
+
+        if len(kept) >= int(max_articles):
+            break
+
+    if not representative_added and articles:
+        first = dict(articles[0])
+        first["title"] = _clean_title_text(first.get("title", "") or "") or clean_html_text(first.get("title", "") or "")
+        first["content"] = sanitize_summary_source_text(first.get("content", "") or "", title=first["title"])
+        kept = [first] + [x for x in kept if str(x.get("article_id") or x.get("id") or "") != str(first.get("article_id") or first.get("id") or "")]
+
+    if len(kept) < int(min_articles):
+        return []
+
+    return kept[: int(max_articles)]
+
+def build_issue_short_summary(
+    representative_title: str,
+    representative_content: str,
+    articles: List[Dict[str, Any]],
+    stored_short_summary: str = "",
+    max_lines: int = SUMMARY_SHORT_TARGET_LINES,
+) -> str:
+    requested_lines = int(max_lines or SUMMARY_SHORT_TARGET_LINES)
+    target_lines = max(requested_lines, int(SUMMARY_SHORT_MIN_LINES))
+    target_lines = min(target_lines, int(SUMMARY_SHORT_MAX_LINES))
+    picked_articles = pick_issue_articles_for_summary(
+        representative_title=representative_title,
+        representative_content=representative_content,
+        articles=articles,
+        max_articles=max(7, int(target_lines) + 3),
+    )
+
+    source_texts: List[str] = []
+    keyword_texts: List[str] = []
+    title_fallbacks: List[str] = []
+    title_sentence_fallbacks: List[str] = []
+    for article in picked_articles:
+        title = _clean_title_text(article.get("title", "") or "")
+        content = sanitize_summary_source_text(article.get("content", "") or "", title=title)
+        if title:
+            title_fallbacks.append(title)
+            keyword_texts.append(title)
+            title_sentence = _title_to_complete_sentence(title)
+            if title_sentence:
+                title_sentence_fallbacks.append(title_sentence)
+        if summary_source_usable(title, content):
+            source_texts.append(content)
+            keyword_texts.append(f"{title} {content[:400]}")
+
+    keywords = clean_review_keywords(
+        keywords=extract_keywords(keyword_texts, topk=6),
+        representative_title=representative_title,
+        summary_lines=[],
+        max_k=6,
+        min_k=REVIEW_KEYWORD_MIN_K,
+    )
+
+    headline_lines = []
+    if int(SUMMARY_SHORT_HEADLINE_LINES) > 0:
+        headline_lines = build_headline_summary_lines(
+            representative_title=representative_title,
+            articles=picked_articles,
+            max_lines=min(int(SUMMARY_SHORT_HEADLINE_LINES), int(target_lines)),
+            max_chars=SUMMARY_SHORT_MAX_CHARS,
+        )
+
+    content_budget = max(2, int(target_lines) - len(headline_lines))
+    content_min_lines = max(3, min(int(SUMMARY_SHORT_MIN_LINES), content_budget))
+    content_candidate_budget = max(int(target_lines) * 3, int(content_budget) + 4)
+    content_candidate_budget = min(content_candidate_budget, 16)
+    content_lines = extractive_news_style_summary(
+        source_texts if source_texts else title_sentence_fallbacks,
+        max_lines=content_candidate_budget,
+        min_lines=content_min_lines,
+    )
+    content_lines = refine_summary_lines_by_focus(
+        content_lines,
+        representative_title=representative_title,
+        keywords=keywords,
+        max_lines=content_budget,
+        min_lines=content_min_lines,
+    )
+    lines = complete_summary_lines(
+        content_lines,
+        max_lines=target_lines,
+        soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+        hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+    )
+
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and stored_short_summary:
+        lines = complete_summary_lines(
+            lines + complete_summary_lines(
+                stored_short_summary,
+                max_lines=target_lines,
+                soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+            ),
+            max_lines=target_lines,
+            soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+            hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+        )
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and source_texts:
+        lines = complete_summary_lines(
+            lines + complete_summary_lines(
+                source_texts,
+                max_lines=max(int(target_lines) + 2, int(SUMMARY_SHORT_MIN_LINES)),
+                soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+            ),
+            max_lines=target_lines,
+            soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+            hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+        )
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and title_sentence_fallbacks:
+        lines = complete_summary_lines(
+            lines + title_sentence_fallbacks,
+            max_lines=target_lines,
+            soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+            hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+        )
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and representative_title:
+        rep_sentence = _title_to_complete_sentence(representative_title)
+        if rep_sentence:
+            lines = complete_summary_lines(
+                lines + [rep_sentence],
+                max_lines=target_lines,
+                soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+            )
+
+    lines = _normalize_complete_summary_output(lines, max_lines=target_lines)
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and title_sentence_fallbacks:
+        lines = _normalize_complete_summary_output(lines + title_sentence_fallbacks, max_lines=target_lines)
+    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and representative_title:
+        rep_sentence = _title_to_complete_sentence(representative_title)
+        if rep_sentence:
+            lines = _normalize_complete_summary_output(lines + [rep_sentence], max_lines=target_lines)
+
+    return "\n".join(lines).strip()
 
 def _best_consensus_title(candidate_titles: List[str], keywords: List[str]) -> str:
     cleaned: List[str] = []
@@ -1591,6 +2402,9 @@ def build_review_issues_from_low_conf(
         arts = []
         for r in [ra, rb]:
             arts.append({
+                "id": int(r.get("id") or 0),
+                "article_id": int(r.get("id") or 0),
+                "is_representative": bool(str(r.get("url", "")) == str(rep_url)),
                 "domain": str(r.get("domain", "")),
                 "date": str(r.get("date", "")),
                 "category": str(r.get("category", "")),
@@ -1609,6 +2423,7 @@ def build_review_issues_from_low_conf(
             "issue_type": "review_needed",
             "time_start": t_sorted[0] if t_sorted else "",
             "time_end": t_sorted[-1] if t_sorted else "",
+            "representative_article_id": int(ra.get("id") or 0) if str(rep_url) == str(ra.get("url", "")) else int(rb.get("id") or 0),
             "representative_title": rep_title,
             "source_representative_title": source_rep_title,
             "representative_url": rep_url,
@@ -1854,6 +2669,7 @@ def build_bucket_from_df(
             continue
 
         ordered = ordered_by_centroid(members, emb)
+        ordered = [int(rep)] + [int(i) for i in ordered if int(i) != int(rep)]
         sample_idx = ordered[: min(16, len(ordered))]
         sample_texts = [(str(df1.loc[i, "title"]) + " " + str(df1.loc[i, "content"])) for i in sample_idx]
         kws = extract_keywords(sample_texts, topk=8)
@@ -1909,6 +2725,7 @@ def build_bucket_from_df(
             "bucket": bucket_key,
             "time_start": tmin.isoformat(timespec="seconds"),
             "time_end": tmax.isoformat(timespec="seconds"),
+            "representative_article_id": int(rep_row.get("id") or 0),
             "representative_title": generated_title,
             "source_representative_title": source_rep_title,
             "representative_url": str(rep_row.get("url", "")),
@@ -1931,6 +2748,9 @@ def build_bucket_from_df(
             for i in ordered:
                 r = df1.loc[i]
                 arts.append({
+                    "id": int(r.get("id") or 0),
+                    "article_id": int(r.get("id") or 0),
+                    "is_representative": bool(int(i) == int(rep)),
                     "domain": str(r.get("domain", "")),
                     "date": str(r.get("date", "")),
                     "category": str(r.get("category", "")),
@@ -2281,6 +3101,13 @@ def _extract_article_ids_from_issue(issue: dict) -> list[int]:
     raw_article_ids = issue.get("article_ids", []) or []
 
     article_ids = []
+    rep_article_id = issue.get("representative_article_id")
+    if rep_article_id is not None:
+        try:
+            article_ids.append(int(rep_article_id))
+        except Exception:
+            pass
+
     if raw_article_ids:
         for x in raw_article_ids:
             try:
@@ -2359,6 +3186,14 @@ def _resolve_representative_article_id(issue: dict, article_ids: list[int]) -> i
     if not cleaned:
         return None
 
+    explicit_rep_id = issue.get("representative_article_id")
+    try:
+        explicit_rep_id = int(explicit_rep_id)
+    except Exception:
+        explicit_rep_id = None
+    if explicit_rep_id and explicit_rep_id in cleaned:
+        return int(explicit_rep_id)
+
     rep_url = str(issue.get("representative_url", "")).strip()
     if rep_url:
         rep_article_id = find_article_id_by_url(rep_url)
@@ -2366,6 +3201,19 @@ def _resolve_representative_article_id(issue: dict, article_ids: list[int]) -> i
             return int(rep_article_id)
 
     arts = issue.get("articles") or []
+    for a in arts:
+        if not isinstance(a, dict):
+            continue
+        if not bool(a.get("is_representative")):
+            continue
+        candidate_id = a.get("id") or a.get("article_id") or a.get("doc_id")
+        try:
+            candidate_id = int(candidate_id)
+        except Exception:
+            candidate_id = None
+        if candidate_id and candidate_id in cleaned:
+            return candidate_id
+
     for a in arts:
         if not isinstance(a, dict):
             continue
@@ -2421,12 +3269,19 @@ def _sync_issue_summary_articles(cur, issue_summary_id: int, representative_arti
 
 def upsert_issue_summary(issue: dict) -> int:
     raw_lines = issue.get("summary_lines", []) or []
-    cleaned_lines = [
-        clean_html_text(x)
-        for x in raw_lines
-        if clean_html_text(x)
-    ]
-    short_summary = "\n".join(cleaned_lines).strip()
+    short_summary = build_issue_short_summary(
+        representative_title=clean_html_text(issue.get("representative_title", "") or ""),
+        representative_content="",
+        articles=issue.get("articles", []) or [],
+        stored_short_summary="\n".join(
+            compact_summary_lines(
+                raw_lines,
+                max_lines=SUMMARY_SHORT_TARGET_LINES,
+                max_chars=SUMMARY_SHORT_MAX_CHARS,
+            )
+        ),
+        max_lines=SUMMARY_SHORT_TARGET_LINES,
+    )
 
     ultra_short = clean_html_text(issue.get("representative_title", "") or "")
     keywords_json = json.dumps(issue.get("keywords", []) or [], ensure_ascii=False)
@@ -2559,6 +3414,12 @@ def rows_to_article_df(rows: list[dict]) -> pd.DataFrame:
     for col in ["thumbnail", "category", "title", "content", "url"]:
         if col in df.columns:
             df[col] = df[col].where(df[col].notna(), "")
+
+    if "content" in df.columns:
+        df["content"] = [
+            sanitize_summary_source_text(content, title=title)
+            for title, content in zip(df["title"].astype(str), df["content"].astype(str))
+        ]
 
     return df[["id", "url", "title", "thumbnail", "content", "date", "category", "_dt", "domain"]]
 
@@ -2989,6 +3850,7 @@ def get_issues(
     limit: int = 6
 ):
     limit = max(1, min(int(limit or 6), 50))
+    fetch_limit = min(max(int(limit) * 10, int(limit)), 300)
 
     conn = get_conn()
     try:
@@ -3038,7 +3900,7 @@ def get_issues(
                 sql += " WHERE " + " AND ".join(where_clauses)
 
             sql += " ORDER BY a.published_at DESC, s.created_at DESC LIMIT %s "
-            params.append(limit)
+            params.append(fetch_limit)
 
             print("[/issues] SQL =", sql)
             print("[/issues] params =", params)
@@ -3051,6 +3913,12 @@ def get_issues(
 
         for r in rows:
             issue_summary_id = int(r.get("issue_summary_id") or 0)
+            representative_title = clean_html_text(r.get("title") or "")
+            representative_content = sanitize_summary_source_text(
+                r.get("content") or "",
+                title=representative_title,
+            )
+            representative_category = str(r.get("category") or "")
 
             related_articles = []
             if issue_summary_id > 0:
@@ -3084,7 +3952,10 @@ def get_issues(
                         "title": clean_html_text(x.get("title") or ""),
                         "url": x.get("url") or "",
                         "thumbnail": x.get("thumbnail") or "",
-                        "content": clean_html_text(x.get("content") or ""),
+                        "content": sanitize_summary_source_text(
+                            x.get("content") or "",
+                            title=clean_html_text(x.get("title") or ""),
+                        ),
                         "category": x.get("category") or "기타",
                         "published_at": str(x.get("published_at") or ""),
                         "sort_order": int(x.get("sort_order") or 0),
@@ -3093,28 +3964,79 @@ def get_issues(
                     for x in related_rows
                 ]
 
+            display_articles = filter_issue_articles_for_display(
+                representative_title=representative_title,
+                representative_content=representative_content,
+                representative_category=representative_category,
+                articles=related_articles or [
+                    {
+                        "id": int(r.get("article_id") or 0),
+                        "article_id": int(r.get("article_id") or 0),
+                        "title": representative_title,
+                        "url": r.get("url") or "",
+                        "thumbnail": r.get("thumbnail") or "",
+                        "content": representative_content,
+                        "category": representative_category,
+                        "published_at": str(r.get("published_at") or ""),
+                        "sort_order": 0,
+                        "is_representative": True,
+                    }
+                ],
+                min_articles=1 if article_id is not None else 2,
+                max_articles=MAX_RELATED_ARTICLES,
+            )
+
+            if not display_articles:
+                print(
+                    f"[/issues] skipped incoherent issue_summary_id={issue_summary_id} "
+                    f"article_id={int(r.get('article_id') or 0)}"
+                )
+                continue
+
+            summary_articles = display_articles or [
+                {
+                    "title": representative_title,
+                    "content": representative_content,
+                    "is_representative": True,
+                }
+            ]
+            response_short_summary = build_issue_short_summary(
+                representative_title=representative_title,
+                representative_content=representative_content,
+                articles=summary_articles,
+                stored_short_summary=str(r.get("short_summary") or ""),
+                max_lines=SUMMARY_SHORT_TARGET_LINES,
+            )
+            response_ultra_short = (
+                str(response_short_summary).split("\n", 1)[0].lstrip("- ").strip()
+                or _compact_title_summary(representative_title, max_chars=64)
+            )
+
             items.append({
                 "id": issue_summary_id,
                 "issue_summary_id": issue_summary_id,
                 "article_id": int(r.get("article_id") or 0),  # 대표 기사 id
-                "category": r.get("category") or "기타",
-                "title": clean_html_text(r.get("title") or ""),  # 대표 기사 제목
+                "category": representative_category or "기타",
+                "title": representative_title,  # 대표 기사 제목
                 "url": r.get("url") or "",
                 "thumbnail": r.get("thumbnail") or "",          # 대표 기사 썸네일
-                "content": clean_html_text(r.get("content") or ""),  # 대표 기사 본문
-                "summary": clean_html_text(r.get("ultra_short") or ""),
-                "short_summary": clean_html_text(r.get("short_summary") or ""),  # 이슈 전체 요약
-                "ultra_short": clean_html_text(r.get("ultra_short") or ""),
+                "content": representative_content,  # 대표 기사 본문
+                "summary": response_ultra_short,
+                "short_summary": response_short_summary,  # 이슈 전체 요약
+                "ultra_short": response_ultra_short,
                 "background": clean_html_text(r.get("background") or ""),
-                "related_count": int(r.get("related_count") or len(related_articles) or 1),
-                "related_articles": related_articles,
-                "article_ids": [x["article_id"] for x in related_articles],
+                "related_count": int(len(display_articles) or 1),
+                "related_articles": display_articles,
+                "article_ids": [x["article_id"] for x in display_articles],
                 "keywords": r.get("keywords"),
                 "created_at": str(r.get("created_at") or ""),
                 "published_at": str(r.get("published_at") or ""),
             })
 
-        return {"items": items}
+            if article_id is None and len(items) >= int(limit):
+                break
+
+        return {"items": items[: int(limit)]}
 
     finally:
         conn.close()

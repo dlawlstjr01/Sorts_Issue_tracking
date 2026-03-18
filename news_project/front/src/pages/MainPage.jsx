@@ -56,6 +56,36 @@ const THUMB = {
   sports: "https://images.unsplash.com/photo-1521412644187-c49fa049e84d",
 };
 
+const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
+
+function splitBulletSummary(value) {
+  const raw = String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .trim();
+
+  if (!raw) return [];
+
+  const hasBullet = /(^|\n|\s)-\s+\S/.test(raw);
+  const chunks = raw
+    .split(/\n+/)
+    .flatMap((chunk) => {
+      const trimmed = String(chunk || "").trim();
+      if (!trimmed) return [];
+      return hasBullet ? trimmed.split(/\s+(?=-\s+)/g) : [trimmed];
+    })
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+
+  if (!hasBullet) {
+    return chunks;
+  }
+
+  return chunks
+    .map((line) => line.replace(/^\s*-\s*/, "").trim())
+    .filter(Boolean)
+    .map((line) => `- ${line}`);
+}
+
 const CATEGORY_RULES = {
   politics: ["국회", "대통령", "총리", "정당", "선거", "공천", "탄핵", "외교", "정부", "장관", "의원", "정책", "국정"],
   economy: [
@@ -1326,6 +1356,9 @@ export default function MainPage() {
                     };
                   })
                   : [];
+                const currentSummaryLines = splitBulletSummary(
+                  currentIssue?.shortSummary || article.summary?.[0] || SUMMARY_FALLBACK
+                );
 
                 return (
                   <section
@@ -1373,9 +1406,27 @@ export default function MainPage() {
                           }
                         }}
                       >
-                        <p className="mp-summary-line">
-                          {currentIssue?.shortSummary || article.summary?.[0] || "요약 정보가 없습니다."}
-                        </p>
+                        {currentSummaryLines.length ? (
+                          currentSummaryLines.map((line, index) => (
+                            <div
+                              key={`${article.id}-summary-${index}`}
+                              className="mp-summary-line"
+                            >
+                              {String(line || "").trim().startsWith("- ") ? (
+                                <>
+                                  <span className="mp-summary-marker">-</span>
+                                  <span className="mp-summary-text">
+                                    {String(line || "").replace(/^\s*-\s*/, "").trim()}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="mp-summary-text">{line}</span>
+                              )}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="mp-summary-line">{SUMMARY_FALLBACK}</p>
+                        )}
                       </div>
 
                       <div className="mp-actions">

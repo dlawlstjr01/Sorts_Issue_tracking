@@ -5,7 +5,6 @@ import axios from "axios";
 import { getNewsById } from "../api/newsApi";
 
 import NoticeModal from "../components/NoticeModal";
-import { toggleArchiveItem, getArchiveKeySet } from "../utils/archiveStorage";
 import { rememberArticleDetail } from "../utils/articleDetail";
 import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
 
@@ -499,7 +498,7 @@ export default function MainPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
   const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
-  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
+  const [archiveKeys, setArchiveKeys] = useState(new Set());
 
   useEffect(() => {
     const loadMe = async () => {
@@ -857,14 +856,95 @@ export default function MainPage() {
     }
   }, []);
 
-  const onSaveArticle = (article) => {
-    const source = article?.raw || article;
-    const next = toggleArchiveItem(source);
-    setArchiveKeys(getArchiveKeySet());
-    setNoticeModal({
-      open: true,
-      message: next ? "저장되었습니다." : "저장이 해제되었습니다.",
-    });
+  useEffect(() => {
+    const loadArchiveKeys = async () => {
+      if (!userId) {
+        setArchiveKeys(new Set());
+        return;
+      }
+
+      try {
+        const res = await axios.get("/issue-archives/my/keys", {
+          withCredentials: true,
+        });
+
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        setArchiveKeys(new Set(items.map(String)));
+      } catch (e) {
+        console.error("[issue-archives/my/keys] failed:", e);
+        setArchiveKeys(new Set());
+      }
+    };
+
+    loadArchiveKeys();
+  }, [userId]);
+
+  const onSaveArticle = async (article) => {
+    if (!userId) {
+      setNoticeModal({
+        open: true,
+        message: "로그인 후 저장할 수 있습니다.",
+      });
+      return;
+    }
+
+    const issueSummaryId =
+      article?.issueSummaryId ||
+      article?.raw?.issueSummaryId ||
+      article?.raw?.id ||
+      null;
+
+    if (!issueSummaryId) {
+      setNoticeModal({
+        open: true,
+        message: "저장할 이슈 정보를 찾을 수 없습니다.",
+      });
+      return;
+    }
+
+    const key = String(issueSummaryId);
+
+    try {
+      if (archiveKeys.has(key)) {
+        await axios.delete(`/issue-archives/${issueSummaryId}`, {
+          withCredentials: true,
+        });
+
+        setArchiveKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+
+        setNoticeModal({
+          open: true,
+          message: "저장이 해제되었습니다.",
+        });
+      } else {
+        await axios.post(
+          `/issue-archives/${issueSummaryId}`,
+          {},
+          { withCredentials: true }
+        );
+
+        setArchiveKeys((prev) => {
+          const next = new Set(prev);
+          next.add(key);
+          return next;
+        });
+
+        setNoticeModal({
+          open: true,
+          message: "저장되었습니다.",
+        });
+      }
+    } catch (e) {
+      console.error("[onSaveArticle] failed:", e);
+      setNoticeModal({
+        open: true,
+        message: e?.response?.data?.message || "저장 처리 중 오류가 발생했습니다.",
+      });
+    }
   };
 
   const openShareModal = (article) => {
@@ -959,19 +1039,14 @@ export default function MainPage() {
     activeIssueArticle?.thumbnailUrl || selectedArticle?.thumbnailUrl || "";
 
   const isSaved = useMemo(() => {
-    if (!currentCenterArticle) return false;
-    const source = currentCenterArticle?.raw || currentCenterArticle;
-    const key =
-      String(
-        source?.id ??
-        source?.article_id ??
-        source?.news_id ??
-        source?.url ??
-        source?.title ??
-        ""
-      ).trim();
-    return archiveKeys.has(key);
-  }, [currentCenterArticle, archiveKeys]);
+    const issueSummaryId =
+      selectedArticle?.issueSummaryId ||
+      selectedArticle?.raw?.id ||
+      null;
+
+    if (!issueSummaryId) return false;
+    return archiveKeys.has(String(issueSummaryId));
+  }, [selectedArticle, archiveKeys]);
 
   return (
     <div className="mp-wrap">
@@ -1149,7 +1224,7 @@ export default function MainPage() {
                           type="button"
                           onClick={() => onSaveArticle(article)}
                         >
-                          저장
+                          {archiveKeys.has(String(article.issueSummaryId)) ? "저장 해제" : "저장"}
                         </button>
 
                         <button

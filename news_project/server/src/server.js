@@ -12,6 +12,7 @@ const recoRoutes = require("./routes/recoRoutes");
 const userLogRoutes = require("./routes/userLogRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
 const { startCrawler } = require("./services/crawlerService");
+const issueArchiveRoutes = require("./routes/issueArchiveRoutes");
 const ENABLE_CRAWLER =
   String(process.env.ENABLE_CRAWLER || "true").toLowerCase() === "true";
 
@@ -34,12 +35,15 @@ if (ENABLE_CRAWLER) {
 }
 initPassport();
 //  /auth/login, /auth/me, /auth/logout
+
 app.use("/auth", authRoutes);
 app.use("/news", newsRoutes);
 app.use("/reco", recoRoutes);
 app.use("/log", userLogRoutes);
 app.get("/health", (req, res) => res.json({ ok: true }));
 app.use("/tracking", trackingRoutes);
+app.use("/issue-archives", issueArchiveRoutes);
+app.use("/user-log", userLogRoutes);
 
 const PORT = process.env.PORT || 5000;
 

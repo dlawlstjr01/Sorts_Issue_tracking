@@ -18,4 +18,10 @@ const requireAuth = (req, res, next) => {
 router.post("/", requireAuth, userLogController.createLog);
 router.put("/:logId", requireAuth, userLogController.updateLog);
 
+// 최근 본 기사 전체 정보 조회
+router.get("/recent", requireAuth, userLogController.getRecentSeenArticles);
+
+// 최근 본 기사 ID만 조회
+router.get("/recent-ids", requireAuth, userLogController.getRecentSeenArticleIds);
+
 module.exports = router;

@@ -352,24 +352,42 @@ def count_hangul(text: str) -> int:
     return len(re.findall(r"[가-힣]", str(text)))
 
 
+def count_english(text: str) -> int:
+    if not text:
+        return 0
+    return len(re.findall(r"[A-Za-z]", str(text)))
+
+
 def has_korean_article_signal(title: str, content: str) -> bool:
+    """
+    영어 기사 + 한국어 UI/메뉴가 섞인 페이지를 최대한 차단하기 위한 강화 판정
+    """
     title = clean_text(title)
     content = clean_text(content)
 
     title_h = count_hangul(title)
     content_h = count_hangul(content)
-    merged_h = count_hangul(f"{title} {content[:3000]}")
 
-    if title_h >= 1 and content_h >= 20:
-        return True
+    title_e = count_english(title)
+    content_e = count_english(content)
 
-    if content_h >= 50:
-        return True
+    # 제목에 한글이 거의 없으면 탈락
+    if title_h < 2:
+        return False
 
-    if merged_h >= 40:
-        return True
+    # 본문 한글이 너무 적으면 탈락
+    if content_h < 100:
+        return False
 
-    return False
+    # 본문이 영어 우세면 탈락
+    if content_e > content_h * 1.5:
+        return False
+
+    # 제목이 영어 우세면 탈락
+    if title_e > title_h * 2:
+        return False
+
+    return True
 
 
 def domain_matches(domain: str, allow_domains: set[str]) -> bool:
@@ -576,9 +594,9 @@ def extract_page_text(soup: BeautifulSoup):
         else:
             ps = soup.find_all("p")
             if ps:
-                text = " ".join(p.get_text(" ", strip=True) for p in ps[:100])
+                text = " ".join(p.get_text(" ", strip=True) for p in ps[:40])
             else:
-                text = soup.get_text(" ", strip=True)
+                return None
 
     text = clean_text(text)
     if not text:
@@ -664,6 +682,16 @@ def fetch_page_meta(url: str, allow_domains: set[str]) -> dict:
         thumbnail = extract_page_image(soup)
         content = clean_text(extract_page_text(soup) or "") if FETCH_ARTICLE_TEXT else ""
 
+        # 제목이 거의 영어면 바로 차단
+        if count_hangul(title) < 2 and count_english(title) >= 10:
+            _meta_cache[cache_key] = result
+            return result
+
+        # 본문이 영어 우세면 바로 차단
+        if count_english(content) > max(count_hangul(content) * 2, 200):
+            _meta_cache[cache_key] = result
+            return result
+
         if not has_korean_article_signal(title, content):
             print(
                 "[crawler] non-korean fail",
@@ -671,7 +699,9 @@ def fetch_page_meta(url: str, allow_domains: set[str]) -> dict:
                     "url": final_url,
                     "title_preview": title[:100],
                     "title_hangul": count_hangul(title),
+                    "title_english": count_english(title),
                     "content_hangul": count_hangul(content),
+                    "content_english": count_english(content),
                     "content_preview": content[:150],
                 },
                 flush=True
@@ -1030,6 +1060,10 @@ def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
                 skipped_no_title += 1
                 continue
 
+            if not has_korean_article_signal(title, content):
+                skipped_non_korean += 1
+                continue
+
             if content and len(content) < MIN_CONTENT_LEN and len(title) < 8:
                 skipped_short_content += 1
                 continue
@@ -1140,6 +1174,10 @@ def upsert_articles(items: list[dict]):
         content = clean_text(it.get("content") or "")
 
         if not title:
+            continue
+
+        # 저장 직전 마지막 한국어 기사 재검사
+        if not has_korean_article_signal(title, content):
             continue
 
         thumb = it.get("thumbnail") or None

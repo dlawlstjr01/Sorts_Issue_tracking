@@ -227,7 +227,7 @@ export default function ArchivePage() {
   const [error, setError] = useState("");
 
   const [page, setPage] = useState(1);
-  const size = 8;
+  const pageSize = 10;
 
   const confirmActionRef = useRef(null);
   const [confirmModal, setConfirmModal] = useState({

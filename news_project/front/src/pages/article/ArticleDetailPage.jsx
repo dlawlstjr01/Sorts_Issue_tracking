@@ -38,17 +38,70 @@ function extractHost(rawUrl) {
   }
 }
 
-function splitParagraphs(article) {
-  const parts = [article?.content, article?.summary, article?.description]
-    .filter(Boolean)
-    .join("\n\n")
-    .replace(/\r/g, "");
+function isLikelyReporterLine(line) {
+  const text = String(line || "").replace(/\s+/g, " ").trim();
+  if (!text) return true;
 
-  if (!parts) return [];
-  return parts
+  if (/^[가-힣]{2,5}\s*기자$/.test(text)) return true;
+  if (/^(디지털랩|디지털뉴스팀|온라인뉴스팀|뉴스팀|편집국)$/i.test(text)) return true;
+  if (/기자\s*$/.test(text) && text.length <= 24) return true;
+
+  return false;
+}
+
+function isSentenceLikeLine(line) {
+  const text = String(line || "").trim();
+  if (!text) return false;
+  if (/[.!?。！？…]/.test(text)) return true;
+  if (text.length >= 14 && /다$/.test(text)) return true;
+  return false;
+}
+
+function looksLikeTailNoise(lines, startIndex) {
+  const window = lines.slice(startIndex, startIndex + 5);
+  if (window.length < 4) return false;
+
+  const nonSentenceCount = window.filter((line) => !isSentenceLikeLine(line)).length;
+  return nonSentenceCount >= 4;
+}
+
+function splitParagraphs(article) {
+  const content = String(article?.content ?? article?.body ?? "").replace(/\r/g, "");
+  if (!content.trim()) return [];
+
+  const rawLines = content
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean);
+
+  const deduped = [];
+  const seen = new Set();
+
+  for (const line of rawLines) {
+    if (isLikelyReporterLine(line)) continue;
+    if (/^(관련기사|태그|키워드|해시태그)$/i.test(line)) continue;
+
+    const key = line.replace(/\s+/g, " ").trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(line);
+  }
+
+  const cleaned = [];
+
+  for (let i = 0; i < deduped.length; i += 1) {
+    const line = deduped[i];
+    if (!line) continue;
+
+    if (looksLikeTailNoise(deduped, i)) {
+      const meaningfulCount = cleaned.filter((item) => isSentenceLikeLine(item)).length;
+      if (meaningfulCount >= 3) break;
+    }
+
+    cleaned.push(line);
+  }
+
+  return cleaned.length > 0 ? cleaned : deduped;
 }
 
 function resolveBackTarget(location, fallback) {

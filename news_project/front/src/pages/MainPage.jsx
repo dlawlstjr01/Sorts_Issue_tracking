@@ -1173,12 +1173,21 @@ export default function MainPage() {
                       >
                         {currentSummaryLines.length ? (
                           currentSummaryLines.map((line, index) => (
-                            <p
+                            <div
                               key={`${article.id}-summary-${index}`}
                               className="mp-summary-line"
                             >
-                              {line}
-                            </p>
+                              {String(line || "").trim().startsWith("- ") ? (
+                                <>
+                                  <span className="mp-summary-marker">-</span>
+                                  <span className="mp-summary-text">
+                                    {String(line || "").replace(/^\s*-\s*/, "").trim()}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="mp-summary-text">{line}</span>
+                              )}
+                            </div>
                           ))
                         ) : (
                           <p className="mp-summary-line">{SUMMARY_FALLBACK}</p>

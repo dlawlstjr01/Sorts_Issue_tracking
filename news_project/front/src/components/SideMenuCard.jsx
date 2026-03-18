@@ -65,8 +65,7 @@ function IconSupport(props) {
 const MENU_ITEMS = [
   { key: "main", label: "홈", icon: <IconHome /> },
   { key: "article-list", label: "기사 목록", icon: <IconList /> },
-  { key: "issues", label: "이슈 추적", icon: <IconIssues /> },
-  { key: "reports", label: "요약/리포트", icon: <IconReports /> },
+  { key: "issue-report", label: "이슈추적/리포트", icon: <IconReports /> },
   { key: "archive", label: "아카이브", icon: <IconArchive /> },
   { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];
@@ -156,8 +155,15 @@ export default function SideMenuCard({
   const isItemActive = (key) => {
     if (key === "main") return view === "main";
     if (key === "article-list") return view === "article-list";
-    if (key === "issues") return view === "issues" || view === "issue";
-    if (key === "reports") return view === "reports" || view === "report";
+    if (key === "issue-report") {
+      return (
+        view === "issue-report" ||
+        view === "issues" ||
+        view === "issue" ||
+        view === "reports" ||
+        view === "report"
+      );
+    }
     return view === key || view.startsWith(`${key}-`);
   };
 

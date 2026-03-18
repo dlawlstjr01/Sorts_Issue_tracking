@@ -392,7 +392,7 @@ export default function ArchivePage() {
 
   // ✅ 페이지네이션
   const [page, setPage] = useState(1);
-  const size = 8;
+  const pageSize = 10;
 
   // ✅ 관심 키워드 버튼: 숫자는 렌더 시 실제 기사 개수로 계산한다.
   const keywordItems = useMemo(
@@ -597,20 +597,21 @@ export default function ArchivePage() {
         : [...items].sort((a, b) => getSortValue(b) - getSortValue(a));
 
     // ✅ 간단한 프론트 페이지네이션(slice)
-    const start = (page - 1) * size;
-    const end = start + size;
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
     return { items: sorted.slice(start, end), total: sorted.length };
-  }, [listItems, query, sort, page, size]);
+  }, [listItems, query, sort, page, pageSize]);
 
   const filtered = filteredResult.items;
   const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(filteredResult.total / size)),
-    [filteredResult.total, size]
+    () => Math.max(1, Math.ceil(filteredResult.total / pageSize)),
+    [filteredResult.total, pageSize]
   );
 
   useEffect(() => {
+    if (activeTab === "keywords") return;
     if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
+  }, [page, totalPages, activeTab]);
 
   // ✅ 관심 키워드 탭/알림은 메인페이지 실시간 이슈 기사 소스를 기준으로 동작한다.
   const keywordArticlePool = useMemo(() => {
@@ -677,6 +678,22 @@ export default function ArchivePage() {
       ? searched.sort((a, b) => sortValue(a) - sortValue(b))
       : searched.sort((a, b) => sortValue(b) - sortValue(a));
   }, [query, activeKeyword, sort, keywordArticlePool, keywordMatchOnly]);
+
+  const keywordTotalPages = useMemo(
+    () => Math.max(1, Math.ceil(keywordFiltered.length / pageSize)),
+    [keywordFiltered.length, pageSize]
+  );
+
+  const keywordPagedItems = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    const end = start + pageSize;
+    return keywordFiltered.slice(start, end);
+  }, [keywordFiltered, page, pageSize]);
+
+  useEffect(() => {
+    if (activeTab !== "keywords") return;
+    if (page > keywordTotalPages) setPage(keywordTotalPages);
+  }, [page, keywordTotalPages, activeTab]);
 
   useEffect(() => {
     const prev = keywordStatusSignaturesRef.current;
@@ -805,6 +822,7 @@ export default function ArchivePage() {
 
     setInterestKeywords((prev) => [...prev, keyword]);
     setActiveKeyword(keyword);
+    setPage(1);
     setKeywordInput("");
     setKeywordToast(`관심 키워드 [${keyword}]를 등록했습니다.`);
   };
@@ -819,6 +837,7 @@ export default function ArchivePage() {
     setInterestKeywords((prev) =>
       prev.filter((item) => String(item || "").toLowerCase() !== String(keyword).toLowerCase())
     );
+    setPage(1);
     setKeywordToast(`관심 키워드 [${keyword}]를 삭제했습니다.`);
   };
 
@@ -1370,7 +1389,10 @@ export default function ArchivePage() {
                   <input
                     type="checkbox"
                     checked={keywordMatchOnly}
-                    onChange={(event) => setKeywordMatchOnly(event.target.checked)}
+                    onChange={(event) => {
+                      setKeywordMatchOnly(event.target.checked);
+                      setPage(1);
+                    }}
                   />
                   <span>매칭 기사만 보기</span>
                 </label>
@@ -1385,7 +1407,10 @@ export default function ArchivePage() {
                     <motion.button
                       type="button"
                       className={`archive-keyword ${activeKeyword === k.label ? "active" : ""}`}
-                      onClick={() => setActiveKeyword(k.label)}
+                      onClick={() => {
+                        setActiveKeyword(k.label);
+                        setPage(1);
+                      }}
                       whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
                       whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
                       transition={
@@ -1425,17 +1450,38 @@ export default function ArchivePage() {
               )}
 
               <div key={activeKeyword} className="archive-keyword-list is-animated">
-                {keywordFiltered.map((item) =>
+                {keywordPagedItems.map((item) =>
                   renderArchiveCard({
                     item,
                     showLiveBadge: true,
                   })
                 )}
-                {keywordFiltered.length === 0 && (
+                {keywordPagedItems.length === 0 && (
                   <div className="archive-empty">
                     {keywordMatchOnly
                       ? "조건에 맞는 키워드 기사가 없습니다."
                       : "표시할 기사가 없습니다."}
+                  </div>
+                )}
+
+                {keywordFiltered.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
+                    <button
+                      type="button"
+                      className="mp-btn"
+                      disabled={page <= 1}
+                      onClick={() => setPage((p) => p - 1)}
+                    >
+                      이전
+                    </button>
+                    <button
+                      type="button"
+                      className="mp-btn"
+                      disabled={page >= keywordTotalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                    >
+                      다음
+                    </button>
                   </div>
                 )}
               </div>

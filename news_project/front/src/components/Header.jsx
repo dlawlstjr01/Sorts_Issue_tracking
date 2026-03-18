@@ -77,6 +77,181 @@ function IconLogout(props) {
   );
 }
 
+function IconBell(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" {...props}>
+      <path
+        d="M12 22a2.5 2.5 0 0 0 2.45-2h-4.9A2.5 2.5 0 0 0 12 22Zm7-4V17l-1.5-1.5V11a5.5 5.5 0 0 0-4.5-5.4V4a1 1 0 1 0-2 0v1.6A5.5 5.5 0 0 0 6.5 11v4.5L5 17v1h14Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+const INTEREST_KEYWORD_STORAGE_KEYS = [
+  "archiveInterestKeywords",
+  "interestKeywords",
+  "myInterestKeywords",
+  "userInterestKeywords",
+  "preferredKeywords",
+];
+const NOTIFY_FETCH_LIMIT = 80;
+const NOTIFY_POLL_INTERVAL_MS = 12000;
+const NOTIFY_MAX_ITEMS = 20;
+
+function toEpoch(value) {
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function buildNotificationSearchText(candidate) {
+  return [candidate?.title, candidate?.summary]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function buildNotificationSignature(candidate) {
+  return [
+    String(candidate?.key || ""),
+    String(candidate?.updatedAt || ""),
+    String(candidate?.title || ""),
+    String(candidate?.summary || ""),
+  ].join("::");
+}
+
+function mergeNotificationItems(nextItems, prevItems) {
+  const dedupe = new Set();
+  const merged = [];
+
+  [...nextItems, ...prevItems].forEach((item) => {
+    const dedupeKey = String(item?.articleKey || item?.id || "");
+    if (!dedupeKey || dedupe.has(dedupeKey)) return;
+    dedupe.add(dedupeKey);
+    merged.push(item);
+  });
+
+  return merged.slice(0, NOTIFY_MAX_ITEMS);
+}
+
+function normalizeKeywordList(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const keywords = [];
+  value.forEach((item) => {
+    const raw =
+      typeof item === "string"
+        ? item
+        : item && typeof item === "object"
+          ? item.label ?? item.keyword ?? item.name ?? ""
+          : "";
+    const keyword = String(raw || "").trim();
+    const dedupe = keyword.toLowerCase();
+    if (!keyword || seen.has(dedupe)) return;
+    seen.add(dedupe);
+    keywords.push(keyword);
+  });
+  return keywords;
+}
+
+function readStoredInterestKeywords() {
+  if (typeof window === "undefined") return [];
+  for (const key of INTEREST_KEYWORD_STORAGE_KEYS) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const normalized = normalizeKeywordList(parsed);
+      if (normalized.length > 0) return normalized;
+    } catch {
+      // ignore malformed values
+    }
+  }
+  return [];
+}
+
+function mapIssueToNotificationCandidate(issue) {
+  const relatedArticles = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  const representative =
+    relatedArticles.find(
+      (article) =>
+        Number(article?.is_representative || 0) === 1 ||
+        String(article?.id || article?.article_id || "") === String(issue?.article_id || "")
+    ) || relatedArticles[0] || null;
+
+  const title = String(representative?.title || issue?.title || "").trim();
+  const summary = String(
+    issue?.short_summary ||
+      issue?.ultra_short ||
+      issue?.summary ||
+      representative?.short_summary ||
+      representative?.ultra_short ||
+      representative?.summary ||
+      representative?.description ||
+      ""
+  ).trim();
+
+  const updatedAt =
+    issue?.updated_at ||
+    representative?.updated_at ||
+    representative?.published_at ||
+    representative?.created_at ||
+    issue?.created_at ||
+    "";
+
+  const articleKey = String(
+    issue?.article_id ||
+      representative?.article_id ||
+      representative?.id ||
+      issue?.id ||
+      `${title}_${updatedAt}`
+  );
+  const articleId = String(
+    representative?.article_id ||
+      representative?.id ||
+      issue?.article_id ||
+      issue?.id ||
+      ""
+  );
+  const thumbnail = String(representative?.thumbnail || representative?.thumbnail_url || representative?.thumbnailUrl || "").trim();
+  const pressName = String(representative?.press_name || representative?.press || issue?.press_name || issue?.press || "").trim();
+  const publishedAt = String(
+    representative?.published_at ||
+      representative?.created_at ||
+      issue?.published_at ||
+      issue?.created_at ||
+      updatedAt ||
+      ""
+  );
+
+  return {
+    key: articleKey,
+    articleId,
+    title: title || "제목 없음",
+    summary,
+    updatedAt: String(updatedAt || ""),
+    publishedAt,
+    category: String(representative?.category || issue?.category || ""),
+    thumbnail,
+    pressName,
+    url: String(representative?.url || issue?.url || ""),
+  };
+}
+
+function formatRelativeTime(value) {
+  const ts = new Date(value).getTime();
+  if (!Number.isFinite(ts)) return "방금";
+  const diffSec = Math.max(1, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return `${diffSec}초 전`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+  const diffDay = Math.floor(diffHour / 24);
+  return `${diffDay}일 전`;
+}
+
 export default function Header() {
   const NAV_DRAG_ACTIVATION_PX = 14;
   const NAV_DRAG_ACTIVATION_ON_ITEM_PX = 24;
@@ -84,6 +259,7 @@ export default function Header() {
   const navigate = useNavigate();
   const location = useLocation();
   const navRef = useRef(null);
+  const notifyAnchorRef = useRef(null);
   const navClickSuppressUntilRef = useRef(0);
   const navDragRef = useRef({
     active: false,
@@ -101,16 +277,22 @@ export default function Header() {
   }, [location.search]);
 
   const activeView = useMemo(() => {
-    if (view === "issue") return "issues";
-    if (view === "report") return "reports";
+    if (
+      view === "issue-report" ||
+      view === "issues" ||
+      view === "issue" ||
+      view === "reports" ||
+      view === "report"
+    ) {
+      return "issue-report";
+    }
     return view;
   }, [view]);
 
   const menu = useMemo(
     () => [
       { to: "article-list", label: "기사 목록", icon: <IconList /> },
-      { to: "issues", label: "이슈 추적", icon: <IconBox /> },
-      { to: "reports", label: "요약/리포트", icon: <IconChart /> },
+      { to: "issue-report", label: "이슈 추적/리포트", icon: <IconChart /> },
       { to: "archive", label: "아카이브", icon: <IconArchive /> },
       { to: "support", label: "고객센터", icon: <IconSupport /> },
     ],
@@ -128,7 +310,18 @@ export default function Header() {
   // 로그아웃 진행 상태(버튼 잠금 + 텍스트 변경)
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
   const [isNavDragging, setIsNavDragging] = useState(false);
+  const [notifyItems, setNotifyItems] = useState([]);
+  const [notifyUnreadCount, setNotifyUnreadCount] = useState(0);
+  const [notifyLoading, setNotifyLoading] = useState(false);
+  const [notifyHasError, setNotifyHasError] = useState(false);
+  const [notifyKeywordCount, setNotifyKeywordCount] = useState(0);
+  const notifyInitializedRef = useRef(false);
+  const notifySeenSignaturesRef = useRef(new Set());
+  const notifySeenKeysRef = useRef(new Set());
+  const notifyKeywordFingerprintRef = useRef("");
+  const notifyOpenRef = useRef(false);
 
   const stopNavDrag = (pointerId) => {
     const nav = navRef.current;
@@ -220,6 +413,194 @@ export default function Header() {
     refreshAuth();
   }, [location.search]);
 
+  useEffect(() => {
+    setNotifyOpen(false);
+  }, [location.search]);
+
+  useEffect(() => {
+    notifyOpenRef.current = notifyOpen;
+    if (!notifyOpen) return;
+    setNotifyUnreadCount(0);
+    setNotifyItems((prev) => prev.map((item) => (item.isRead ? item : { ...item, isRead: true })));
+  }, [notifyOpen]);
+
+  useEffect(() => {
+    if (auth.loggedIn) return;
+    setNotifyItems([]);
+    setNotifyUnreadCount(0);
+    setNotifyLoading(false);
+    setNotifyHasError(false);
+    setNotifyKeywordCount(0);
+    notifyInitializedRef.current = false;
+    notifySeenSignaturesRef.current = new Set();
+    notifySeenKeysRef.current = new Set();
+    notifyKeywordFingerprintRef.current = "";
+  }, [auth.loggedIn]);
+
+  useEffect(() => {
+    if (!auth.loggedIn) return undefined;
+
+    let mounted = true;
+    let inFlight = false;
+
+    const syncNotifications = async () => {
+      if (inFlight) return;
+      inFlight = true;
+
+      const normalizedKeywords = readStoredInterestKeywords()
+        .map((keyword) => String(keyword || "").trim())
+        .filter(Boolean)
+        .map((keyword) => ({ original: keyword, lower: keyword.toLowerCase() }));
+      const keywordFingerprint = normalizedKeywords
+        .map((item) => item.lower)
+        .sort()
+        .join("|");
+
+      if (keywordFingerprint !== notifyKeywordFingerprintRef.current) {
+        notifyKeywordFingerprintRef.current = keywordFingerprint;
+        notifyInitializedRef.current = false;
+        notifySeenSignaturesRef.current = new Set();
+        notifySeenKeysRef.current = new Set();
+        if (mounted) {
+          setNotifyItems([]);
+          setNotifyUnreadCount(0);
+        }
+      }
+
+      if (mounted) {
+        setNotifyKeywordCount(normalizedKeywords.length);
+      }
+
+      if (normalizedKeywords.length === 0) {
+        if (mounted) {
+          setNotifyHasError(false);
+          setNotifyLoading(false);
+        }
+        notifyInitializedRef.current = true;
+        inFlight = false;
+        return;
+      }
+
+      if (mounted && !notifyInitializedRef.current) {
+        setNotifyLoading(true);
+      }
+
+      try {
+        const res = await axios.get("/tracking/issues", {
+          params: { limit: NOTIFY_FETCH_LIMIT },
+        });
+        if (!mounted) {
+          inFlight = false;
+          return;
+        }
+
+        const sourceItems = res.data?.items || res.data?.issues || res.data?.data || [];
+        const issueItems = Array.isArray(sourceItems) ? sourceItems : [];
+        const mappedCandidates = issueItems
+          .map(mapIssueToNotificationCandidate)
+          .filter((candidate) => candidate && candidate.key);
+
+        const baselineItems = [];
+        const incomingItems = [];
+
+        mappedCandidates.forEach((candidate) => {
+          const searchText = buildNotificationSearchText(candidate);
+          if (!searchText) return;
+
+          const matchedKeywords = normalizedKeywords
+            .filter(({ lower }) => searchText.includes(lower))
+            .map(({ original }) => original);
+          if (matchedKeywords.length === 0) return;
+
+          const signature = buildNotificationSignature(candidate);
+          const articleKey = String(candidate.key || "");
+          const isKnownKey = notifySeenKeysRef.current.has(articleKey);
+          const isKnownSignature = notifySeenSignaturesRef.current.has(signature);
+
+          notifySeenKeysRef.current.add(articleKey);
+          notifySeenSignaturesRef.current.add(signature);
+
+          const nextItem = {
+            id: signature,
+            signature,
+            articleKey,
+            articleId: candidate.articleId,
+            title: candidate.title,
+            summary: candidate.summary,
+            category: candidate.category,
+            updatedAt: candidate.updatedAt,
+            publishedAt: candidate.publishedAt,
+            thumbnail: candidate.thumbnail,
+            pressName: candidate.pressName,
+            url: candidate.url,
+            matchedKeywords,
+            eventType: isKnownKey ? "updated" : "new",
+            isRead: notifyOpenRef.current,
+          };
+
+          if (!notifyInitializedRef.current) {
+            baselineItems.push({ ...nextItem, isRead: true });
+            return;
+          }
+
+          if (isKnownSignature) return;
+          incomingItems.push(nextItem);
+        });
+
+        if (!notifyInitializedRef.current) {
+          const sortedBaseline = baselineItems
+            .sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt))
+            .slice(0, NOTIFY_MAX_ITEMS);
+          setNotifyItems(sortedBaseline);
+          setNotifyUnreadCount(0);
+          notifyInitializedRef.current = true;
+        } else if (incomingItems.length > 0) {
+          const sortedIncoming = incomingItems.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
+          setNotifyItems((prev) => mergeNotificationItems(sortedIncoming, prev));
+          if (!notifyOpenRef.current) {
+            setNotifyUnreadCount((prev) => Math.min(99, prev + sortedIncoming.length));
+          }
+        }
+
+        setNotifyHasError(false);
+      } catch (e) {
+        if (mounted) setNotifyHasError(true);
+      } finally {
+        if (mounted) setNotifyLoading(false);
+        inFlight = false;
+      }
+    };
+
+    syncNotifications();
+    const timer = window.setInterval(syncNotifications, NOTIFY_POLL_INTERVAL_MS);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, [auth.loggedIn]);
+
+  useEffect(() => {
+    if (!notifyOpen) return undefined;
+
+    const handleOutsideClick = (event) => {
+      if (!notifyAnchorRef.current) return;
+      if (!notifyAnchorRef.current.contains(event.target)) {
+        setNotifyOpen(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") setNotifyOpen(false);
+    };
+
+    window.addEventListener("mousedown", handleOutsideClick);
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.removeEventListener("mousedown", handleOutsideClick);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [notifyOpen]);
+
   //  약간 지연
   const handleLogout = async () => {
     if (loggingOut) return;
@@ -242,6 +623,78 @@ export default function Header() {
       go("main");
     }
   };
+
+  const handleMarkAllNotificationsRead = () => {
+    setNotifyUnreadCount(0);
+    setNotifyItems((prev) => prev.map((item) => (item.isRead ? item : { ...item, isRead: true })));
+  };
+
+  const handleNotificationSelect = async (item) => {
+    if (!item) return;
+
+    const wasUnread = !item.isRead;
+    setNotifyItems((prev) =>
+      prev.map((entry) => (entry.id === item.id ? { ...entry, isRead: true } : entry))
+    );
+    if (wasUnread) {
+      setNotifyUnreadCount((prev) => Math.max(0, prev - 1));
+    }
+    setNotifyOpen(false);
+
+    const targetUrl = String(item.url || "").trim();
+    const articleId = String(item.articleId || item.articleKey || item.id || "").trim();
+    const fallbackPayload = {
+      id: articleId || `url:${targetUrl || item.title}`,
+      title: item.title || "제목 없음",
+      content: "",
+      summary: "",
+      description: "",
+      category: item.category || "",
+      thumbnail: item.thumbnail || "",
+      press_name: item.pressName || "",
+      url: targetUrl,
+      published_at: item.publishedAt || item.updatedAt || "",
+      updated_at: item.updatedAt || "",
+      created_at: item.updatedAt || "",
+    };
+    let detailPayload = fallbackPayload;
+
+    if (/^\d+$/.test(articleId)) {
+      try {
+        const res = await axios.get(`/news/${encodeURIComponent(articleId)}`);
+        const fetched = res?.data && typeof res.data === "object" ? res.data : {};
+        detailPayload = {
+          ...fallbackPayload,
+          ...fetched,
+          id: String(fetched?.id ?? articleId),
+        };
+      } catch {
+        // Fallback to minimum payload when article detail fetch fails.
+      }
+    }
+
+    const sp = new URLSearchParams();
+    sp.set("view", "article");
+    sp.set("id", detailPayload.id);
+
+    navigate(
+      { pathname: "/", search: `?${sp.toString()}` },
+      {
+        state: {
+          article: detailPayload,
+          from: `${location.pathname}${location.search}`,
+        },
+      }
+    );
+  };
+
+  const notifyEmptyMessage = notifyHasError
+    ? "알림 목록을 불러오지 못했습니다."
+    : notifyLoading
+      ? "알림 목록을 불러오는 중입니다."
+      : notifyKeywordCount === 0
+        ? "관심 키워드를 등록하면 알림이 표시됩니다."
+        : "관심 키워드와 일치한 신규 기사 알림이 없습니다.";
 
   return (
     <header className="hdr">
@@ -307,6 +760,93 @@ export default function Header() {
                 <IconLogout />
                 <span>{loggingOut ? "로그아웃 중..." : "로그아웃"}</span>
               </button>
+
+              <div className="hdr-notify-anchor" ref={notifyAnchorRef}>
+                <button
+                  className={`hdr-btn hdr-notify-btn ${notifyOpen ? "is-open" : ""}`}
+                  type="button"
+                  aria-label="알림"
+                  aria-expanded={notifyOpen}
+                  onClick={() => setNotifyOpen((prev) => !prev)}
+                  disabled={loggingOut}
+                >
+                  <IconBell />
+                  <span>알림</span>
+                  {notifyUnreadCount > 0 && (
+                    <span className="hdr-notify-badge">
+                      {notifyUnreadCount > 99 ? "99+" : notifyUnreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {notifyOpen && (
+                  <div className="hdr-notify-menu" role="dialog" aria-label="알림 메뉴">
+                    <div className="hdr-notify-head">
+                      <div className="hdr-notify-head-main">
+                        <strong>알림</strong>
+                        {notifyUnreadCount > 0 && (
+                          <span className="hdr-notify-unread">{notifyUnreadCount}건 미확인</span>
+                        )}
+                      </div>
+                      <div className="hdr-notify-head-actions">
+                        {notifyItems.length > 0 && (
+                          <button
+                            type="button"
+                            className="hdr-notify-mark-read"
+                            onClick={handleMarkAllNotificationsRead}
+                          >
+                            전체 읽음
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="hdr-notify-close"
+                          onClick={() => setNotifyOpen(false)}
+                          aria-label="알림 닫기"
+                        >
+                          닫기
+                        </button>
+                      </div>
+                    </div>
+
+                    <ul className="hdr-notify-list">
+                      {notifyItems.length === 0 ? (
+                        <li className="hdr-notify-empty">{notifyEmptyMessage}</li>
+                      ) : (
+                        notifyItems.map((item) => (
+                          <li
+                            key={item.id}
+                            className={`hdr-notify-item ${item.isRead ? "" : "is-unread"}`}
+                          >
+                            <button
+                              type="button"
+                              className="hdr-notify-item-btn"
+                              onClick={() => handleNotificationSelect(item)}
+                            >
+                              <div className="hdr-notify-item-head">
+                                <div className="hdr-notify-title">{item.title}</div>
+                                <span
+                                  className={`hdr-notify-kind ${
+                                    item.eventType === "updated" ? "is-updated" : "is-new"
+                                  }`}
+                                >
+                                  {item.eventType === "updated" ? "업데이트" : "신규"}
+                                </span>
+                              </div>
+                              <div className="hdr-notify-meta">
+                                {formatRelativeTime(item.updatedAt)}
+                                {item.summary
+                                  ? ` · ${item.summary.length > 90 ? `${item.summary.slice(0, 90)}...` : item.summary}`
+                                  : ""}
+                              </div>
+                            </button>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <button className="hdr-btn" type="button" onClick={() => go("login")}>

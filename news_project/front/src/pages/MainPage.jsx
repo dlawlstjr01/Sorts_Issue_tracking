@@ -1009,6 +1009,18 @@ export default function MainPage() {
     }
   }, [displayedArticles, selectedId]);
 
+  const focusArticleInCenter = (article) => {
+    const targetId = String(article?.id || article?.articleId || "").trim();
+    if (!targetId) return;
+
+    setSelectedId(targetId);
+
+    const idx = displayedArticles.findIndex((item) => String(item.id) === targetId);
+    if (idx >= 0) {
+      swiperRef.current?.slideTo(idx, 0);
+    }
+  };
+
   const openOriginal = (article) => {
     const source = article?.raw || article;
     const normalized = rememberArticleDetail(source);
@@ -1079,7 +1091,7 @@ export default function MainPage() {
                     type="button"
                     className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
                     onClick={() => {
-                      openOriginal(a);
+                      focusArticleInCenter(a);
                     }}
                   >
                     <div className="mp-article-item-top">

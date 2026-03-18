@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 
 import IssuesPage from "./issues/IssuesPage";
 import IssueDetailPage from "./issues/IssueDetailPage";
+import IssueReportPage from "./issues/IssueReportPage";
 import ReportsPage from "./reports/ReportsPage";
 import ReportsDetailPage from "./reports/ReportsDetailPage";
 import ArchivePage from "./archive/ArchivePage";
@@ -24,6 +25,7 @@ export default function ViewRouter() {
     return sp.get("view") || "main";
   }, [location.search]);
 
+  if (view === "issue-report") return <IssueReportPage />;
   if (view === "issues") return <IssuesPage />;
   if (view === "issue") return <IssueDetailPage />;
   if (view === "reports") return <ReportsPage />;

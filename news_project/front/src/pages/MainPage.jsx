@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "../CSS/main.css";
 import axios from "axios";
@@ -530,6 +530,10 @@ export default function MainPage() {
   const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
   const [archiveKeys, setArchiveKeys] = useState(new Set());
 
+  const centerScrollRef = useRef(null);
+  const sectionRefs = useRef({});
+  const wheelLockRef = useRef(false);
+
   useEffect(() => {
     const loadMe = async () => {
       try {
@@ -862,6 +866,63 @@ export default function MainPage() {
   const relatedRecoItems = trackRelated;
   const contrastRecoItems = [];
 
+  const moveToArticleByStep = (step) => {
+    if (!displayedArticles.length) return;
+
+    const currentIndex = displayedArticles.findIndex(
+      (a) => String(a.id) === String(selectedId)
+    );
+
+    const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
+    const nextIndex = Math.max(
+      0,
+      Math.min(displayedArticles.length - 1, safeCurrentIndex + step)
+    );
+
+    const nextArticle = displayedArticles[nextIndex];
+    if (!nextArticle) return;
+
+    const nextId = String(nextArticle.id);
+    setSelectedId(nextId);
+    setActiveIssueArticleId(null);
+
+    const targetEl = sectionRefs.current[nextId];
+    if (targetEl) {
+      targetEl.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }
+  };
+
+  const handleCenterWheel = (e) => {
+    const summaryBox = e.target.closest(".mp-summary-scroll");
+    const latestTrack = e.target.closest(".mp-latest-track");
+
+    if (summaryBox || latestTrack) {
+      return;
+    }
+
+    e.preventDefault();
+
+    if (wheelLockRef.current) return;
+
+    const delta = e.deltaY;
+    if (Math.abs(delta) < 8) return;
+
+    wheelLockRef.current = true;
+
+    if (delta > 0) {
+      moveToArticleByStep(1);
+    } else {
+      moveToArticleByStep(-1);
+    }
+
+    setTimeout(() => {
+      wheelLockRef.current = false;
+    }, 700);
+  };
+
   const openOriginal = (article) => {
     const source = article?.raw || article;
     const normalized = rememberArticleDetail(source);
@@ -1158,7 +1219,11 @@ export default function MainPage() {
               {loading ? "불러오는 중..." : "표시할 이슈가 없습니다."}
             </div>
           ) : (
-            <div className="mp-center-scroll">
+            <div
+              className="mp-center-scroll"
+              ref={centerScrollRef}
+              onWheel={handleCenterWheel}
+            >
               {displayedArticles.map((article) => {
                 const isSelected = String(article.id) === String(selectedId);
 
@@ -1201,6 +1266,7 @@ export default function MainPage() {
                     };
                   })
                   : [];
+
                 const currentSummaryLines = splitBulletSummary(
                   currentIssue?.shortSummary || article.summary?.[0] || SUMMARY_FALLBACK
                 );
@@ -1208,6 +1274,9 @@ export default function MainPage() {
                 return (
                   <section
                     key={article.id}
+                    ref={(el) => {
+                      sectionRefs.current[String(article.id)] = el;
+                    }}
                     className={`mp-center-inner ${isSelected ? "active" : ""}`}
                     onMouseEnter={() => setSelectedId(String(article.id))}
                   >

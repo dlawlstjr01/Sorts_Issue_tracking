@@ -1,7 +1,22 @@
 const axios = require("axios");
 
 const BASE_URL = process.env.TRACKING_BASE_URL || "http://tracking:8002";
+const TRACKING_CACHE_TTL_MS = Number(process.env.TRACKING_CACHE_TTL_MS || 15000);
 let warnedFallback = false;
+const issuesCache = new Map();
+const inFlightIssues = new Map();
+
+function buildIssuesCacheKey(params) {
+  return JSON.stringify({
+    category: params.category || "",
+    limit: Number(params.limit || 0),
+    article_id: Number(params.article_id || 0),
+    include_article_content:
+      params.include_article_content === undefined
+        ? null
+        : Number(params.include_article_content),
+  });
+}
 
 function buildBaseCandidates(rawBase) {
   const candidates = [];
@@ -45,34 +60,69 @@ function buildBaseCandidates(rawBase) {
   return candidates;
 }
 
-async function getIssues({ category, limit, article_id }) {
+async function getIssues({ category, limit, article_id, include_article_content }) {
   const params = {};
   if (category) params.category = category;
   if (limit) params.limit = limit;
   if (article_id) params.article_id = article_id;
-
-  const bases = buildBaseCandidates(BASE_URL);
-  let lastError = null;
-
-  for (const base of bases) {
-    try {
-      const res = await axios.get(`${base}/issues`, {
-        params,
-        timeout: 30000,
-      });
-
-      if (base !== BASE_URL && !warnedFallback) {
-        warnedFallback = true;
-        console.warn(`[tracking] fallback base URL used: ${base}`);
-      }
-
-      return res.data;
-    } catch (err) {
-      lastError = err;
-    }
+  if (include_article_content !== undefined) {
+    params.include_article_content = include_article_content;
+  }
+  const cacheKey = buildIssuesCacheKey(params);
+  const now = Date.now();
+  const cached = issuesCache.get(cacheKey);
+  if (cached && now - cached.at < TRACKING_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  if (inFlightIssues.has(cacheKey)) {
+    return inFlightIssues.get(cacheKey);
   }
 
-  throw lastError || new Error("tracking issues fetch failed");
+  const bases = buildBaseCandidates(BASE_URL);
+  const requestPromise = (async () => {
+    let lastError = null;
+
+    for (const base of bases) {
+      try {
+        const res = await axios.get(`${base}/issues`, {
+          params,
+          timeout: 30000,
+        });
+
+        if (base !== BASE_URL && !warnedFallback) {
+          warnedFallback = true;
+          console.warn(`[tracking] fallback base URL used: ${base}`);
+        }
+
+        issuesCache.set(cacheKey, {
+          at: Date.now(),
+          data: res.data,
+        });
+        return res.data;
+      } catch (err) {
+        lastError = err;
+      }
+    }
+
+    throw lastError || new Error("tracking issues fetch failed");
+  })();
+
+  inFlightIssues.set(cacheKey, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inFlightIssues.delete(cacheKey);
+  }
 }
 
-module.exports = { getIssues };
+function warmIssuesCache() {
+  return getIssues({
+    limit: 24,
+    include_article_content: 0,
+  }).catch((err) => {
+    console.warn("[tracking] cache warm failed:", err?.message || err);
+    return null;
+  });
+}
+
+module.exports = { getIssues, warmIssuesCache };

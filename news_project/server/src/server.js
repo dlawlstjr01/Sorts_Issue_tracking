@@ -13,6 +13,7 @@ const userLogRoutes = require("./routes/userLogRoutes");
 const trackingRoutes = require("./routes/trackingRoutes");
 const { startCrawler } = require("./services/crawlerService");
 const issueArchiveRoutes = require("./routes/issueArchiveRoutes");
+const { warmIssuesCache } = require("./services/trackingService");
 const ENABLE_CRAWLER =
   String(process.env.ENABLE_CRAWLER || "true").toLowerCase() === "true";
 
@@ -49,4 +50,6 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+  warmIssuesCache();
+  setInterval(warmIssuesCache, 15000);
 });

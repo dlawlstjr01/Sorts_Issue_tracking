@@ -95,7 +95,7 @@ const INTEREST_KEYWORD_STORAGE_KEYS = [
   "userInterestKeywords",
   "preferredKeywords",
 ];
-const NOTIFY_FETCH_LIMIT = 80;
+const NOTIFY_FETCH_LIMIT = 24;
 const NOTIFY_POLL_INTERVAL_MS = 12000;
 const NOTIFY_MAX_ITEMS = 20;
 
@@ -487,7 +487,10 @@ export default function Header() {
 
       try {
         const res = await axios.get("/tracking/issues", {
-          params: { limit: NOTIFY_FETCH_LIMIT },
+          params: {
+            limit: NOTIFY_FETCH_LIMIT,
+            include_article_content: 0,
+          },
         });
         if (!mounted) {
           inFlight = false;

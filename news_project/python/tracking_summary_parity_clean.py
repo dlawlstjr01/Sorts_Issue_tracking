@@ -3847,10 +3847,12 @@ def health():
 def get_issues(
     category: Optional[str] = None,
     article_id: Optional[int] = None,
-    limit: int = 6
+    limit: int = 6,
+    include_article_content: int = 1,
 ):
     limit = max(1, min(int(limit or 6), 50))
-    fetch_limit = min(max(int(limit) * 10, int(limit)), 300)
+    include_article_content = bool(int(include_article_content or 0))
+    fetch_limit = min(max(int(limit) * 5, int(limit)), 150)
 
     conn = get_conn()
     try:
@@ -3909,6 +3911,60 @@ def get_issues(
             rows = cur.fetchall()
             print("[/issues] rows =", len(rows))
 
+        issue_summary_ids: List[int] = []
+        for row in rows:
+            issue_summary_id = int(row.get("issue_summary_id") or 0)
+            if issue_summary_id > 0:
+                issue_summary_ids.append(issue_summary_id)
+
+        related_articles_by_issue: Dict[int, List[Dict[str, Any]]] = {}
+        if issue_summary_ids:
+            placeholders = ",".join(["%s"] * len(issue_summary_ids))
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT
+                      m.issue_summary_id,
+                      m.article_id,
+                      m.sort_order,
+                      m.is_representative,
+                      a.title,
+                      a.url,
+                      a.thumbnail,
+                      a.content,
+                      a.category,
+                      a.published_at
+                    FROM issue_summary_articles m
+                    JOIN articles a
+                      ON a.id = m.article_id
+                    WHERE m.issue_summary_id IN ({placeholders})
+                    ORDER BY m.issue_summary_id ASC, m.sort_order ASC, a.published_at DESC, a.id DESC
+                    """,
+                    issue_summary_ids,
+                )
+                related_rows = cur.fetchall()
+
+            for row in related_rows:
+                issue_summary_id = int(row.get("issue_summary_id") or 0)
+                title = clean_html_text(row.get("title") or "")
+                related_articles_by_issue.setdefault(issue_summary_id, []).append(
+                    {
+                        "id": int(row.get("article_id") or 0),
+                        "article_id": int(row.get("article_id") or 0),
+                        "title": title,
+                        "url": row.get("url") or "",
+                        "thumbnail": row.get("thumbnail") or "",
+                        "content": sanitize_summary_source_text(
+                            row.get("content") or "",
+                            title=title,
+                        ),
+                        "category": row.get("category") or "기타",
+                        "published_at": str(row.get("published_at") or ""),
+                        "sort_order": int(row.get("sort_order") or 0),
+                        "is_representative": bool(int(row.get("is_representative") or 0)),
+                    }
+                )
+
         items = []
 
         for r in rows:
@@ -3920,8 +3976,8 @@ def get_issues(
             )
             representative_category = str(r.get("category") or "")
 
-            related_articles = []
-            if issue_summary_id > 0:
+            related_articles = related_articles_by_issue.get(issue_summary_id, [])
+            if issue_summary_id > 0 and not related_articles:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
@@ -3993,22 +4049,32 @@ def get_issues(
                 )
                 continue
 
-            summary_articles = display_articles or [
-                {
-                    "title": representative_title,
-                    "content": representative_content,
-                    "is_representative": True,
-                }
-            ]
-            response_short_summary = build_issue_short_summary(
-                representative_title=representative_title,
-                representative_content=representative_content,
-                articles=summary_articles,
-                stored_short_summary=str(r.get("short_summary") or ""),
-                max_lines=SUMMARY_SHORT_TARGET_LINES,
-            )
+            stored_short_summary = clean_summary_text(r.get("short_summary") or "")
+            stored_ultra_short = clean_html_text(r.get("ultra_short") or "").strip()
+
+            if stored_short_summary:
+                response_short_summary = "\n".join(
+                    stored_short_summary.splitlines()[: int(SUMMARY_SHORT_TARGET_LINES)]
+                ).strip()
+            else:
+                summary_articles = display_articles or [
+                    {
+                        "title": representative_title,
+                        "content": representative_content,
+                        "is_representative": True,
+                    }
+                ]
+                response_short_summary = build_issue_short_summary(
+                    representative_title=representative_title,
+                    representative_content=representative_content,
+                    articles=summary_articles,
+                    stored_short_summary="",
+                    max_lines=SUMMARY_SHORT_TARGET_LINES,
+                )
+
             response_ultra_short = (
-                str(response_short_summary).split("\n", 1)[0].lstrip("- ").strip()
+                stored_ultra_short
+                or str(response_short_summary).split("\n", 1)[0].lstrip("- ").strip()
                 or _compact_title_summary(representative_title, max_chars=64)
             )
 
@@ -4032,6 +4098,16 @@ def get_issues(
                 "created_at": str(r.get("created_at") or ""),
                 "published_at": str(r.get("published_at") or ""),
             })
+
+            if not include_article_content and items:
+                items[-1]["content"] = ""
+                items[-1]["related_articles"] = [
+                    {
+                        **article,
+                        "content": "",
+                    }
+                    for article in items[-1]["related_articles"]
+                ]
 
             if article_id is None and len(items) >= int(limit):
                 break

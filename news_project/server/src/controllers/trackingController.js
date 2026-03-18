@@ -7,11 +7,16 @@ exports.getIssues = async (req, res) => {
     const article_id = req.query.article_id
       ? Number(req.query.article_id)
       : undefined;
+    const include_article_content =
+      req.query.include_article_content !== undefined
+        ? Number(req.query.include_article_content)
+        : undefined;
 
     const data = await trackingService.getIssues({
       category,
       limit,
       article_id,
+      include_article_content,
     });
 
     return res.json(data);

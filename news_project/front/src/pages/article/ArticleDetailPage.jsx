@@ -22,7 +22,9 @@ import { withImageFallback } from "../../utils/imageUrl";
 function formatPublishedDateTime(raw) {
   if (!raw) return "-";
   const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return String(raw).slice(0, 19).replace("T", " ");
+  if (Number.isNaN(parsed.getTime())) {
+    return String(raw).slice(0, 19).replace("T", " ");
+  }
   const y = parsed.getFullYear();
   const m = String(parsed.getMonth() + 1).padStart(2, "0");
   const d = String(parsed.getDate()).padStart(2, "0");
@@ -35,7 +37,7 @@ function extractHost(rawUrl) {
   try {
     const url = new URL(String(rawUrl || ""));
     return String(url.hostname || "").replace(/^www\./, "");
-  } catch (_) {
+  } catch {
     return "";
   }
 }
@@ -43,11 +45,9 @@ function extractHost(rawUrl) {
 function isLikelyReporterLine(line) {
   const text = String(line || "").replace(/\s+/g, " ").trim();
   if (!text) return true;
-
   if (/^[가-힣]{2,5}\s*기자$/.test(text)) return true;
   if (/^(디지털랩|디지털뉴스팀|온라인뉴스팀|뉴스팀|편집국)$/i.test(text)) return true;
   if (/기자\s*$/.test(text) && text.length <= 24) return true;
-
   return false;
 }
 
@@ -62,7 +62,6 @@ function isSentenceLikeLine(line) {
 function looksLikeTailNoise(lines, startIndex) {
   const window = lines.slice(startIndex, startIndex + 5);
   if (window.length < 4) return false;
-
   const nonSentenceCount = window.filter((line) => !isSentenceLikeLine(line)).length;
   return nonSentenceCount >= 4;
 }
@@ -85,12 +84,12 @@ function splitParagraphs(article) {
 
     const key = line.replace(/\s+/g, " ").trim();
     if (!key || seen.has(key)) continue;
+
     seen.add(key);
     deduped.push(line);
   }
 
   const cleaned = [];
-
   for (let i = 0; i < deduped.length; i += 1) {
     const line = deduped[i];
     if (!line) continue;
@@ -113,9 +112,8 @@ function resolveBackTarget(location, fallback) {
   try {
     const base = typeof window !== "undefined" ? window.location.origin : "http://localhost";
     const url = new URL(candidate, base);
-    const view = url.searchParams.get("view");
-    if (view === "article") return fallback;
-  } catch (_) {
+    if (url.searchParams.get("view") === "article") return fallback;
+  } catch {
     return fallback;
   }
 
@@ -138,86 +136,29 @@ const CATEGORY_LABELS = {
 
 const CATEGORY_RULES = {
   politics: ["국회", "대통령", "총리", "정당", "선거", "공천", "탄핵", "외교", "정부", "장관", "의원", "정책", "국정"],
-  economy: [
-    "금리",
-    "물가",
-    "환율",
-    "주가",
-    "증시",
-    "코스피",
-    "코스닥",
-    "비트코인",
-    "가상자산",
-    "부동산",
-    "경제",
-    "경기",
-    "실적",
-    "매출",
-    "영업이익",
-    "투자",
-    "수출",
-    "수입",
-    "고용",
-    "실업",
-    "인플레이션",
-  ],
-  society: [
-    "사건",
-    "사고",
-    "범죄",
-    "경찰",
-    "검찰",
-    "법원",
-    "재판",
-    "구속",
-    "화재",
-    "붕괴",
-    "실종",
-    "폭행",
-    "사망",
-    "노동",
-    "파업",
-    "교육",
-    "학교",
-    "복지",
-    "의료",
-    "질병",
-  ],
+  economy: ["금리", "물가", "환율", "주가", "증시", "코스피", "코스닥", "비트코인", "가상자산", "부동산", "경제", "경기", "실적", "매출", "영업이익", "투자", "수출", "수입", "고용", "실업", "인플레이션"],
+  society: ["사건", "사고", "범죄", "경찰", "검찰", "법원", "재판", "구속", "화재", "붕괴", "실종", "폭행", "사망", "노동", "파업", "교육", "학교", "복지", "의료", "질병"],
   world: ["미국", "중국", "일본", "러시아", "우크라이나", "유럽", "EU", "UN", "이스라엘", "가자", "중동", "나토", "해외", "국제", "외신", "정상회담", "관세"],
-  it: [
-    "AI",
-    "인공지능",
-    "챗GPT",
-    "오픈AI",
-    "구글",
-    "애플",
-    "메타",
-    "MS",
-    "마이크로소프트",
-    "엔비디아",
-    "반도체",
-    "스마트폰",
-    "보안",
-    "해킹",
-    "클라우드",
-    "데이터",
-    "서버",
-    "알고리즘",
-    "로봇",
-    "과학",
-    "우주",
-  ],
+  it: ["AI", "인공지능", "챗GPT", "오픈AI", "구글", "애플", "메타", "MS", "마이크로소프트", "엔비디아", "반도체", "스마트폰", "보안", "해킹", "클라우드", "데이터", "서버", "알고리즘", "로봇", "과학", "우주"],
   culture: ["영화", "드라마", "OTT", "넷플릭스", "디즈니", "음악", "가수", "아이돌", "공연", "전시", "미술", "문학", "문화", "축제", "패션", "연예", "방송"],
   sports: ["축구", "야구", "농구", "배구", "골프", "테니스", "UFC", "EPL", "K리그", "MLB", "NBA", "KBO", "올림픽", "월드컵", "선수", "감독", "경기", "득점"],
 };
 
-function normalizeText(s) {
-  return String(s || "").toLowerCase();
+function normalizeText(value) {
+  return String(value || "").toLowerCase();
 }
 
-function inferCategoryFromNews(n) {
+function inferCategoryFromNews(news) {
   const text = normalizeText(
-    [n?.title, n?.description, n?.summary, n?.content, n?.body, n?.pressName, n?.press_name]
+    [
+      news?.title,
+      news?.description,
+      news?.summary,
+      news?.content,
+      news?.body,
+      news?.pressName,
+      news?.press_name,
+    ]
       .filter(Boolean)
       .join(" ")
   );
@@ -245,6 +186,20 @@ function getCategoryLabel(key) {
   return CATEGORY_LABELS[key] || "기타";
 }
 
+const cardItemStyle = {
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  padding: "12px",
+  marginBottom: "10px",
+  background: "#fff",
+};
+
+const cardMetaStyle = {
+  fontSize: "13px",
+  color: "#6b7280",
+  marginBottom: "8px",
+};
+
 export default function ArticleDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -262,6 +217,7 @@ export default function ArticleDetailPage() {
     }
 
     if (!articleId) return null;
+
     const fromCache = getRememberedArticleDetail(articleId);
     const normalized = toArticleDetailPayload(fromCache);
     if (normalized) rememberArticleDetail(normalized);
@@ -282,12 +238,10 @@ export default function ArticleDetailPage() {
   const [glossaryList, setGlossaryList] = useState([]);
 
   const fetchedArticleIdRef = useRef("");
-
   const [userId, setUserId] = useState(null);
   const logIdRef = useRef(null);
   const enterTimeRef = useRef(null);
   const scrollCountRef = useRef(0);
-  const lastCountedYRef = useRef(0);
   const createdLogForArticleRef = useRef("");
   const updatedLogRef = useRef(false);
 
@@ -314,9 +268,7 @@ export default function ArticleDetailPage() {
     const loadGlossary = async () => {
       try {
         const glossary = await fetchGlossary();
-        if (!cancelled) {
-          setGlossaryList(Array.isArray(glossary) ? glossary : []);
-        }
+        if (!cancelled) setGlossaryList(Array.isArray(glossary) ? glossary : []);
       } catch (error) {
         console.error("용어 사전 불러오기 실패:", error);
         if (!cancelled) setGlossaryList([]);
@@ -324,7 +276,6 @@ export default function ArticleDetailPage() {
     };
 
     loadGlossary();
-
     return () => {
       cancelled = true;
     };
@@ -371,16 +322,11 @@ export default function ArticleDetailPage() {
 
   useEffect(() => {
     const handleWheel = (e) => {
-      if (e.deltaY > 0) {
-        scrollCountRef.current += 1;
-      }
+      if (e.deltaY > 0) scrollCountRef.current += 1;
     };
 
     window.addEventListener("wheel", handleWheel, { passive: true });
-
-    return () => {
-      window.removeEventListener("wheel", handleWheel);
-    };
+    return () => window.removeEventListener("wheel", handleWheel);
   }, []);
 
   useEffect(() => {
@@ -388,17 +334,20 @@ export default function ArticleDetailPage() {
 
     if (!isNumericArticleId(articleId)) return () => {};
     if (fetchedArticleIdRef.current === articleId) return () => {};
+
     fetchedArticleIdRef.current = articleId;
 
     const loadDetail = async () => {
       try {
         setDetailLoading(true);
         setDetailError("");
+
         const response = await getNewsById(articleId);
         const merged = toArticleDetailPayload({
           ...(initialArticle || {}),
           ...(response?.data || {}),
         });
+
         if (!mounted) return;
         if (merged) {
           rememberArticleDetail(merged);
@@ -406,9 +355,7 @@ export default function ArticleDetailPage() {
         }
       } catch (err) {
         if (!mounted) return;
-        setDetailError(
-          err?.response?.data?.message || "기사 본문을 불러오지 못했습니다."
-        );
+        setDetailError(err?.response?.data?.message || "기사 본문을 불러오지 못했습니다.");
       } finally {
         if (mounted) setDetailLoading(false);
       }
@@ -422,8 +369,7 @@ export default function ArticleDetailPage() {
 
   useEffect(() => {
     const createLog = async () => {
-      if (!userId) return;
-      if (!article) return;
+      if (!userId || !article) return;
 
       const currentArticleKey = String(article?.id || articleId || "").trim();
       if (!currentArticleKey) return;
@@ -438,21 +384,12 @@ export default function ArticleDetailPage() {
           action: "view",
         };
 
-        const res = await axios.post("/log", payload, {
-          withCredentials: true,
-        });
-
-        const savedLogId =
-          res.data?.logId ?? res.data?.id ?? res.data?.data?.logId ?? null;
+        const res = await axios.post("/log", payload, { withCredentials: true });
+        const savedLogId = res.data?.logId ?? res.data?.id ?? res.data?.data?.logId ?? null;
 
         logIdRef.current = savedLogId;
         enterTimeRef.current = Date.now();
         scrollCountRef.current = 0;
-        lastCountedYRef.current =
-          window.scrollY ||
-          document.documentElement.scrollTop ||
-          document.body.scrollTop ||
-          0;
         updatedLogRef.current = false;
         createdLogForArticleRef.current = currentArticleKey;
       } catch (e) {
@@ -468,9 +405,7 @@ export default function ArticleDetailPage() {
       const logId = logIdRef.current;
       const enterTime = enterTimeRef.current;
 
-      if (!logId || !enterTime) return;
-      if (updatedLogRef.current) return;
-
+      if (!logId || !enterTime || updatedLogRef.current) return;
       updatedLogRef.current = true;
 
       const dwellMs = Date.now() - enterTime;
@@ -483,9 +418,7 @@ export default function ArticleDetailPage() {
 
       fetch(`/log/${logId}`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         keepalive: true,
         body: JSON.stringify(payload),
@@ -494,13 +427,8 @@ export default function ArticleDetailPage() {
       });
     };
 
-    const handlePageHide = () => {
-      sendUpdateLog();
-    };
-
-    const handleBeforeUnload = () => {
-      sendUpdateLog();
-    };
+    const handlePageHide = () => sendUpdateLog();
+    const handleBeforeUnload = () => sendUpdateLog();
 
     window.addEventListener("pagehide", handlePageHide);
     window.addEventListener("beforeunload", handleBeforeUnload);
@@ -513,20 +441,13 @@ export default function ArticleDetailPage() {
   }, []);
 
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
-
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
 
   const displayCategory = useMemo(() => {
     if (!article) return "society";
 
     const rawCategory = String(article.category || "").trim().toLowerCase();
-
-    if (
-      rawCategory &&
-      rawCategory !== "기타" &&
-      rawCategory !== "etc" &&
-      rawCategory !== "all"
-    ) {
+    if (rawCategory && rawCategory !== "기타" && rawCategory !== "etc" && rawCategory !== "all") {
       return rawCategory;
     }
 
@@ -546,11 +467,13 @@ export default function ArticleDetailPage() {
 
   const handleToggleArchive = () => {
     if (!article) return;
+
     const payload = {
       ...article,
       published_at: article.publishedAt,
       created_at: article.publishedAt,
     };
+
     const result = toggleArchiveItem(payload);
     setArchiveKeys(getArchiveKeySet(result.items));
   };
@@ -595,6 +518,7 @@ export default function ArticleDetailPage() {
         >
           기사 목록으로
         </button>
+
         <button
           type="button"
           className={`article-detail-save ${isSaved ? "active" : ""}`}
@@ -611,9 +535,7 @@ export default function ArticleDetailPage() {
           {detailLoading ? (
             <>
               <div className="article-detail-empty-title">기사 본문을 불러오는 중입니다.</div>
-              <div className="article-detail-empty-desc">
-                잠시만 기다려 주세요.
-              </div>
+              <div className="article-detail-empty-desc">잠시만 기다려 주세요.</div>
             </>
           ) : (
             <>
@@ -667,9 +589,7 @@ export default function ArticleDetailPage() {
                 <div className="article-detail-content-title">본문</div>
 
                 {detailLoading && (
-                  <p className="article-detail-empty-content">
-                    본문을 불러오는 중입니다...
-                  </p>
+                  <p className="article-detail-empty-content">본문을 불러오는 중입니다...</p>
                 )}
 
                 {detailError && !detailLoading && (
@@ -737,9 +657,7 @@ export default function ArticleDetailPage() {
                         value={searchInput}
                         onChange={(event) => setSearchInput(event.target.value)}
                         onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            void handleDictionarySearch();
-                          }
+                          if (event.key === "Enter") void handleDictionarySearch();
                         }}
                       />
                     </div>
@@ -761,10 +679,7 @@ export default function ArticleDetailPage() {
                   )}
 
                   {dictionaryError && (
-                    <p
-                      className="article-detail-empty-content"
-                      style={{ marginTop: "10px" }}
-                    >
+                    <p className="article-detail-empty-content" style={{ marginTop: "10px" }}>
                       {dictionaryError}
                     </p>
                   )}
@@ -786,28 +701,13 @@ export default function ArticleDetailPage() {
                       </div>
 
                       {dictionaryResults.map((item) => (
-                        <div
-                          key={item.key}
-                          style={{
-                            border: "1px solid #e5e7eb",
-                            borderRadius: "12px",
-                            padding: "12px",
-                            marginBottom: "10px",
-                            background: "#fff",
-                          }}
-                        >
+                        <div key={item.key} style={cardItemStyle}>
                           <div style={{ fontWeight: 700, marginBottom: "6px" }}>
                             {item.word || "-"}
                             {item.supNo && item.supNo !== "0" ? <sup> {item.supNo}</sup> : null}
                           </div>
 
-                          <div
-                            style={{
-                              fontSize: "13px",
-                              color: "#6b7280",
-                              marginBottom: "8px",
-                            }}
-                          >
+                          <div style={cardMetaStyle}>
                             {[item.pos, item.wordGrade, item.pronunciation]
                               .filter(Boolean)
                               .join(" · ")}
@@ -830,11 +730,7 @@ export default function ArticleDetailPage() {
                               href={item.link}
                               target="_blank"
                               rel="noopener noreferrer"
-                              style={{
-                                display: "inline-block",
-                                marginTop: "10px",
-                                fontSize: "14px",
-                              }}
+                              style={{ display: "inline-block", marginTop: "10px", fontSize: "14px" }}
                             >
                               사전에서 자세히 보기
                             </a>

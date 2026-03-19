@@ -16,41 +16,10 @@ const FILTER_TABS = [
   { key: "press", label: "언론사" },
 ];
 
-const PRESS_INITIALS = ["\u3131", "\u3134", "\u3137", "\u3139", "\u3141", "\u3142", "\u3145", "\u3147", "\u3148", "\u314A", "\u314B", "\u314C", "\u314D", "\u314E"];
-const HANGUL_INITIALS = [
-  "\u3131",
-  "\u3132",
-  "\u3134",
-  "\u3137",
-  "\u3138",
-  "\u3139",
-  "\u3141",
-  "\u3142",
-  "\u3143",
-  "\u3145",
-  "\u3146",
-  "\u3147",
-  "\u3148",
-  "\u3149",
-  "\u314A",
-  "\u314B",
-  "\u314C",
-  "\u314D",
-  "\u314E",
-];
-const PRESS_INITIAL_GROUPS = {
-  "\u3132": "\u3131",
-  "\u3138": "\u3137",
-  "\u3143": "\u3142",
-  "\u3146": "\u3145",
-  "\u3149": "\u3148",
-  "\u314B": "\u3131",
-  "\u314C": "\u3137",
-};
-
-const PRESS_ALPHABETS = Array.from({ length: 26 }, (_, index) =>
-  String.fromCharCode(65 + index)
-);
+const PRESS_INITIALS = ["ㄱ", "ㄴ", "ㄷ", "ㄹ", "ㅁ", "ㅂ", "ㅅ", "ㅇ", "ㅈ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
+const HANGUL_INITIALS = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
+const PRESS_INITIAL_GROUPS = { "ㄲ": "ㄱ", "ㄸ": "ㄷ", "ㅃ": "ㅂ", "ㅆ": "ㅅ", "ㅉ": "ㅈ", "ㅋ": "ㄱ", "ㅌ": "ㄷ" };
+const PRESS_ALPHABETS = Array.from({ length: 26 }, (_, index) => String.fromCharCode(65 + index));
 
 const PRESS_DOMAIN_RULES = [
   { press: "스포츠경향", domains: ["sports.khan.co.kr", "sportskhan.net"] },
@@ -168,142 +137,19 @@ const PRESS_DOMAIN_SET = new Set(PRESS_DOMAIN_RULES.map(({ press }) => press));
 const DOMAIN_TO_PRESS_RULES = PRESS_DOMAIN_RULES.flatMap(({ press, domains }) =>
   (domains || []).map((domain) => ({
     press,
-    domain: String(domain || "")
-      .toLowerCase()
-      .trim()
-      .replace(/^https?:\/\//, "")
-      .replace(/^www\./, "")
-      .replace(/\/.*$/, ""),
+    domain: String(domain || "").toLowerCase().trim().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/\/.*$/, ""),
   }))
 )
   .filter((rule) => rule.domain)
   .sort((a, b) => b.domain.length - a.domain.length);
 
-const NAVER_OID_TO_PRESS = {
-  "001": "연합뉴스",
-  "003": "뉴시스",
-  "005": "국민일보",
-  "008": "머니투데이",
-  "009": "매일경제",
-  "011": "서울신문",
-  "014": "파이낸셜뉴스",
-  "015": "한국경제",
-  "016": "헤럴드경제",
-  "018": "이데일리",
-  "020": "동아일보",
-  "021": "문화일보",
-  "022": "세계일보",
-  "023": "조선일보",
-  "025": "중앙일보",
-  "028": "한겨레",
-  "031": "아이뉴스24",
-  "032": "경향신문",
-  "052": "YTN",
-  "055": "SBS",
-  "056": "KBS",
-  "057": "MBC",
-  "079": "노컷뉴스",
-  "081": "서울경제",
-  "277": "아주경제",
-  "421": "뉴스1",
-  "437": "JTBC",
-  "448": "TV조선",
-  "449": "채널A",
-};
+const NAVER_OID_TO_PRESS = { "001": "연합뉴스", "003": "뉴시스", "005": "국민일보", "008": "머니투데이", "009": "매일경제", "011": "서울신문", "014": "파이낸셜뉴스", "015": "한국경제", "016": "헤럴드경제", "018": "이데일리", "020": "동아일보", "021": "문화일보", "022": "세계일보", "023": "조선일보", "025": "중앙일보", "028": "한겨레", "031": "아이뉴스24", "032": "경향신문", "052": "YTN", "055": "SBS", "056": "KBS", "057": "MBC", "079": "노컷뉴스", "081": "서울경제", "277": "아주경제", "421": "뉴스1", "437": "JTBC", "448": "TV조선", "449": "채널A" };
 
-function extractHostFromUrl(rawUrl) {
-  try {
-    const url = new URL(String(rawUrl || ""));
-    return String(url.hostname || "")
-      .toLowerCase()
-      .trim()
-      .replace(/^www\./, "");
-  } catch (_) {
-    return "";
-  }
-}
-
-function extractNaverOid(rawUrl) {
-  const raw = String(rawUrl || "");
-  try {
-    const url = new URL(raw);
-    const oid = url.searchParams.get("oid");
-    if (/^\d{3}$/.test(oid || "")) return oid;
-    const pathMatch = url.pathname.match(/\/article\/(\d{3})\/\d+/);
-    if (pathMatch) return pathMatch[1];
-  } catch (_) {
-    // no-op
-  }
-
-  const queryMatch = raw.match(/[?&]oid=(\d{3})/);
-  if (queryMatch) return queryMatch[1];
-  const pathMatch = raw.match(/\/article\/(\d{3})\/\d+/);
-  if (pathMatch) return pathMatch[1];
-  return "";
-}
-
-function resolvePressByUrl(rawUrl) {
-  const host = extractHostFromUrl(rawUrl);
-  if (!host) return null;
-
-  if (host === "news.naver.com" || host.endsWith(".naver.com")) {
-    const oid = extractNaverOid(rawUrl);
-    if (oid && NAVER_OID_TO_PRESS[oid]) return NAVER_OID_TO_PRESS[oid];
-  }
-
-  for (const rule of DOMAIN_TO_PRESS_RULES) {
-    if (host === rule.domain || host.endsWith(`.${rule.domain}`)) {
-      return rule.press;
-    }
-  }
-  return null;
-}
-
-const PRESS_ITEMS = [
-  "한겨레",
-  "한국일보",
-  "서울신문",
-  "국민일보",
-  "세계일보",
-  "머니투데이",
-  "이데일리",
-  "동아일보",
-  "KBS",
-  "MBN",
-  "오마이뉴스",
-  "프레시안",
-  "ZDNET Korea",
-  "뉴스1",
-  "뉴스핌",
-  "아이뉴스24",
-  "매경이코노미",
-  "주간조선",
-  "주간동아",
-  "한겨레21",
-  "주간경향",
-  "조세일보",
-  "한국세정신문",
-  "인더스트리뉴스",
-  "메디칼타임즈",
-  "청년의사",
-  "약업신문",
-  "의학신문",
-  "KNN",
-  "KBS부산",
-  "KBS대구",
-  "KBS광주",
-  "KBS전주",
-  "KBS청주",
-  "KBS춘천",
-  "KBS제주",
-  "경남신문",
-  "축산신문",
-  "해양수산신문",
-  "OSEN",
-];
+const PRESS_ITEMS = ["한겨레", "한국일보", "서울신문", "국민일보", "세계일보", "머니투데이", "이데일리", "동아일보", "KBS", "MBN", "오마이뉴스", "프레시안", "ZDNET Korea", "뉴스1", "뉴스핌", "아이뉴스24", "매경이코노미", "주간조선", "주간동아", "한겨레21", "주간경향", "조세일보", "한국세정신문", "인더스트리뉴스", "메디칼타임즈", "청년의사", "약업신문", "의학신문", "KNN", "KBS부산", "KBS대구", "KBS광주", "KBS전주", "KBS청주", "KBS춘천", "KBS제주", "경남신문", "축산신문", "해양수산신문", "OSEN"];
 
 const PRESS_FILTER_ITEMS = PRESS_ITEMS.filter((name) => PRESS_DOMAIN_SET.has(name));
 const PRESS_FILTER_SET = new Set(PRESS_FILTER_ITEMS);
+const PRESS_NAME_BY_TEXT_PRIORITY = [...PRESS_ITEMS].sort((a, b) => b.length - a.length);
 
 const THUMB_FALLBACK =
   "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
@@ -322,6 +168,56 @@ function formatPublishedDate(raw) {
   return formatDate(parsed);
 }
 
+function createDefaultDateRange() {
+  const end = new Date();
+  const start = new Date(end);
+  start.setMonth(start.getMonth() - 3);
+  return { start: formatDate(start), end: formatDate(end) };
+}
+
+function extractHostFromUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    return String(url.hostname || "").toLowerCase().trim().replace(/^www\./, "");
+  } catch (_) {
+    return "";
+  }
+}
+
+function extractNaverOid(rawUrl) {
+  const raw = String(rawUrl || "");
+  try {
+    const url = new URL(raw);
+    const oid = url.searchParams.get("oid");
+    if (/^\d{3}$/.test(oid || "")) return oid;
+    const pathMatch = url.pathname.match(/\/article\/(\d{3})\/\d+/);
+    if (pathMatch) return pathMatch[1];
+  } catch (_) { }
+
+  const queryMatch = raw.match(/[?&]oid=(\d{3})/);
+  if (queryMatch) return queryMatch[1];
+
+  const pathMatch = raw.match(/\/article\/(\d{3})\/\d+/);
+  if (pathMatch) return pathMatch[1];
+
+  return "";
+}
+
+function resolvePressByUrl(rawUrl) {
+  const host = extractHostFromUrl(rawUrl);
+  if (!host) return null;
+
+  if (host === "news.naver.com" || host.endsWith(".naver.com")) {
+    const oid = extractNaverOid(rawUrl);
+    if (oid && NAVER_OID_TO_PRESS[oid]) return NAVER_OID_TO_PRESS[oid];
+  }
+
+  for (const rule of DOMAIN_TO_PRESS_RULES) {
+    if (host === rule.domain || host.endsWith(`.${rule.domain}`)) return rule.press;
+  }
+  return null;
+}
+
 function buildNewsDedupKey(item) {
   const title = String(item?.title || "").trim();
   const published = String(item?.published_at || item?.created_at || "").trim();
@@ -331,15 +227,16 @@ function buildNewsDedupKey(item) {
   if (url) return `url:${url}`;
 
   if (title || published) return `title:${title}|published:${published}`;
-
   return `id:${String(item?.id || "")}`;
 }
 
 function dedupeNewsItems(items) {
   const dedup = new Map();
+
   for (const item of items || []) {
     const key = buildNewsDedupKey(item);
     const current = dedup.get(key);
+
     if (!current) {
       dedup.set(key, item);
       continue;
@@ -349,24 +246,27 @@ function dedupeNewsItems(items) {
     const nextTs = new Date(item.published_at || item.created_at || 0).getTime() || 0;
     if (nextTs >= currentTs) dedup.set(key, item);
   }
+
   return Array.from(dedup.values());
 }
 
 function getHangulInitial(char) {
   const first = String(char || "").trim().charAt(0);
   if (!first) return "";
+
   const code = first.charCodeAt(0);
   const HANGUL_START = 0xac00;
   const HANGUL_END = 0xd7a3;
+
   if (code < HANGUL_START || code > HANGUL_END) return "";
+
   const index = Math.floor((code - HANGUL_START) / 588);
   const initial = HANGUL_INITIALS[index] || "";
   if (!initial) return "";
+
   const grouped = PRESS_INITIAL_GROUPS[initial] || initial;
   return PRESS_INITIALS.includes(grouped) ? grouped : "";
 }
-
-const PRESS_NAME_BY_TEXT_PRIORITY = [...PRESS_ITEMS].sort((a, b) => b.length - a.length);
 
 function normalizePressCandidate(raw) {
   return String(raw || "")
@@ -383,15 +283,14 @@ function extractPressFromTitleTail(rawTitle) {
   const separators = [" - ", " | ", " / ", " · ", " — "];
   for (const sep of separators) {
     if (!title.includes(sep)) continue;
+
     const tail = normalizePressCandidate(title.split(sep).pop());
     if (!tail) continue;
     if (PRESS_ITEMS.includes(tail)) return tail;
     if (tail.length < 2 || tail.length > 24) continue;
     if (!/[가-힣A-Za-z]/.test(tail)) continue;
     if (/기자$/.test(tail)) continue;
-    if (/(신문|일보|뉴스|경제|저널|타임즈|투데이|TV|방송|포스트|리포트)$/i.test(tail)) {
-      return tail;
-    }
+    if (/(신문|일보|뉴스|경제|저널|타임즈|투데이|TV|방송|포스트|리포트)$/i.test(tail)) return tail;
   }
 
   return null;
@@ -400,17 +299,12 @@ function extractPressFromTitleTail(rawTitle) {
 function resolvePressByText(rawTitle, rawContent) {
   const text = `${String(rawTitle || "")} ${String(rawContent || "")}`;
   if (!text) return null;
+
   for (const pressName of PRESS_NAME_BY_TEXT_PRIORITY) {
     if (text.includes(pressName)) return pressName;
   }
-  return extractPressFromTitleTail(rawTitle);
-}
 
-function createDefaultDateRange() {
-  const end = new Date();
-  const start = new Date(end);
-  start.setMonth(start.getMonth() - 3);
-  return { start: formatDate(start), end: formatDate(end) };
+  return extractPressFromTitleTail(rawTitle);
 }
 
 function parseDateParam(value, fallback) {
@@ -456,19 +350,12 @@ function parseArticleListSearch(search) {
   };
 }
 
-function buildArticleListSearch({
-  query,
-  dateRange,
-  page,
-  selectedPressFilter,
-  selectedPress,
-}) {
+function buildArticleListSearch({ query, dateRange, page, selectedPressFilter, selectedPress }) {
   const sp = new URLSearchParams();
   sp.set("view", "article-list");
 
   const keyword = String(query || "").trim();
   if (keyword) sp.set("q", keyword);
-
   if (dateRange?.start) sp.set("from", dateRange.start);
   if (dateRange?.end) sp.set("to", dateRange.end);
 
@@ -489,20 +376,13 @@ function buildArticleListSearch({
 export default function ArticleListPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const initialSearchState = useMemo(
-    () => parseArticleListSearch(location.search),
-    [location.search]
-  );
+
+  const initialSearchState = useMemo(() => parseArticleListSearch(location.search), [location.search]);
 
   const [query, setQuery] = useState(initialSearchState.query);
   const [activeTab, setActiveTab] = useState("period");
-  const [selectedPressFilter, setSelectedPressFilter] = useState(
-    () => new Set(initialSearchState.selectedPressFilter)
-  );
-  const [selectedPress, setSelectedPress] = useState(
-    () => new Set(initialSearchState.selectedPress)
-  );
-  const [availablePresses] = useState(() => [...new Set(PRESS_FILTER_ITEMS)]);
+  const [selectedPressFilter, setSelectedPressFilter] = useState(() => new Set(initialSearchState.selectedPressFilter));
+  const [selectedPress, setSelectedPress] = useState(() => new Set(initialSearchState.selectedPress));
   const [dateRange, setDateRange] = useState(initialSearchState.dateRange);
 
   const [newsItems, setNewsItems] = useState([]);
@@ -515,19 +395,13 @@ export default function ArticleListPage() {
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const helpWrapRef = useRef(null);
 
-  const selectedCount =
-    selectedPressFilter.size +
-    selectedPress.size +
-    (query.trim() ? 1 : 0);
-
+  const selectedCount = selectedPressFilter.size + selectedPress.size + (query.trim() ? 1 : 0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const visiblePages = useMemo(() => {
     const pages = [];
     const groupStart =
-      Math.floor((Math.max(1, currentPage) - 1) / PAGINATION_GROUP_SIZE) *
-        PAGINATION_GROUP_SIZE +
-      1;
+      Math.floor((Math.max(1, currentPage) - 1) / PAGINATION_GROUP_SIZE) * PAGINATION_GROUP_SIZE + 1;
     const groupEnd = Math.min(totalPages, groupStart + PAGINATION_GROUP_SIZE - 1);
     for (let i = groupStart; i <= groupEnd; i += 1) pages.push(i);
     return pages;
@@ -542,19 +416,14 @@ export default function ArticleListPage() {
       return 2;
     };
 
-    const source = [...new Set(availablePresses)];
-
-    return [...source].sort((a, b) => {
+    return [...new Set(PRESS_FILTER_ITEMS)].sort((a, b) => {
       const rankA = groupRank(a);
       const rankB = groupRank(b);
       if (rankA !== rankB) return rankA - rankB;
-
-      if (rankA === 1) {
-        return a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
-      }
+      if (rankA === 1) return a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
       return a.localeCompare(b, "ko", { sensitivity: "base", numeric: true });
     });
-  }, [availablePresses]);
+  }, []);
 
   const filteredPressItems = useMemo(() => {
     if (selectedPressFilter.size === 0) return sortedPressItems;
@@ -578,15 +447,13 @@ export default function ArticleListPage() {
     });
   }, [selectedPressFilter, sortedPressItems]);
 
-  const loadNews = async (
-    targetPage,
-    keyword,
-    range = dateRange,
-    presses = selectedPress
-  ) => {
+  const resetDateRange = () => setDateRange(createDefaultDateRange());
+
+  const loadNews = async (targetPage, keyword, range = dateRange, presses = selectedPress) => {
     try {
       setLoading(true);
       setError("");
+
       const response = await fetchNews({
         page: targetPage,
         size: PAGE_SIZE,
@@ -601,12 +468,14 @@ export default function ArticleListPage() {
       const normalizedItems = items.map((item) => {
         const inferredByUrl = resolvePressByUrl(item?.url);
         const inferredByText = resolvePressByText(item?.title, item?.content);
+
         return {
           ...item,
           thumbnail: resolveThumbnailUrl(item?.thumbnail, THUMB_FALLBACK),
           press_name: item?.press_name || inferredByUrl || inferredByText || null,
         };
       });
+
       const dedupedItems = dedupeNewsItems(normalizedItems);
       setNewsItems(dedupedItems);
       setTotal(Number(data.total) || 0);
@@ -632,17 +501,6 @@ export default function ArticleListPage() {
   }, []);
 
   useEffect(() => {
-    if (!availablePresses.length) return;
-
-    setSelectedPress((prev) => {
-      const next = new Set([...prev].filter((name) => availablePresses.includes(name)));
-      if (next.size === prev.size) return prev;
-      return next;
-    });
-  }, [availablePresses]);
-
-
-  useEffect(() => {
     if (!isSearchOpen) setIsHelpOpen(false);
   }, [isSearchOpen]);
 
@@ -650,9 +508,7 @@ export default function ArticleListPage() {
     if (!isHelpOpen) return;
 
     const handleOutsideClick = (event) => {
-      if (helpWrapRef.current && !helpWrapRef.current.contains(event.target)) {
-        setIsHelpOpen(false);
-      }
+      if (helpWrapRef.current && !helpWrapRef.current.contains(event.target)) setIsHelpOpen(false);
     };
 
     const handleEscape = (event) => {
@@ -686,7 +542,6 @@ export default function ArticleListPage() {
     });
   };
 
-
   const applyQuickRange = (unit, amount) => {
     const end = new Date();
     const start = new Date(end);
@@ -716,10 +571,12 @@ export default function ArticleListPage() {
   const resetFilters = async () => {
     const emptySet = new Set();
     const nextRange = createDefaultDateRange();
+
     setQuery("");
     setSelectedPressFilter(emptySet);
     setSelectedPress(emptySet);
     setDateRange(nextRange);
+
     syncListUrl(1, "", nextRange, emptySet, emptySet);
     await loadNews(1, "", nextRange, emptySet);
   };
@@ -729,6 +586,7 @@ export default function ArticleListPage() {
       setError("시작일이 종료일보다 늦습니다.");
       return;
     }
+
     const keyword = query.trim();
     syncListUrl(1, keyword, dateRange, selectedPressFilter, selectedPress);
     await loadNews(1, keyword, dateRange, selectedPress);
@@ -737,6 +595,7 @@ export default function ArticleListPage() {
   const handlePageChange = async (targetPage) => {
     if (loading) return;
     if (targetPage < 1 || targetPage > totalPages) return;
+
     const keyword = query.trim();
     syncListUrl(targetPage, keyword, dateRange, selectedPressFilter, selectedPress);
     await loadNews(targetPage, keyword, dateRange, selectedPress);
@@ -771,171 +630,171 @@ export default function ArticleListPage() {
         {isSearchOpen && (
           <div className="als-step-body" id="als-search-body">
             <div className="als-search-row">
-            <label className="als-search-input">
-              <span className="als-search-ico" aria-hidden="true">
-                <svg viewBox="0 0 24 24" width="26" height="26">
-                  <path
-                    d="M10.5 3a7.5 7.5 0 0 1 5.95 12.07l4.24 4.24-1.42 1.42-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"
-                    fill="currentColor"
-                  />
-                </svg>
-              </span>
-              <input
-                type="text"
-                placeholder="기본 검색어 또는 언론사를 입력하세요."
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-
-            <div className="als-help-wrap" ref={helpWrapRef}>
-              <button
-                type="button"
-                className="als-help-btn"
-                onClick={() => setIsHelpOpen((prev) => !prev)}
-                aria-expanded={isHelpOpen}
-                aria-controls="als-help-popover"
-              >
-                <span className="als-help-badge">i</span>
-                검색도움말
-              </button>
-
-              {isHelpOpen && (
-                <div id="als-help-popover" className="als-help-popover" role="dialog" aria-label="검색 도움말">
-                  <div className="als-help-popover-title">검색 도움말</div>
-                  <ul className="als-help-list">
-                    <li>검색어는 공백으로 여러 단어를 입력할 수 있습니다.</li>
-                    <li>언론사명만 입력해도 해당 언론사 기사 검색이 가능합니다.</li>
-                    <li>기간/언론사를 선택한 뒤 적용하기를 누르세요.</li>
-                    <li>검색어 없이도 필터 조건만으로 검색할 수 있습니다.</li>
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="als-tab-row">
-            {FILTER_TABS.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                className={`als-tab ${activeTab === tab.key ? "active" : ""}`}
-                onClick={() => setActiveTab(tab.key)}
-              >
-                <span>{tab.label}</span>
-                <span className="als-tab-mark">{activeTab === tab.key ? "+" : "−"}</span>
-              </button>
-            ))}
-          </div>
-
-          <div className="als-filter-body is-matrix">
-            <div className="als-lane">
-              <div className="als-date-filter compact">
-                <div className="als-date-row">
-                  <label className="als-date-field">
-                    <span>시작일</span>
-                    <input
-                      type="date"
-                      value={dateRange.start}
-                      onChange={(event) =>
-                        setDateRange((prev) => ({ ...prev, start: event.target.value }))
-                      }
+              <label className="als-search-input">
+                <span className="als-search-ico" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="26" height="26">
+                    <path
+                      d="M10.5 3a7.5 7.5 0 0 1 5.95 12.07l4.24 4.24-1.42 1.42-4.24-4.24A7.5 7.5 0 1 1 10.5 3Zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11Z"
+                      fill="currentColor"
                     />
-                  </label>
-                  <label className="als-date-field">
-                    <span>종료일</span>
-                    <input
-                      type="date"
-                      value={dateRange.end}
-                      onChange={(event) =>
-                        setDateRange((prev) => ({ ...prev, end: event.target.value }))
-                      }
-                    />
-                  </label>
+                  </svg>
+                </span>
+                <input
+                  type="text"
+                  placeholder="기본 검색어 또는 언론사를 입력하세요."
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      runSearch();
+                    }
+                  }}
+                />
+              </label>
+
+              <div className="als-help-wrap" ref={helpWrapRef}>
+                <button
+                  type="button"
+                  className="als-help-btn"
+                  onClick={() => setIsHelpOpen((prev) => !prev)}
+                  aria-expanded={isHelpOpen}
+                  aria-controls="als-help-popover"
+                >
+                  <span className="als-help-badge">i</span>
+                  검색도움말
+                </button>
+
+                {isHelpOpen && (
+                  <div id="als-help-popover" className="als-help-popover" role="dialog" aria-label="검색 도움말">
+                    <div className="als-help-popover-title">검색 도움말</div>
+                    <ul className="als-help-list">
+                      <li>검색어는 공백으로 여러 단어를 입력할 수 있습니다.</li>
+                      <li>언론사명만 입력해도 해당 언론사 기사 검색이 가능합니다.</li>
+                      <li>기간/언론사를 선택한 뒤 적용하기를 누르세요.</li>
+                      <li>검색어 없이도 필터 조건만으로 검색할 수 있습니다.</li>
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="als-tab-row">
+              {FILTER_TABS.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={`als-tab ${activeTab === tab.key ? "active" : ""}`}
+                  onClick={() => setActiveTab(tab.key)}
+                >
+                  <span>{tab.label}</span>
+                  <span className="als-tab-mark">{activeTab === tab.key ? "+" : "−"}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="als-filter-body is-matrix">
+              <div className="als-lane">
+                <div className="als-date-filter compact">
+                  <div className="als-date-row">
+                    <label className="als-date-field">
+                      <span>시작일</span>
+                      <input
+                        type="date"
+                        value={dateRange.start}
+                        onChange={(event) => setDateRange((prev) => ({ ...prev, start: event.target.value }))}
+                      />
+                    </label>
+                    <label className="als-date-field">
+                      <span>종료일</span>
+                      <input
+                        type="date"
+                        value={dateRange.end}
+                        onChange={(event) => setDateRange((prev) => ({ ...prev, end: event.target.value }))}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="als-date-quick">
+                    <button type="button" onClick={() => applyQuickRange("day", 7)}>
+                      최근 7일
+                    </button>
+                    <button type="button" onClick={() => applyQuickRange("month", 1)}>
+                      최근 1개월
+                    </button>
+                    <button type="button" onClick={() => applyQuickRange("month", 3)}>
+                      최근 3개월
+                    </button>
+                  </div>
                 </div>
-                <div className="als-date-quick">
-                  <button type="button" onClick={() => applyQuickRange("day", 7)}>
-                    최근 7일
-                  </button>
-                  <button type="button" onClick={() => applyQuickRange("month", 1)}>
-                    최근 1개월
-                  </button>
-                  <button type="button" onClick={() => applyQuickRange("month", 3)}>
-                    최근 3개월
-                  </button>
+              </div>
+
+              <div className="als-lane">
+                <div className="als-lane-chip-wrap">
+                  {PRESS_INITIALS.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
+                      onClick={() => togglePressFilter(name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="als-lane-chip-wrap als-alpha-chip-wrap">
+                  {PRESS_ALPHABETS.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
+                      onClick={() => togglePressFilter(name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="als-lane-chip-wrap als-press-chip-wrap">
+                  {filteredPressItems.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`als-chip-btn sub ${selectedPress.has(name) ? "active" : ""}`}
+                      onClick={() => togglePress(name)}
+                    >
+                      {name}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>
 
-            <div className="als-lane">
-              <div className="als-lane-chip-wrap">
-                {PRESS_INITIALS.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
-                    onClick={() => togglePressFilter(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
+            <div className="als-selected-row">
+              <div className="als-selected-chip">
+                {dateRange.start} ~ {dateRange.end}
+                <button
+                  type="button"
+                  className="als-chip-remove"
+                  onClick={resetDateRange}
+                  aria-label="기간 초기화"
+                >
+                  ×
+                </button>
               </div>
-              <div className="als-lane-chip-wrap als-alpha-chip-wrap">
-                {PRESS_ALPHABETS.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={`als-chip-btn ${selectedPressFilter.has(name) ? "active" : ""}`}
-                    onClick={() => togglePressFilter(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-              <div className="als-lane-chip-wrap als-press-chip-wrap">
-                {filteredPressItems.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={`als-chip-btn sub ${selectedPress.has(name) ? "active" : ""}`}
-                    onClick={() => togglePress(name)}
-                  >
-                    {name}
-                  </button>
-                ))}
+
+              <div className="als-selected-count">선택 {selectedCount}</div>
+
+              <div className="als-actions">
+                <button type="button" className="als-btn ghost" onClick={resetFilters}>
+                  초기화
+                </button>
+                <button type="button" className="als-btn primary" onClick={runSearch} disabled={loading}>
+                  {loading ? "검색 중..." : "적용하기"}
+                </button>
               </div>
             </div>
-          </div>
-
-          <div className="als-selected-row">
-            <div className="als-selected-chip">
-              {dateRange.start} ~ {dateRange.end}
-              <button
-                type="button"
-                className="als-chip-remove"
-                onClick={() => {
-                  const end = new Date();
-                  const start = new Date(end);
-                  start.setMonth(start.getMonth() - 3);
-                  setDateRange({ start: formatDate(start), end: formatDate(end) });
-                }}
-                aria-label="기간 초기화"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="als-selected-count">선택 {selectedCount}</div>
-
-            <div className="als-actions">
-              <button type="button" className="als-btn ghost" onClick={resetFilters}>
-                초기화
-              </button>
-              <button type="button" className="als-btn primary" onClick={runSearch} disabled={loading}>
-                {loading ? "검색 중..." : "적용하기"}
-              </button>
-            </div>
-          </div>
           </div>
         )}
       </section>
@@ -974,6 +833,7 @@ export default function ArticleListPage() {
                       onError={withImageFallback}
                     />
                   </div>
+
                   <div className="als-news-body">
                     <div className="als-news-meta">
                       <span className="als-news-cat">{item.category || "기타"}</span>

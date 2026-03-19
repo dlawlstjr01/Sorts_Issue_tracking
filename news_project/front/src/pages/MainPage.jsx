@@ -600,8 +600,6 @@ export default function MainPage() {
     const articleId = safeString(firstArticle.articleId || firstArticle.id);
     const lines = summaryLinesByArticleId.get(articleId) || [];
 
-    console.log("요약 lines:", lines);
-    console.log("glossary sample:", glossaryList.slice(0, 20));
   }, [glossaryList, displayedArticles, summaryLinesByArticleId]);
 
   useEffect(() => {
@@ -915,7 +913,6 @@ export default function MainPage() {
   const handleCenterWheel = (e) => {
     if (e.target.closest(".mp-summary-scroll") || e.target.closest(".mp-latest-track")) return;
 
-    e.preventDefault();
     if (wheelLockRef.current) return;
 
     const delta = e.deltaY;
@@ -923,6 +920,7 @@ export default function MainPage() {
 
     wheelLockRef.current = true;
     moveToArticleByStep(delta > 0 ? 1 : -1);
+
     setTimeout(() => {
       wheelLockRef.current = false;
     }, 700);
@@ -1126,7 +1124,6 @@ export default function MainPage() {
             <div
               className="mp-center-scroll"
               ref={centerScrollRef}
-              onWheel={handleCenterWheel}
               onScroll={persistCurrentState}
             >
               {displayedArticles.map((article) => {

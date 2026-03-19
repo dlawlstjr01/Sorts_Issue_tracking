@@ -4452,15 +4452,18 @@ body {
   gap: 16px;
 }
 
-.issue-report-action-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.issue-report-action-card {
+  border: 1px solid #d7e5ff;
+  border-radius: 16px;
+  padding: 22px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
 }
 
 .issue-report-action-card {
   border: 1px solid #d7e5ff;
   border-radius: 16px;
+  min-height: 2%;
   padding: 18px;
   background: #ffffff;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
@@ -4498,10 +4501,13 @@ body {
   background: #256ed1;
 }
 
-.issue-report-list-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.issue-report-list-card {
+  border: 1px solid #d7e5ff;
+  border-radius: 16px;
+  min-height: 240px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
 }
 
 .issue-report-list-card {

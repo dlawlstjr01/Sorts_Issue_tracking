@@ -1,9 +1,9 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import "../CSS/main.css";
 import axios from "axios";
-import { getNewsById } from "../api/newsApi";
+import "../CSS/main.css";
 
+import { getNewsById } from "../api/newsApi";
 import NoticeModal from "../components/NoticeModal";
 import { rememberArticleDetail } from "../utils/articleDetail";
 import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
@@ -21,14 +21,10 @@ const CATEGORIES = [
 
 const CATEGORY_ICON_PATHS = {
   all: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z",
-  politics:
-    "M3 8l9-4 9 4v2H3V8zm2 3h2v7H5v-7zm4 0h2v7H9v-7zm4 0h2v7h-2v-7zm4 0h2v7h-2v-7zM3 20h18v2H3z",
-  economy:
-    "M3 7a2 2 0 0 1 2-2h14a1 1 0 0 1 1 1v2H5a1 1 0 0 0 0 2h16v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm14 5a1.5 1.5 0 1 0 0 3h2v-3h-2Z",
-  society:
-    "M9 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm6 0a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 15 12ZM4 19a5 5 0 0 1 10 0v1H4Zm10 1v-1a4.5 4.5 0 0 0-1.1-3 4.8 4.8 0 0 1 7.1 4v0Z",
-  world:
-    "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm7.8 9h-3.1a15.5 15.5 0 0 0-1.1-5A8 8 0 0 1 19.8 11ZM12 4a13.6 13.6 0 0 1 2.7 7H9.3A13.6 13.6 0 0 1 12 4Zm-3.6 2a15.5 15.5 0 0 0-1.1 5H4.2A8 8 0 0 1 8.4 6ZM4.2 13h3.1a15.5 15.5 0 0 0 1.1 5A8 8 0 0 1 4.2 13ZM12 20a13.6 13.6 0 0 1-2.7-7h5.4A13.6 13.6 0 0 1 12 20Zm3.6-2a15.5 15.5 0 0 0 1.1-5h3.1a8 8 0 0 1-4.2 5Z",
+  politics: "M3 8l9-4 9 4v2H3V8zm2 3h2v7H5v-7zm4 0h2v7H9v-7zm4 0h2v7h-2v-7zm4 0h2v7h-2v-7zM3 20h18v2H3z",
+  economy: "M3 7a2 2 0 0 1 2-2h14a1 1 0 0 1 1 1v2H5a1 1 0 0 0 0 2h16v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm14 5a1.5 1.5 0 1 0 0 3h2v-3h-2Z",
+  society: "M9 12a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm6 0a2.5 2.5 0 1 0-2.5-2.5A2.5 2.5 0 0 0 15 12ZM4 19a5 5 0 0 1 10 0v1H4Zm10 1v-1a4.5 4.5 0 0 0-1.1-3 4.8 4.8 0 0 1 7.1 4v0Z",
+  world: "M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm7.8 9h-3.1a15.5 15.5 0 0 0-1.1-5A8 8 0 0 1 19.8 11ZM12 4a13.6 13.6 0 0 1 2.7 7H9.3A13.6 13.6 0 0 1 12 4Zm-3.6 2a15.5 15.5 0 0 0-1.1 5H4.2A8 8 0 0 1 8.4 6ZM4.2 13h3.1a15.5 15.5 0 0 0 1.1 5A8 8 0 0 1 4.2 13ZM12 20a13.6 13.6 0 0 1-2.7-7h5.4A13.6 13.6 0 0 1 12 20Zm3.6-2a15.5 15.5 0 0 0 1.1-5h3.1a8 8 0 0 1-4.2 5Z",
   it: "M9 9h6v6H9zM3 10h3v2H3v-2zm15 0h3v2h-3v-2zM10 3h2v3h-2V3zm0 15h2v3h-2v-3zM5.5 5.5 7.6 7.6 6.2 9 4.1 6.9l1.4-1.4Zm12.4 12.4-2.1-2.1 1.4-1.4 2.1 2.1-1.4 1.4Zm0-11-2.1 2.1-1.4-1.4 2.1-2.1 1.4 1.4Zm-12.4 12.4 2.1-2.1 1.4 1.4-2.1 2.1-1.4-1.4Z",
   culture: "M14 4v10.2A3.5 3.5 0 1 1 12 11V6l8-2v8.2A3.5 3.5 0 1 1 18 9V4.8L14 6Z",
   sports: "M3 9h2v6H3V9Zm16 0h2v6h-2V9ZM6 7h2v10H6V7Zm10 0h2v10h-2V7ZM9 10h6v4H9v-4Z",
@@ -44,6 +40,17 @@ const OPPOSITE_CATEGORY_MAP = {
   sports: ["politics", "economy", "world"],
 };
 
+const CATEGORY_RULES = {
+  politics: ["국회", "대통령", "총리", "정당", "선거", "공천", "탄핵", "외교", "정부", "장관", "의원", "정책", "국정"],
+  economy: ["금리", "물가", "환율", "주가", "증시", "코스피", "코스닥", "비트코인", "가상자산", "부동산", "경제", "경기", "실적", "매출", "영업이익", "투자", "수출", "수입", "고용", "실업", "인플레이션"],
+  society: ["사건", "사고", "범죄", "경찰", "검찰", "법원", "재판", "구속", "화재", "붕괴", "실종", "폭행", "사망", "노동", "파업", "교육", "학교", "복지", "의료", "질병"],
+  world: ["미국", "중국", "일본", "러시아", "우크라이나", "유럽", "EU", "UN", "이스라엘", "가자", "중동", "나토", "해외", "국제", "외신", "정상회담", "관세"],
+  it: ["AI", "인공지능", "챗GPT", "오픈AI", "구글", "애플", "메타", "MS", "마이크로소프트", "엔비디아", "반도체", "스마트폰", "보안", "해킹", "클라우드", "데이터", "서버", "알고리즘", "로봇", "과학", "우주"],
+  culture: ["영화", "드라마", "OTT", "넷플릭스", "디즈니", "음악", "가수", "아이돌", "공연", "전시", "미술", "문학", "문화", "축제", "패션", "연예", "방송"],
+  sports: ["축구", "야구", "농구", "배구", "골프", "테니스", "UFC", "EPL", "K리그", "MLB", "NBA", "KBO", "올림픽", "월드컵", "선수", "감독", "경기", "득점"],
+};
+
+const CATEGORY_LABEL_MAP = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label]));
 const UQ = "?auto=format&fit=crop&w=1200&q=80";
 const THUMB = {
   it: "https://images.unsplash.com/photo-1677442136019-21780ecad995",
@@ -58,133 +65,91 @@ const THUMB = {
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 24;
 const RECO_FETCH_LIMIT = 10;
+const MAIN_PAGE_STATE_KEY = "mainPageViewState";
 
-function splitBulletSummary(value) {
-  const raw = String(value || "")
-    .replace(/\r\n?/g, "\n")
-    .trim();
-
-  if (!raw) return [];
-
-  const hasBullet = /(^|\n|\s)-\s+\S/.test(raw);
-  const chunks = raw
-    .split(/\n+/)
-    .flatMap((chunk) => {
-      const trimmed = String(chunk || "").trim();
-      if (!trimmed) return [];
-      return hasBullet ? trimmed.split(/\s+(?=-\s+)/g) : [trimmed];
-    })
-    .map((line) => String(line || "").trim())
-    .filter(Boolean);
-
-  if (!hasBullet) {
-    return chunks;
-  }
-
-  return chunks
-    .map((line) => line.replace(/^\s*-\s*/, "").trim())
-    .filter(Boolean)
-    .map((line) => `- ${line}`);
-}
-
-const CATEGORY_RULES = {
-  politics: ["국회", "대통령", "총리", "정당", "선거", "공천", "탄핵", "외교", "정부", "장관", "의원", "정책", "국정"],
-  economy: [
-    "금리",
-    "물가",
-    "환율",
-    "주가",
-    "증시",
-    "코스피",
-    "코스닥",
-    "비트코인",
-    "가상자산",
-    "부동산",
-    "경제",
-    "경기",
-    "실적",
-    "매출",
-    "영업이익",
-    "투자",
-    "수출",
-    "수입",
-    "고용",
-    "실업",
-    "인플레이션",
-  ],
-  society: [
-    "사건",
-    "사고",
-    "범죄",
-    "경찰",
-    "검찰",
-    "법원",
-    "재판",
-    "구속",
-    "화재",
-    "붕괴",
-    "실종",
-    "폭행",
-    "사망",
-    "노동",
-    "파업",
-    "교육",
-    "학교",
-    "복지",
-    "의료",
-    "질병",
-  ],
-  world: ["미국", "중국", "일본", "러시아", "우크라이나", "유럽", "EU", "UN", "이스라엘", "가자", "중동", "나토", "해외", "국제", "외신", "정상회담", "관세"],
-  it: [
-    "AI",
-    "인공지능",
-    "챗GPT",
-    "오픈AI",
-    "구글",
-    "애플",
-    "메타",
-    "MS",
-    "마이크로소프트",
-    "엔비디아",
-    "반도체",
-    "스마트폰",
-    "보안",
-    "해킹",
-    "클라우드",
-    "데이터",
-    "서버",
-    "알고리즘",
-    "로봇",
-    "과학",
-    "우주",
-  ],
-  culture: ["영화", "드라마", "OTT", "넷플릭스", "디즈니", "음악", "가수", "아이돌", "공연", "전시", "미술", "문학", "문화", "축제", "패션", "연예", "방송"],
-  sports: ["축구", "야구", "농구", "배구", "골프", "테니스", "UFC", "EPL", "K리그", "MLB", "NBA", "KBO", "올림픽", "월드컵", "선수", "감독", "경기", "득점"],
+const CATEGORY_ALIAS_MAP = {
+  all: "all",
+  전체: "all",
+  politics: "politics",
+  정치: "politics",
+  economy: "economy",
+  경제: "economy",
+  society: "society",
+  사회: "society",
+  world: "world",
+  국제: "world",
+  international: "world",
+  it: "it",
+  "it/과학": "it",
+  과학: "it",
+  tech: "it",
+  science: "it",
+  culture: "culture",
+  문화: "culture",
+  연예: "culture",
+  sports: "sports",
+  스포츠: "sports",
 };
 
-function normalizeText(s) {
-  return String(s || "").toLowerCase();
+const safeString = (v) => String(v || "");
+const normalizeText = (v) => safeString(v).toLowerCase();
+const getArticleKey = (v) => safeString(v).trim();
+
+function loadMainPageState() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(MAIN_PAGE_STATE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    console.error("failed to load main page state:", e);
+    return null;
+  }
+}
+
+function saveMainPageState(nextState) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(MAIN_PAGE_STATE_KEY, JSON.stringify(nextState));
+  } catch (e) {
+    console.error("failed to save main page state:", e);
+  }
 }
 
 function normalizeCategoryKey(value) {
-  const v = String(value || "").trim().toLowerCase();
-
-  if (!v) return "";
-  if (["all", "전체"].includes(v)) return "all";
-  if (["politics", "정치"].includes(v)) return "politics";
-  if (["economy", "경제"].includes(v)) return "economy";
-  if (["society", "사회"].includes(v)) return "society";
-  if (["world", "국제", "international"].includes(v)) return "world";
-  if (["it", "it/과학", "과학", "tech", "science"].includes(v)) return "it";
-  if (["culture", "문화", "연예"].includes(v)) return "culture";
-  if (["sports", "스포츠"].includes(v)) return "sports";
-
-  return "";
+  return CATEGORY_ALIAS_MAP[safeString(value).trim().toLowerCase()] || "";
 }
 
-function inferCategoryFromNews(n) {
+function getCategoryLabel(key) {
+  return CATEGORY_LABEL_MAP[normalizeCategoryKey(key)] || "기타";
+}
+
+function getFallbackThumb(category) {
+  return `${THUMB[category || "society"] || THUMB.society}${UQ}`;
+}
+
+function splitBulletSummary(value) {
+  const raw = safeString(value).replace(/\r\n?/g, "\n").trim();
+  if (!raw) return [];
+  const hasBullet = /(^|\n|\s)-\s+\S/.test(raw);
+
+  const chunks = raw
+    .split(/\n+/)
+    .flatMap((chunk) => {
+      const line = safeString(chunk).trim();
+      if (!line) return [];
+      return hasBullet ? line.split(/\s+(?=-\s+)/g) : [line];
+    })
+    .map((line) => safeString(line).trim())
+    .filter(Boolean);
+
+  return hasBullet
+    ? chunks.map((line) => line.replace(/^\s*-\s*/, "").trim()).filter(Boolean).map((line) => `- ${line}`)
+    : chunks;
+}
+
+function inferCategoryFromNews(news = {}) {
   const text = normalizeText(
-    [n.title, n.description, n.summary, n.content, n.body, n.press_name]
+    [news.title, news.description, news.summary, news.content, news.body, news.press_name]
       .filter(Boolean)
       .join(" ")
   );
@@ -194,258 +159,119 @@ function inferCategoryFromNews(n) {
   let bestKey = "society";
   let bestScore = 0;
 
-  for (const [key, keywords] of Object.entries(CATEGORY_RULES)) {
-    let score = 0;
-    for (const kw of keywords) {
-      if (text.includes(String(kw).toLowerCase())) score += 1;
-    }
+  Object.entries(CATEGORY_RULES).forEach(([key, keywords]) => {
+    const score = keywords.reduce((acc, kw) => acc + (text.includes(kw.toLowerCase()) ? 1 : 0), 0);
     if (score > bestScore) {
       bestKey = key;
       bestScore = score;
     }
-  }
+  });
 
   return bestScore > 0 ? bestKey : "society";
 }
 
-function getCategoryLabel(key) {
-  const normalizedKey = normalizeCategoryKey(key);
-  return CATEGORIES.find((c) => c.key === normalizedKey)?.label || "기타";
-}
-
-function Badge({ type }) {
-  const isHot = String(type).toUpperCase() === "HOT";
+function getRepresentativeArticle(issueSummary = {}) {
+  const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   return (
-    <span className={`mp-badge ${isHot ? "hot" : "new"}`}>
-      {isHot ? "🔥 HOT" : "🆕 최신"}
-    </span>
-  );
-}
-
-function CategoryIcon({ categoryKey }) {
-  const path = CATEGORY_ICON_PATHS[categoryKey] || CATEGORY_ICON_PATHS.all;
-  return (
-    <span className="mp-cat-ico" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="16" height="16">
-        <path d={path} fill="currentColor" />
-      </svg>
-    </span>
-  );
-}
-
-function CategoryButton({ label, categoryKey, active, onClick }) {
-  return (
-    <button
-      type="button"
-      className={`mp-cat-btn ${active ? "active" : ""}`}
-      onClick={onClick}
-    >
-      <CategoryIcon categoryKey={categoryKey} />
-      {label}
-    </button>
-  );
-}
-
-function RelatedItem({ title, meta, onClick }) {
-  return (
-    <button type="button" className="mp-related-item" onClick={onClick}>
-      <div className="mp-related-title">{title}</div>
-      <div className="mp-related-meta">{meta}</div>
-    </button>
-  );
-}
-
-function LatestIssueCard({ issue, onClick, activeArticleId }) {
-  const isActive =
-    String(activeArticleId || "") === String(issue.articleId || issue.id || "");
-
-  return (
-    <button
-      type="button"
-      className={`mp-latest-card ${isActive ? "active" : ""}`}
-      onClick={() => onClick(issue)}
-    >
-      <div className="mp-latest-title">
-        <div>{issue.title || "(제목 없음)"}</div>
-      </div>
-      {issue.ultraShort ? (
-        <div className="mp-related-meta">{issue.ultraShort}</div>
-      ) : null}
-    </button>
-  );
-}
-
-function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
-  const [trackEl, setTrackEl] = useState(null);
-
-  const scrollByAmount = (dir) => {
-    if (!trackEl) return;
-    const amount = Math.max(260, Math.floor(trackEl.clientWidth * 0.85));
-    trackEl.scrollBy({ left: dir * amount, behavior: "smooth" });
-  };
-
-  return (
-    <section className="mp-latest">
-      <div className="mp-latest-head">
-        <div className="mp-section-title">묶인 기사 ({count || 0})</div>
-        <div className="mp-latest-ctrl">
-          <button
-            type="button"
-            className="mp-latest-btn"
-            onClick={() => scrollByAmount(-1)}
-            aria-label="latest left"
-          >
-            ◀
-          </button>
-          <button
-            type="button"
-            className="mp-latest-btn"
-            onClick={() => scrollByAmount(1)}
-            aria-label="latest right"
-          >
-            ▶
-          </button>
-        </div>
-      </div>
-
-      {items.length === 0 ? (
-        <div style={{ padding: 12, opacity: 0.7 }}>묶인 기사가 없습니다.</div>
-      ) : (
-        <div className="mp-latest-track" ref={setTrackEl}>
-          {items.map((issue) => (
-            <LatestIssueCard
-              key={String(issue.articleId || issue.id)}
-              issue={issue}
-              activeArticleId={activeArticleId}
-              onClick={onItemClick}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function mapIssueSummaryToLatestUI(it) {
-  const relatedArticles = Array.isArray(it.related_articles) ? it.related_articles : [];
-
-  const representative =
-    relatedArticles.find(
+    related.find(
       (a) =>
         Number(a.is_representative || 0) === 1 ||
-        String(a.id || a.article_id || "") === String(it.article_id || "")
-    ) || relatedArticles[0] || null;
+        getArticleKey(a.id || a.article_id) === getArticleKey(issueSummary.article_id)
+    ) ||
+    related[0] ||
+    null
+  );
+}
 
-  const inferredCategory =
+function getIssueCategory(issueSummary = {}, representative = null) {
+  return (
     normalizeCategoryKey(representative?.category) ||
-    normalizeCategoryKey(it.category) ||
+    normalizeCategoryKey(issueSummary?.category) ||
     inferCategoryFromNews({
-      title: representative?.title || it.title || "",
-      summary: it.ultra_short || it.summary || "",
-      description: it.short_summary || "",
-      content: representative?.content || it.background || "",
+      title: representative?.title || issueSummary?.title || "",
+      summary: issueSummary?.ultra_short || issueSummary?.summary || "",
+      description: issueSummary?.short_summary || "",
+      content: representative?.content || issueSummary?.background || "",
       body: representative?.body || "",
       press_name: representative?.press_name || "",
-    });
+    })
+  );
+}
+
+function mapIssueSummaryToLatestUI(issueSummary = {}) {
+  const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
+  const representative = getRepresentativeArticle(issueSummary);
+  const category = getIssueCategory(issueSummary, representative) || "society";
 
   return {
-    id: String(it.id ?? it.article_id ?? ""),
-    issueSummaryId: String(it.id ?? ""),
-    articleId: String(
-      it.article_id || representative?.id || representative?.article_id || ""
-    ),
-    category: inferredCategory || "society",
-    title: representative?.title || it.title || "(이슈 제목 없음)",
-    relatedCount: Number(it.related_count || relatedArticles.length || 0),
-    related_articles: relatedArticles,
-    shortSummary: it.short_summary || "",
-    ultraShort: it.ultra_short || "",
-    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
-    representativeUrl: representative?.url || it.url || "",
+    id: safeString(issueSummary.id ?? issueSummary.article_id ?? ""),
+    issueSummaryId: safeString(issueSummary.id ?? ""),
+    articleId: safeString(issueSummary.article_id || representative?.id || representative?.article_id || ""),
+    category,
+    title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
+    relatedCount: Number(issueSummary.related_count || related.length || 0),
+    related_articles: related,
+    shortSummary: issueSummary.short_summary || "",
+    ultraShort: issueSummary.ultra_short || "",
+    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
+    representativeUrl: representative?.url || issueSummary.url || "",
     representativeThumbnail: representative?.thumbnail || "",
     representativeContent: representative?.content || "",
-    raw: it,
+    raw: issueSummary,
   };
 }
 
-function mapIssueSummaryToMainArticle(it) {
-  const relatedArticles = Array.isArray(it.related_articles) ? it.related_articles : [];
-  const representative =
-    relatedArticles.find(
-      (a) =>
-        Number(a.is_representative || 0) === 1 ||
-        String(a.id || a.article_id || "") === String(it.article_id || "")
-    ) || relatedArticles[0] || null;
-
-  const inferredCategory =
-    normalizeCategoryKey(representative?.category) ||
-    normalizeCategoryKey(it.category) ||
-    inferCategoryFromNews({
-      title: representative?.title || it.title || "",
-      summary: it.ultra_short || it.summary || "",
-      description: it.short_summary || "",
-      content: representative?.content || it.background || "",
-      body: representative?.body || "",
-      press_name: representative?.press_name || "",
-    });
-
-  const fallbackThumb = `${THUMB[inferredCategory || "society"] || THUMB.it}${UQ}`;
+function mapIssueSummaryToMainArticle(issueSummary = {}) {
+  const representative = getRepresentativeArticle(issueSummary);
+  const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
+  const category = getIssueCategory(issueSummary, representative) || "society";
+  const articleId = safeString(
+    issueSummary.article_id || representative?.id || representative?.article_id || issueSummary.id || ""
+  );
 
   return {
-    id: String(
-      it.article_id || representative?.id || representative?.article_id || it.id || ""
-    ),
-    issueSummaryId: String(it.id || ""),
-    articleId: String(
-      it.article_id || representative?.id || representative?.article_id || it.id || ""
-    ),
-    category: inferredCategory || "society",
-    badge: `묶음 ${Number(it.related_count || relatedArticles.length || 0)}`,
-    title: representative?.title || it.title || "(이슈 제목 없음)",
-    thumbnailUrl: resolveThumbnailUrl(
-      representative?.thumbnail || "",
-      fallbackThumb
-    ),
-    summary: [it.short_summary || "요약 정보가 없습니다."],
-    createdAt: it.created_at ? new Date(it.created_at).getTime() : Date.now(),
+    id: articleId,
+    issueSummaryId: safeString(issueSummary.id || ""),
+    articleId,
+    category,
+    badge: `묶음 ${Number(issueSummary.related_count || related.length || 0)}`,
+    title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
+    thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || "", getFallbackThumb(category)),
+    summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
+    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
     raw: {
-      ...it,
-      title: representative?.title || it.title || "(이슈 제목 없음)",
+      ...issueSummary,
+      title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
       thumbnail: representative?.thumbnail || "",
-      url: representative?.url || it.url || "",
+      url: representative?.url || issueSummary.url || "",
       content: representative?.content || "",
     },
   };
 }
 
-function mapRelatedArticleToGroupItem(article, fallbackCategory = "society", fallbackId = "") {
-  const articleId = String(article?.article_id ?? article?.id ?? fallbackId ?? "");
+function mapRelatedArticleToGroupItem(article = {}, fallbackCategory = "society", fallbackId = "") {
+  const articleId = safeString(article.article_id ?? article.id ?? fallbackId ?? "");
   const category =
-    normalizeCategoryKey(article?.category) ||
+    normalizeCategoryKey(article.category) ||
     inferCategoryFromNews({
-      title: article?.title || "",
-      summary: article?.ultra_short || "",
-      description: article?.short_summary || "",
-      content: article?.content || "",
+      title: article.title || "",
+      summary: article.ultra_short || "",
+      description: article.short_summary || "",
+      content: article.content || "",
     }) ||
     fallbackCategory;
 
-  const fallbackThumb = `${THUMB[category] || THUMB.it}${UQ}`;
-
   return {
-    id: articleId || String(fallbackId),
+    id: articleId || safeString(fallbackId),
     articleId,
     category,
-    title: article?.title || "(제목 없음)",
-    thumbnailUrl: resolveThumbnailUrl(article?.thumbnail, fallbackThumb),
-    ultraShort: article?.ultra_short || "",
-    shortSummary: article?.short_summary || "",
-    url: article?.url || "",
-    content: article?.content || "",
-    raw: {
-      ...article,
-      id: articleId,
-    },
+    title: article.title || "(제목 없음)",
+    thumbnailUrl: resolveThumbnailUrl(article.thumbnail, getFallbackThumb(category)),
+    ultraShort: article.ultra_short || "",
+    shortSummary: article.short_summary || "",
+    url: article.url || "",
+    content: article.content || "",
+    raw: { ...article, id: articleId },
   };
 }
 
@@ -455,7 +281,6 @@ async function fetchArticleDetailById(articleId) {
   try {
     const res = await getNewsById(articleId);
     const data = res?.data;
-
     return (
       data?.item ||
       data?.data ||
@@ -471,8 +296,7 @@ async function fetchArticleDetailById(articleId) {
 
 function mapIssueToRelatedRecoItem(issue) {
   if (!issue) return null;
-
-  const articleId = String(issue.articleId || issue.raw?.article_id || issue.id || "");
+  const articleId = safeString(issue.articleId || issue.raw?.article_id || issue.id || "");
   if (!articleId) return null;
 
   return {
@@ -495,79 +319,231 @@ function mapIssueToRelatedRecoItem(issue) {
   };
 }
 
+function buildRecoDisplayItem(item) {
+  const raw = item?.raw ?? item;
+  const title = raw?.title || raw?.headline || "(제목 없음)";
+  const category =
+    normalizeCategoryKey(raw?.category) ||
+    inferCategoryFromNews({
+      title,
+      summary: raw?.summary || raw?.short_summary || raw?.ultra_short || "",
+      description: raw?.description || "",
+      content: raw?.content || raw?.background || "",
+      body: raw?.body || "",
+      press_name: raw?.press_name || "",
+    });
+
+  return {
+    id: safeString(raw?.id || raw?.articleId || raw?.url || Math.random()),
+    title,
+    category,
+    raw,
+  };
+}
+
+function Badge({ type }) {
+  const isHot = safeString(type).toUpperCase() === "HOT";
+  return <span className={`mp-badge ${isHot ? "hot" : "new"}`}>{isHot ? "🔥 HOT" : "🆕 최신"}</span>;
+}
+
+function CategoryIcon({ categoryKey }) {
+  const path = CATEGORY_ICON_PATHS[categoryKey] || CATEGORY_ICON_PATHS.all;
+  return (
+    <span className="mp-cat-ico" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="16" height="16">
+        <path d={path} fill="currentColor" />
+      </svg>
+    </span>
+  );
+}
+
+function CategoryButton({ label, categoryKey, active, onClick }) {
+  return (
+    <button type="button" className={`mp-cat-btn ${active ? "active" : ""}`} onClick={onClick}>
+      <CategoryIcon categoryKey={categoryKey} />
+      {label}
+    </button>
+  );
+}
+
+function RelatedItem({ title, meta, onClick }) {
+  return (
+    <button type="button" className="mp-related-item" onClick={onClick}>
+      <div className="mp-related-title">{title}</div>
+      <div className="mp-related-meta">{meta}</div>
+    </button>
+  );
+}
+
+function RelatedList({ items, fallbackText, onClick, metaType = "관련" }) {
+  if (!items.length) return <div style={{ padding: 10, opacity: 0.7 }}>{fallbackText}</div>;
+
+  return items.map((item, idx) => (
+    <RelatedItem
+      key={item.id || idx}
+      title={item.title}
+      meta={`${getCategoryLabel(item.category)} · ${metaType}`}
+      onClick={() => onClick(item.raw || item)}
+    />
+  ));
+}
+
+function ShareModal({ open, onClose, data, onKakao, onEmail, onCopy }) {
+  if (!open) return null;
+
+  return (
+    <div className="mp-share-overlay" onClick={onClose}>
+      <div className="mp-share-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="mp-share-header">
+          <h3>공유</h3>
+          <button type="button" className="mp-share-close" onClick={onClose}>
+            ×
+          </button>
+        </div>
+
+        <div className="mp-share-actions">
+          <button type="button" className="mp-share-icon-btn kakao" onClick={onKakao}>
+            <span className="mp-share-icon">톡</span>
+            <span>카카오톡</span>
+          </button>
+
+          <button type="button" className="mp-share-icon-btn email" onClick={onEmail}>
+            <span className="mp-share-icon">✉</span>
+            <span>이메일</span>
+          </button>
+        </div>
+
+        <div className="mp-share-link-box">
+          <input type="text" readOnly value={data?.url || ""} className="mp-share-link-input" />
+          <button type="button" className="mp-share-copy-btn" onClick={onCopy}>
+            복사
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LatestIssueCard({ issue, onClick, activeArticleId }) {
+  const isActive = getArticleKey(activeArticleId) === getArticleKey(issue.articleId || issue.id);
+
+  return (
+    <button type="button" className={`mp-latest-card ${isActive ? "active" : ""}`} onClick={() => onClick(issue)}>
+      <div className="mp-latest-title">
+        <div>{issue.title || "(제목 없음)"}</div>
+      </div>
+      {issue.ultraShort ? <div className="mp-related-meta">{issue.ultraShort}</div> : null}
+    </button>
+  );
+}
+
+function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
+  const [trackEl, setTrackEl] = useState(null);
+
+  const scrollByAmount = (dir) => {
+    if (!trackEl) return;
+    const amount = Math.max(260, Math.floor(trackEl.clientWidth * 0.85));
+    trackEl.scrollBy({ left: dir * amount, behavior: "smooth" });
+  };
+
+  return (
+    <section className="mp-latest">
+      <div className="mp-latest-head">
+        <div className="mp-section-title">묶인 기사 ({count || 0})</div>
+        <div className="mp-latest-ctrl">
+          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(-1)} aria-label="latest left">
+            ◀
+          </button>
+          <button type="button" className="mp-latest-btn" onClick={() => scrollByAmount(1)} aria-label="latest right">
+            ▶
+          </button>
+        </div>
+      </div>
+
+      {!items.length ? (
+        <div style={{ padding: 12, opacity: 0.7 }}>묶인 기사가 없습니다.</div>
+      ) : (
+        <div className="mp-latest-track" ref={setTrackEl}>
+          {items.map((issue) => (
+            <LatestIssueCard
+              key={safeString(issue.articleId || issue.id)}
+              issue={issue}
+              activeArticleId={activeArticleId}
+              onClick={onItemClick}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function MainPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [userId, setUserId] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState("all");
-  const [articleListMode, setArticleListMode] = useState("daily");
+  const initialSavedStateRef = useRef(loadMainPageState());
+  const allowPersistRef = useRef(false);
+  const restoredRef = useRef(false);
+  const centerScrollRef = useRef(null);
+  const sectionRefs = useRef({});
+  const wheelLockRef = useRef(false);
 
+  const [userId, setUserId] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState(initialSavedStateRef.current?.selectedCategory || "all");
+  const [articleListMode, setArticleListMode] = useState(initialSavedStateRef.current?.articleListMode || "daily");
   const [latestIssues, setLatestIssues] = useState([]);
   const [articles, setArticles] = useState([]);
-  const [selectedId, setSelectedId] = useState(null);
-
-  const [activeIssueArticleId, setActiveIssueArticleId] = useState(null);
-
+  const [selectedId, setSelectedId] = useState(initialSavedStateRef.current?.selectedId || null);
+  const [activeIssueArticleId, setActiveIssueArticleId] = useState(initialSavedStateRef.current?.activeIssueArticleId || null);
   const [recoItems, setRecoItems] = useState([]);
   const [recoLoading, setRecoLoading] = useState(false);
   const [recoReady, setRecoReady] = useState(false);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [shareOpen, setShareOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
   const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
   const [archiveKeys, setArchiveKeys] = useState(new Set());
 
-  const centerScrollRef = useRef(null);
-  const sectionRefs = useRef({});
-  const wheelLockRef = useRef(false);
+  const persistCurrentState = () => {
+    if (!allowPersistRef.current) return;
+    saveMainPageState({
+      selectedCategory,
+      articleListMode,
+      selectedId,
+      activeIssueArticleId,
+      centerScrollTop: centerScrollRef.current?.scrollTop || 0,
+    });
+  };
 
   useEffect(() => {
-    const loadMe = async () => {
+    (async () => {
       try {
         const res = await axios.get("/auth/me", { withCredentials: true });
         setUserId(res.data?.id ?? null);
       } catch (e) {
-        if (e?.response?.status === 401) {
-          setUserId(null);
-          return;
-        }
-        console.error("[auth/me] failed:", e);
+        if (e?.response?.status !== 401) console.error("[auth/me] failed:", e);
         setUserId(null);
       }
-    };
-
-    loadMe();
+    })();
   }, []);
 
   useEffect(() => {
-    const loadLatestIssues = async () => {
+    (async () => {
       try {
         setLoading(true);
         setError("");
 
         const res = await axios.get("/tracking/issues", {
-          params: {
-            limit: MAIN_PAGE_ISSUE_LIMIT,
-            include_article_content: 0,
-          },
+          params: { limit: MAIN_PAGE_ISSUE_LIMIT, include_article_content: 0 },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
+        const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
 
-        const onlyGrouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
-
-        const mappedIssues = onlyGrouped.map((it) => mapIssueSummaryToLatestUI(it));
-        const mappedArticles = onlyGrouped.map((it) => mapIssueSummaryToMainArticle(it));
-
-        setLatestIssues(mappedIssues);
-        setArticles(mappedArticles);
-
-        const firstId = String(mappedArticles[0]?.id || "");
-        setSelectedId(firstId || null);
+        setLatestIssues(grouped.map(mapIssueSummaryToLatestUI));
+        setArticles(grouped.map(mapIssueSummaryToMainArticle));
       } catch (e) {
         console.error("latest issues load failed:", e);
         setLatestIssues([]);
@@ -576,9 +552,7 @@ export default function MainPage() {
       } finally {
         setLoading(false);
       }
-    };
-
-    loadLatestIssues();
+    })();
   }, []);
 
   useEffect(() => {
@@ -589,28 +563,20 @@ export default function MainPage() {
       return;
     }
 
-    let isMounted = true;
+    let mounted = true;
     let timeoutId = null;
     let retryCount = 0;
     const MAX_RETRY = 3;
 
     const loadReco = async () => {
       try {
-        if (!isMounted) return;
+        if (!mounted) return;
         setRecoLoading(true);
 
-        const res = await axios.get("/reco", {
-          params: { k: RECO_FETCH_LIMIT, userId },
-        });
+        const res = await axios.get("/reco", { params: { k: RECO_FETCH_LIMIT, userId } });
+        const items = Array.isArray(res.data?.items) ? res.data.items : Array.isArray(res.data) ? res.data : [];
 
-        const items = Array.isArray(res.data?.items)
-          ? res.data.items
-          : Array.isArray(res.data)
-            ? res.data
-            : [];
-
-        if (!isMounted) return;
-
+        if (!mounted) return;
         setRecoItems(items);
         setRecoLoading(false);
         setRecoReady(true);
@@ -619,9 +585,9 @@ export default function MainPage() {
           retryCount += 1;
           timeoutId = setTimeout(loadReco, 20000);
         }
-      } catch (err) {
-        console.error("추천 불러오기 실패", err);
-        if (!isMounted) return;
+      } catch (e) {
+        console.error("추천 불러오기 실패", e);
+        if (!mounted) return;
         setRecoItems([]);
         setRecoLoading(false);
         setRecoReady(true);
@@ -633,158 +599,164 @@ export default function MainPage() {
     loadReco();
 
     return () => {
-      isMounted = false;
+      mounted = false;
       if (timeoutId) clearTimeout(timeoutId);
     };
   }, [userId]);
 
+  useEffect(() => {
+    if (!window.Kakao) return;
+    if (!window.Kakao.isInitialized()) window.Kakao.init(import.meta.env.VITE_KAKAO_JS_KEY);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (!userId) {
+        setArchiveKeys(new Set());
+        return;
+      }
+
+      try {
+        const res = await axios.get("/issue-archives/my/keys", { withCredentials: true });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        setArchiveKeys(new Set(items.map(String)));
+      } catch (e) {
+        console.error("[issue-archives/my/keys] failed:", e);
+        setArchiveKeys(new Set());
+      }
+    })();
+  }, [userId]);
+
   const displayedArticles = useMemo(() => {
-    const source =
+    const filtered =
       selectedCategory === "all"
         ? articles
-        : articles.filter(
-          (a) =>
-            normalizeCategoryKey(a.category) ===
-            normalizeCategoryKey(selectedCategory)
-        );
+        : articles.filter((a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory));
 
-    const sorted = [...source].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (articleListMode !== "weekly") return sorted;
 
-    if (articleListMode === "weekly") {
-      const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-      const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-      return weekly.length ? weekly : sorted;
-    }
-
-    return sorted;
+    const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
+    const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
+    return weekly.length ? weekly : sorted;
   }, [articles, selectedCategory, articleListMode]);
 
   const latestIssueByArticleId = useMemo(
-    () =>
-      new Map(
-        latestIssues.map((issue) => [String(issue.articleId || issue.id || ""), issue])
-      ),
+    () => new Map(latestIssues.map((issue) => [safeString(issue.articleId || issue.id), issue])),
     [latestIssues]
   );
 
   const issueGroupByArticleId = useMemo(() => {
-    const next = new Map();
+    const map = new Map();
 
     latestIssues.forEach((issue) => {
-      const rawRelated = Array.isArray(issue.related_articles)
-        ? issue.related_articles
-        : [];
-      const mappedGroup = rawRelated.map((article, idx) =>
-        mapRelatedArticleToGroupItem(article, issue.category || "society", idx)
+      const rawRelated = Array.isArray(issue.related_articles) ? issue.related_articles : [];
+      map.set(
+        safeString(issue.articleId || issue.id),
+        rawRelated.map((article, idx) => mapRelatedArticleToGroupItem(article, issue.category || "society", idx))
       );
-
-      next.set(String(issue.articleId || issue.id || ""), mappedGroup);
     });
 
-    return next;
+    return map;
   }, [latestIssues]);
 
   const summaryLinesByArticleId = useMemo(() => {
-    const next = new Map();
+    const map = new Map();
 
     latestIssues.forEach((issue) => {
-      next.set(
-        String(issue.articleId || issue.id || ""),
-        splitBulletSummary(issue.shortSummary || SUMMARY_FALLBACK)
-      );
+      map.set(safeString(issue.articleId || issue.id), splitBulletSummary(issue.shortSummary || SUMMARY_FALLBACK));
     });
 
     articles.forEach((article) => {
-      const key = String(article.id || "");
-      if (!key || next.has(key)) return;
-      next.set(key, splitBulletSummary(article.summary?.[0] || SUMMARY_FALLBACK));
+      const key = safeString(article.id);
+      if (!key || map.has(key)) return;
+      map.set(key, splitBulletSummary(article.summary?.[0] || SUMMARY_FALLBACK));
     });
 
-    return next;
+    return map;
   }, [latestIssues, articles]);
 
   useEffect(() => {
-    if (!displayedArticles.length) {
-      setSelectedId(null);
-      return;
-    }
+    if (loading || !articles.length || restoredRef.current) return;
 
-    const exists = displayedArticles.some(
-      (a) => String(a.id) === String(selectedId)
+    const saved = initialSavedStateRef.current;
+    const hasSelectedInCurrentList = displayedArticles.some((a) => safeString(a.id) === safeString(saved?.selectedId));
+    const nextSelectedId = hasSelectedInCurrentList ? safeString(saved?.selectedId) : safeString(displayedArticles[0]?.id);
+
+    setSelectedId(nextSelectedId || null);
+
+    const matchedIssue = latestIssueByArticleId.get(nextSelectedId);
+    const group = issueGroupByArticleId.get(nextSelectedId) || [];
+    const hasSavedActive = group.some((item) => safeString(item.articleId || item.id) === safeString(saved?.activeIssueArticleId));
+
+    setActiveIssueArticleId(
+      hasSavedActive
+        ? safeString(saved?.activeIssueArticleId)
+        : safeString(matchedIssue?.articleId || nextSelectedId || "")
     );
 
-    if (!exists) {
-      setSelectedId(String(displayedArticles[0].id));
-    }
-  }, [displayedArticles, selectedId]);
+    requestAnimationFrame(() => {
+      const container = centerScrollRef.current;
+      if (!container) return;
 
-  const selectedArticle = useMemo(() => {
-    if (!displayedArticles.length) return null;
-    return (
-      displayedArticles.find((a) => String(a.id) === String(selectedId)) ||
-      displayedArticles[0]
-    );
-  }, [displayedArticles, selectedId]);
+      if (typeof saved?.centerScrollTop === "number") {
+        container.scrollTop = saved.centerScrollTop;
+        return;
+      }
 
-  const selectedIssue = useMemo(() => {
-    if (!selectedArticle) return null;
+      const targetEl = sectionRefs.current[nextSelectedId];
+      if (targetEl) targetEl.scrollIntoView({ behavior: "auto", block: "start" });
+    });
 
-    return latestIssueByArticleId.get(String(selectedArticle.id)) || null;
-  }, [selectedArticle, latestIssueByArticleId]);
+    restoredRef.current = true;
+    allowPersistRef.current = true;
+  }, [loading, articles, displayedArticles, latestIssueByArticleId, issueGroupByArticleId]);
 
   useEffect(() => {
-    if (!selectedIssue) {
-      setActiveIssueArticleId(null);
-      return;
-    }
-    setActiveIssueArticleId(String(selectedIssue.articleId || ""));
-  }, [selectedIssue]);
+    if (!restoredRef.current) return;
+    persistCurrentState();
+  }, [selectedCategory, articleListMode, selectedId, activeIssueArticleId]);
 
-  const selectedIssueGroup = useMemo(() => {
-    if (!selectedIssue) return [];
+  const selectedArticle = useMemo(
+    () =>
+      displayedArticles.find((a) => safeString(a.id) === safeString(selectedId)) || displayedArticles[0] || null,
+    [displayedArticles, selectedId]
+  );
 
-    return (
-      issueGroupByArticleId.get(
-        String(selectedIssue.articleId || selectedIssue.id || "")
-      ) || []
-    );
-  }, [selectedIssue, issueGroupByArticleId]);
+  const selectedIssue = useMemo(
+    () => (selectedArticle ? latestIssueByArticleId.get(safeString(selectedArticle.id)) || null : null),
+    [selectedArticle, latestIssueByArticleId]
+  );
+
+  const selectedIssueGroup = useMemo(
+    () => (selectedIssue ? issueGroupByArticleId.get(safeString(selectedIssue.articleId || selectedIssue.id)) || [] : []),
+    [selectedIssue, issueGroupByArticleId]
+  );
 
   const activeIssueArticle = useMemo(() => {
     if (!selectedIssue) return null;
-
-    const activeId = String(
-      activeIssueArticleId || selectedIssue.articleId || selectedIssue.article_id || ""
+    const activeId = safeString(activeIssueArticleId || selectedIssue.articleId || selectedIssue.article_id || "");
+    return (
+      selectedIssueGroup.find((item) => safeString(item.articleId || item.id) === activeId) ||
+      selectedIssueGroup[0] ||
+      null
     );
-
-    const fromGroup =
-      selectedIssueGroup.find(
-        (item) => String(item.articleId || item.id || "") === activeId
-      ) || null;
-
-    return fromGroup || selectedIssueGroup[0] || null;
   }, [selectedIssue, selectedIssueGroup, activeIssueArticleId]);
 
   const contrastArticles = useMemo(() => {
     if (!selectedArticle) return [];
 
-    const source = articles.filter((a) => String(a.id) !== String(selectedArticle.id));
+    const source = articles.filter((a) => safeString(a.id) !== safeString(selectedArticle.id));
     const selectedCategoryKey = normalizeCategoryKey(selectedArticle.category);
-    const oppositeCategories = OPPOSITE_CATEGORY_MAP[selectedCategoryKey] || [];
+    const opposite = OPPOSITE_CATEGORY_MAP[selectedCategoryKey] || [];
     const allCategories = CATEGORIES.map((c) => c.key).filter((k) => k !== "all");
-    const fallbackCategories = allCategories.filter(
-      (k) => k !== selectedCategoryKey && !oppositeCategories.includes(k)
-    );
+    const fallback = allCategories.filter((k) => k !== selectedCategoryKey && !opposite.includes(k));
 
-    const primary = source.filter((a) =>
-      oppositeCategories.includes(normalizeCategoryKey(a.category))
-    );
-    const secondary = source.filter((a) =>
-      fallbackCategories.includes(normalizeCategoryKey(a.category))
-    );
+    const primary = source.filter((a) => opposite.includes(normalizeCategoryKey(a.category)));
+    const secondary = source.filter((a) => fallback.includes(normalizeCategoryKey(a.category)));
     const tail = source.filter((a) => {
       const key = normalizeCategoryKey(a.category);
-      return !oppositeCategories.includes(key) && !fallbackCategories.includes(key);
+      return !opposite.includes(key) && !fallback.includes(key);
     });
 
     return [...primary, ...secondary, ...tail].slice(0, 6);
@@ -794,79 +766,59 @@ export default function MainPage() {
     () => latestIssues.map(mapIssueToRelatedRecoItem).filter(Boolean).slice(0, 6),
     [latestIssues]
   );
-  const contrastRecoItems = [];
+
+  const recoDisplayItems = useMemo(() => recoItems.map(buildRecoDisplayItem), [recoItems]);
+
+  const contrastDisplayItems = useMemo(
+    () =>
+      contrastArticles.map((item) => ({
+        id: item.id,
+        title: item.title,
+        category: item.category,
+        raw: item.raw || item,
+      })),
+    [contrastArticles]
+  );
 
   const moveToArticleByStep = (step) => {
     if (!displayedArticles.length) return;
 
-    const currentIndex = displayedArticles.findIndex(
-      (a) => String(a.id) === String(selectedId)
-    );
-
+    const currentIndex = displayedArticles.findIndex((a) => safeString(a.id) === safeString(selectedId));
     const safeCurrentIndex = currentIndex >= 0 ? currentIndex : 0;
-    const nextIndex = Math.max(
-      0,
-      Math.min(displayedArticles.length - 1, safeCurrentIndex + step)
-    );
-
+    const nextIndex = Math.max(0, Math.min(displayedArticles.length - 1, safeCurrentIndex + step));
     const nextArticle = displayedArticles[nextIndex];
     if (!nextArticle) return;
 
-    const nextId = String(nextArticle.id);
+    const nextId = safeString(nextArticle.id);
     setSelectedId(nextId);
-    setActiveIssueArticleId(null);
+    setActiveIssueArticleId(safeString(latestIssueByArticleId.get(nextId)?.articleId || nextId));
 
     const targetEl = sectionRefs.current[nextId];
-    if (targetEl) {
-      targetEl.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }
+    if (targetEl) targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const selectIssueInCenter = (article) => {
-    const nextId = String(article?.id || "");
+    const nextId = safeString(article?.id);
     if (!nextId) return;
 
     setSelectedId(nextId);
-
-    const matchedIssue = latestIssueByArticleId.get(nextId) || null;
-
-    setActiveIssueArticleId(String(matchedIssue?.articleId || nextId));
+    setActiveIssueArticleId(safeString(latestIssueByArticleId.get(nextId)?.articleId || nextId));
 
     const targetEl = sectionRefs.current[nextId];
-    if (targetEl) {
-      targetEl.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }
+    if (targetEl) targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleCenterWheel = (e) => {
-    const summaryBox = e.target.closest(".mp-summary-scroll");
-    const latestTrack = e.target.closest(".mp-latest-track");
-
-    if (summaryBox || latestTrack) {
-      return;
-    }
+    if (e.target.closest(".mp-summary-scroll") || e.target.closest(".mp-latest-track")) return;
 
     e.preventDefault();
-
     if (wheelLockRef.current) return;
 
     const delta = e.deltaY;
     if (Math.abs(delta) < 8) return;
 
     wheelLockRef.current = true;
-
-    if (delta > 0) {
-      moveToArticleByStep(1);
-    } else {
-      moveToArticleByStep(-1);
-    }
-
+    moveToArticleByStep(delta > 0 ? 1 : -1);
     setTimeout(() => {
       wheelLockRef.current = false;
     }, 700);
@@ -881,6 +833,8 @@ export default function MainPage() {
       return;
     }
 
+    persistCurrentState();
+
     navigate(`/?view=article&id=${encodeURIComponent(normalized.id)}`, {
       state: {
         article: normalized,
@@ -889,94 +843,37 @@ export default function MainPage() {
     });
   };
 
-  useEffect(() => {
-    if (!window.Kakao) return;
-    if (!window.Kakao.isInitialized()) {
-      window.Kakao.init(import.meta.env.VITE_KAKAO_JS_KEY);
-    }
-  }, []);
-
-  useEffect(() => {
-    const loadArchiveKeys = async () => {
-      if (!userId) {
-        setArchiveKeys(new Set());
-        return;
-      }
-
-      try {
-        const res = await axios.get("/issue-archives/my/keys", {
-          withCredentials: true,
-        });
-
-        const items = Array.isArray(res.data?.items) ? res.data.items : [];
-        setArchiveKeys(new Set(items.map(String)));
-      } catch (e) {
-        console.error("[issue-archives/my/keys] failed:", e);
-        setArchiveKeys(new Set());
-      }
-    };
-
-    loadArchiveKeys();
-  }, [userId]);
-
   const onSaveArticle = async (article) => {
     if (!userId) {
-      setNoticeModal({
-        open: true,
-        message: "로그인 후 저장할 수 있습니다.",
-      });
+      setNoticeModal({ open: true, message: "로그인 후 저장할 수 있습니다." });
       return;
     }
 
-    const issueSummaryId =
-      article?.issueSummaryId ||
-      article?.raw?.issueSummaryId ||
-      article?.raw?.id ||
-      null;
-
+    const issueSummaryId = article?.issueSummaryId || article?.raw?.issueSummaryId || article?.raw?.id || null;
     if (!issueSummaryId) {
-      setNoticeModal({
-        open: true,
-        message: "저장할 이슈 정보를 찾을 수 없습니다.",
-      });
+      setNoticeModal({ open: true, message: "저장할 이슈 정보를 찾을 수 없습니다." });
       return;
     }
 
-    const key = String(issueSummaryId);
+    const key = safeString(issueSummaryId);
 
     try {
       if (archiveKeys.has(key)) {
-        await axios.delete(`/issue-archives/${issueSummaryId}`, {
-          withCredentials: true,
-        });
-
+        await axios.delete(`/issue-archives/${issueSummaryId}`, { withCredentials: true });
         setArchiveKeys((prev) => {
           const next = new Set(prev);
           next.delete(key);
           return next;
         });
-
-        setNoticeModal({
-          open: true,
-          message: "저장이 해제되었습니다.",
-        });
+        setNoticeModal({ open: true, message: "저장이 해제되었습니다." });
       } else {
-        await axios.post(
-          `/issue-archives/${issueSummaryId}`,
-          {},
-          { withCredentials: true }
-        );
-
+        await axios.post(`/issue-archives/${issueSummaryId}`, {}, { withCredentials: true });
         setArchiveKeys((prev) => {
           const next = new Set(prev);
           next.add(key);
           return next;
         });
-
-        setNoticeModal({
-          open: true,
-          message: "저장되었습니다.",
-        });
+        setNoticeModal({ open: true, message: "저장되었습니다." });
       }
     } catch (e) {
       console.error("[onSaveArticle] failed:", e);
@@ -987,12 +884,6 @@ export default function MainPage() {
     }
   };
 
-  const openShareModal = (article) => {
-    const target = article?.raw || article;
-    setShareTarget(target);
-    setShareOpen(true);
-  };
-
   const closeShareModal = () => {
     setShareOpen(false);
     setShareTarget(null);
@@ -1000,20 +891,17 @@ export default function MainPage() {
 
   const buildShareData = (article) => {
     const source = article?.raw || article || {};
-    const title = source.title || "기사 공유";
-    const description =
-      source.short_summary ||
-      source.ultra_short ||
-      source.summary ||
-      "기사를 확인해보세요.";
-    const url = source.url || window.location.href;
-    const imageUrl =
-      source.thumbnail ||
-      activeIssueArticle?.thumbnailUrl ||
-      selectedArticle?.thumbnailUrl ||
-      "";
+    return {
+      title: source.title || "기사 공유",
+      description: source.short_summary || source.ultra_short || source.summary || "기사를 확인해보세요.",
+      url: source.url || window.location.href,
+      imageUrl: source.thumbnail || activeIssueArticle?.thumbnailUrl || selectedArticle?.thumbnailUrl || "",
+    };
+  };
 
-    return { title, description, url, imageUrl };
+  const openShareModal = (article) => {
+    setShareTarget(article?.raw || article);
+    setShareOpen(true);
   };
 
   const shareToKakao = () => {
@@ -1030,20 +918,9 @@ export default function MainPage() {
         title,
         description,
         imageUrl,
-        link: {
-          mobileWebUrl: url,
-          webUrl: url,
-        },
+        link: { mobileWebUrl: url, webUrl: url },
       },
-      buttons: [
-        {
-          title: "기사 보기",
-          link: {
-            mobileWebUrl: url,
-            webUrl: url,
-          },
-        },
-      ],
+      buttons: [{ title: "기사 보기", link: { mobileWebUrl: url, webUrl: url } }],
     });
   };
 
@@ -1055,26 +932,14 @@ export default function MainPage() {
   };
 
   const copyShareLink = async () => {
-    const { url } = buildShareData(shareTarget);
-
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(buildShareData(shareTarget).url);
       alert("링크가 복사되었습니다.");
     } catch (e) {
       console.error(e);
       alert("링크 복사에 실패했습니다.");
     }
   };
-
-  const isSaved = useMemo(() => {
-    const issueSummaryId =
-      selectedArticle?.issueSummaryId ||
-      selectedArticle?.raw?.id ||
-      null;
-
-    if (!issueSummaryId) return false;
-    return archiveKeys.has(String(issueSummaryId));
-  }, [selectedArticle, archiveKeys]);
 
   return (
     <div className="mp-wrap">
@@ -1125,86 +990,73 @@ export default function MainPage() {
 
               <div className="mp-article-list">
                 {displayedArticles.map((a) => {
-                  const matchedIssue = latestIssueByArticleId.get(String(a.id)) || null;
+                  const matchedIssue = latestIssueByArticleId.get(safeString(a.id)) || null;
 
                   return (
                     <button
                       key={a.id}
                       type="button"
-                      className={`mp-article-item ${String(a.id) === String(selectedArticle?.id) ? "active" : ""}`}
-                      onClick={() => {
-                        selectIssueInCenter(a);
-                      }}
+                      className={`mp-article-item ${safeString(a.id) === safeString(selectedArticle?.id) ? "active" : ""}`}
+                      onClick={() => selectIssueInCenter(a)}
                     >
                       <div className="mp-article-item-top">
                         <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
                       </div>
-                      <div className="mp-article-item-title">
-                        {matchedIssue?.title || a.title}
-                      </div>
+                      <div className="mp-article-item-title">{matchedIssue?.title || a.title}</div>
                     </button>
                   );
                 })}
               </div>
 
-              {error && (
-                <div style={{ padding: "0 12px 12px", color: "#ff6b6b", fontSize: 13 }}>
-                  {error}
-                </div>
-              )}
+              {error ? (
+                <div style={{ padding: "0 12px 12px", color: "#ff6b6b", fontSize: 13 }}>{error}</div>
+              ) : null}
             </div>
           </div>
         </aside>
 
         <main className="mp-center">
           {!displayedArticles.length ? (
-            <div style={{ padding: 20, opacity: 0.8 }}>
-              {loading ? "불러오는 중..." : "표시할 이슈가 없습니다."}
-            </div>
+            <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : "표시할 이슈가 없습니다."}</div>
           ) : (
             <div
               className="mp-center-scroll"
               ref={centerScrollRef}
               onWheel={handleCenterWheel}
+              onScroll={persistCurrentState}
             >
               {displayedArticles.map((article) => {
-                const isSelected = String(article.id) === String(selectedId);
+                const articleId = safeString(article.id);
+                const isSelected = articleId === safeString(selectedId);
+                const currentIssue = latestIssueByArticleId.get(articleId) || null;
+                const currentIssueGroup = issueGroupByArticleId.get(articleId) || [];
+                const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
+                const currentThumb = isSelected
+                  ? activeIssueArticle?.thumbnailUrl || currentIssueGroup[0]?.thumbnailUrl || article.thumbnailUrl
+                  : article.thumbnailUrl;
 
-                const currentIssue =
-                  latestIssueByArticleId.get(String(article.id)) || null;
-                const currentIssueGroup =
-                  issueGroupByArticleId.get(String(article.id)) || [];
-                const currentSummaryLines =
-                  summaryLinesByArticleId.get(String(article.id)) || [];
+                const currentTitle = isSelected
+                  ? activeIssueArticle?.title || currentIssue?.title || article.title
+                  : currentIssue?.title || article.title;
 
                 return (
                   <section
                     key={article.id}
                     ref={(el) => {
-                      sectionRefs.current[String(article.id)] = el;
+                      sectionRefs.current[articleId] = el;
                     }}
                     className={`mp-center-inner ${isSelected ? "active" : ""}`}
-                    onMouseEnter={() => setSelectedId(String(article.id))}
+                    onMouseEnter={() => setSelectedId(articleId)}
                   >
                     <div className="mp-head">
-                      <h1 className="mp-title">
-                        {isSelected
-                          ? activeIssueArticle?.title || currentIssue?.title || article.title
-                          : currentIssue?.title || article.title}
-                      </h1>
+                      <h1 className="mp-title">{currentTitle}</h1>
                       <Badge type={article.badge} />
                     </div>
 
                     <div className="mp-thumb-wrap">
                       <img
                         className="mp-thumb"
-                        src={
-                          isSelected
-                            ? activeIssueArticle?.thumbnailUrl ||
-                            currentIssueGroup[0]?.thumbnailUrl ||
-                            article.thumbnailUrl
-                            : article.thumbnailUrl
-                        }
+                        src={currentThumb}
                         alt="article thumbnail"
                         loading="lazy"
                         onError={withImageFallback}
@@ -1224,135 +1076,70 @@ export default function MainPage() {
                           const atTop = scrollTop <= 0;
                           const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
 
-                          if ((delta < 0 && !atTop) || (delta > 0 && !atBottom)) {
-                            e.stopPropagation();
-                          }
+                          if ((delta < 0 && !atTop) || (delta > 0 && !atBottom)) e.stopPropagation();
                         }}
                       >
                         {currentSummaryLines.length ? (
-                          currentSummaryLines.map((line, index) => (
-                            <div
-                              key={`${article.id}-summary-${index}`}
-                              className="mp-summary-line"
-                            >
-                              {String(line || "").trim().startsWith("- ") ? (
-                                <>
-                                  <span className="mp-summary-marker">-</span>
-                                  <span className="mp-summary-text">
-                                    {String(line || "").replace(/^\s*-\s*/, "").trim()}
-                                  </span>
-                                </>
-                              ) : (
-                                <span className="mp-summary-text">{line}</span>
-                              )}
-                            </div>
-                          ))
+                          currentSummaryLines.map((line, index) => {
+                            const isBullet = safeString(line).trim().startsWith("- ");
+                            return (
+                              <div key={`${article.id}-summary-${index}`} className="mp-summary-line">
+                                {isBullet ? (
+                                  <>
+                                    <span className="mp-summary-marker">-</span>
+                                    <span className="mp-summary-text">
+                                      {safeString(line).replace(/^\s*-\s*/, "").trim()}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="mp-summary-text">{line}</span>
+                                )}
+                              </div>
+                            );
+                          })
                         ) : (
                           <p className="mp-summary-line">{SUMMARY_FALLBACK}</p>
                         )}
                       </div>
 
                       <div className="mp-actions">
-                        <button
-                          className="mp-btn primary"
-                          type="button"
-                          onClick={() => onSaveArticle(article)}
-                        >
-                          {archiveKeys.has(String(article.issueSummaryId)) ? "저장 해제" : "저장"}
+                        <button className="mp-btn primary" type="button" onClick={() => onSaveArticle(article)}>
+                          {archiveKeys.has(safeString(article.issueSummaryId)) ? "저장 해제" : "저장"}
                         </button>
 
-                        <button
-                          className="mp-btn secondary"
-                          type="button"
-                          onClick={() => openShareModal(article)}
-                        >
+                        <button className="mp-btn secondary" type="button" onClick={() => openShareModal(article)}>
                           공유
                         </button>
 
-                        <button
-                          className="mp-btn"
-                          type="button"
-                          onClick={() => openOriginal(article)}
-                        >
+                        <button className="mp-btn" type="button" onClick={() => openOriginal(article)}>
                           본문 보기
                         </button>
                       </div>
-
-                      {shareOpen && (
-                        <div className="mp-share-overlay" onClick={closeShareModal}>
-                          <div
-                            className="mp-share-modal"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <div className="mp-share-header">
-                              <h3>공유</h3>
-                              <button
-                                type="button"
-                                className="mp-share-close"
-                                onClick={closeShareModal}
-                              >
-                                ×
-                              </button>
-                            </div>
-
-                            <div className="mp-share-actions">
-                              <button
-                                type="button"
-                                className="mp-share-icon-btn kakao"
-                                onClick={shareToKakao}
-                              >
-                                <span className="mp-share-icon">톡</span>
-                                <span>카카오톡</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                className="mp-share-icon-btn email"
-                                onClick={shareToEmail}
-                              >
-                                <span className="mp-share-icon">✉</span>
-                                <span>이메일</span>
-                              </button>
-                            </div>
-
-                            <div className="mp-share-link-box">
-                              <input
-                                type="text"
-                                readOnly
-                                value={shareTarget ? buildShareData(shareTarget).url : ""}
-                                className="mp-share-link-input"
-                              />
-                              <button
-                                type="button"
-                                className="mp-share-copy-btn"
-                                onClick={copyShareLink}
-                              >
-                                복사
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
                     </section>
 
                     <LatestIssuesCarousel
                       items={currentIssueGroup}
                       count={currentIssueGroup.length}
-                      activeArticleId={null}
+                      activeArticleId={activeIssueArticleId}
                       onItemClick={async (issue) => {
-                        const nextId = String(issue.articleId || issue.id || "").trim();
+                        const nextId = safeString(issue.articleId || issue.id).trim();
                         if (!nextId) return;
 
-                        let targetArticle = issue?.raw || issue;
+                        setActiveIssueArticleId(nextId);
+
+                        const targetArticle = issue?.raw || issue;
                         const hasEnoughData =
-                          targetArticle &&
-                          (targetArticle.url || targetArticle.content || targetArticle.title);
+                          targetArticle && (targetArticle.url || targetArticle.content || targetArticle.title);
 
                         if (!hasEnoughData) {
                           const detail = await fetchArticleDetailById(nextId);
-                          if (detail) targetArticle = detail;
+                          if (detail) {
+                            openOriginal({ ...targetArticle, ...detail });
+                            return;
+                          }
                         }
 
+                        persistCurrentState();
                         openOriginal(targetArticle);
                       }}
                     />
@@ -1368,50 +1155,25 @@ export default function MainPage() {
             <div className="mp-panel-title">추천 기사</div>
             <div className="mp-related-list">
               {!userId ? (
-                <div style={{ padding: 10, opacity: 0.7 }}>
-                  로그인하면 개인화 추천(자주 본 뉴스)이 표시됩니다.
-                </div>
+                <div style={{ padding: 10, opacity: 0.7 }}>로그인하면 개인화 추천(자주 본 뉴스)이 표시됩니다.</div>
               ) : recoLoading && !recoReady ? (
-                <div style={{ padding: 10, opacity: 0.7 }}>
-                  추천 기사 불러오는 중...
-                </div>
-              ) : recoItems.length > 0 ? (
-                recoItems.map((a, idx) => {
-                  const raw = a?.raw ?? a;
-                  const title = raw?.title || raw?.headline || "(제목 없음)";
-                  const category =
-                    normalizeCategoryKey(raw?.category) ||
-                    inferCategoryFromNews({
-                      title,
-                      summary: raw?.summary || raw?.short_summary || raw?.ultra_short || "",
-                      description: raw?.description || "",
-                      content: raw?.content || raw?.background || "",
-                      body: raw?.body || "",
-                      press_name: raw?.press_name || "",
-                    });
-
-                  return (
-                    <RelatedItem
-                      key={String(raw?.id || raw?.articleId || raw?.url || idx)}
-                      title={title}
-                      meta={`${getCategoryLabel(category)} · 관련`}
-                      onClick={() => openOriginal(raw)}
-                    />
-                  );
-                })
+                <div style={{ padding: 10, opacity: 0.7 }}>추천 기사 불러오는 중...</div>
+              ) : recoDisplayItems.length > 0 ? (
+                <RelatedList
+                  items={recoDisplayItems}
+                  fallbackText="추천 데이터가 없습니다."
+                  onClick={openOriginal}
+                  metaType="관련"
+                />
               ) : relatedRecoItems.length > 0 ? (
-                relatedRecoItems.map((a) => (
-                  <RelatedItem
-                    key={a.id}
-                    title={a.title}
-                    meta={`${getCategoryLabel(a.category)} · 관련`}
-                    onClick={() => openOriginal(a)}
-                  />
-                ))
+                <RelatedList
+                  items={relatedRecoItems}
+                  fallbackText="추천 데이터가 없습니다."
+                  onClick={openOriginal}
+                  metaType="관련"
+                />
               ) : (
-                <div style={{ padding: 10, opacity: 0.7 }}>
-                  추천 데이터가 없습니다.
-                </div>
+                <div style={{ padding: 10, opacity: 0.7 }}>추천 데이터가 없습니다.</div>
               )}
             </div>
 
@@ -1419,18 +1181,25 @@ export default function MainPage() {
 
             <div className="mp-panel-title">반대 관점 기사</div>
             <div className="mp-related-list">
-              {(contrastRecoItems.length ? contrastRecoItems : contrastArticles).map((a) => (
-                <RelatedItem
-                  key={`contrast-${a.id}`}
-                  title={a.title}
-                  meta={`${getCategoryLabel(a.category)} · 대조`}
-                  onClick={() => openOriginal(a)}
-                />
-              ))}
+              <RelatedList
+                items={contrastDisplayItems}
+                fallbackText="반대 관점 기사가 없습니다."
+                onClick={openOriginal}
+                metaType="대조"
+              />
             </div>
           </div>
         </aside>
       </div>
+
+      <ShareModal
+        open={shareOpen}
+        onClose={closeShareModal}
+        data={shareTarget ? buildShareData(shareTarget) : null}
+        onKakao={shareToKakao}
+        onEmail={shareToEmail}
+        onCopy={copyShareLink}
+      />
 
       <NoticeModal
         open={noticeModal.open}
@@ -1440,5 +1209,3 @@ export default function MainPage() {
     </div>
   );
 }
-
-// 깃 푸쉬용

@@ -43,6 +43,7 @@ GDELT_MASTERFILE_URL = os.getenv(
     "http://data.gdeltproject.org/gdeltv2/masterfilelist.txt",
 ).strip()
 
+# 최근 4일치 파일만 보도록 줄여둠
 GDELT_LOOKBACK_FILES = int(os.getenv("GDELT_LOOKBACK_FILES", "384"))
 GDELT_MAX_ITEMS_PER_RUN = int(os.getenv("GDELT_MAX_ITEMS_PER_RUN", "1000"))
 GDELT_DOWNLOAD_TIMEOUT_CONNECT = int(os.getenv("GDELT_DOWNLOAD_TIMEOUT_CONNECT", "10"))
@@ -53,9 +54,9 @@ FETCH_ARTICLE_TEXT_MAXLEN = int(os.getenv("FETCH_ARTICLE_TEXT_MAXLEN", "8000"))
 ARTICLE_FETCH_WORKERS = int(os.getenv("ARTICLE_FETCH_WORKERS", "12"))
 
 CRAWL_DOMAIN_ALLOWLIST = os.getenv("CRAWL_DOMAIN_ALLOWLIST", "").strip()
-MIN_CONTENT_LEN = int(os.getenv("MIN_CONTENT_LEN", "80"))
+MIN_CONTENT_LEN = int(os.getenv("MIN_CONTENT_LEN", "120"))
 
-# 최근 며칠치만 저장할지 (오늘 포함 4일 = 오늘, 어제, 2일 전, 3일 전)
+# 오늘 포함 최근 4일 = 오늘, 어제, 2일 전, 3일 전
 RECENT_DAYS_INCLUDING_TODAY = int(os.getenv("RECENT_DAYS_INCLUDING_TODAY", "4"))
 
 # -----------------------------
@@ -136,6 +137,14 @@ def normalize_url(u: str) -> str:
     return str(u).strip()
 
 
+def clean_text(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def parse_dt(raw_dt):
     if not raw_dt:
         return None
@@ -177,8 +186,8 @@ def parse_dt(raw_dt):
 
 def get_recent_window():
     """
-    예: 오늘이 2026-03-17(KST)면
-    시작 = 2026-03-14 00:00:00 KST
+    예: 오늘이 2026-03-18(KST)이면
+    시작 = 2026-03-15 00:00:00 KST
     끝   = 현재 시각 KST
     """
     now_kst = datetime.now(KST)
@@ -284,6 +293,9 @@ def normalize_host(raw: str) -> str:
     if host.startswith("www."):
         host = host[4:]
 
+    if host.startswith("m.") and host.count(".") >= 2:
+        host = host[2:]
+
     if tldextract:
         try:
             ext = tldextract.extract(host)
@@ -327,23 +339,18 @@ def is_english_url(url: str) -> bool:
         "/englishnews/",
         "/english-news/",
         "/eng/",
+        "/en/",
+        "/en-us/",
+        "/en-gb/",
+        "/global/",
         "lang=e",
         "lang=en",
         "locale=en",
         "hl=en",
-        "/en/",
-        "/en-us/",
-        "/global/",
+        "output=1",
+        "output=amp",
     ]
     return any(p in u for p in blocked_patterns)
-
-
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-    text = str(text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
 
 
 def count_hangul(text: str) -> int:
@@ -360,7 +367,7 @@ def count_english(text: str) -> int:
 
 def has_korean_article_signal(title: str, content: str) -> bool:
     """
-    영어 기사 + 한국어 UI/메뉴가 섞인 페이지를 최대한 차단하기 위한 강화 판정
+    영어 기사 + 한국어 UI/메뉴가 섞인 페이지 최대한 차단
     """
     title = clean_text(title)
     content = clean_text(content)
@@ -371,20 +378,20 @@ def has_korean_article_signal(title: str, content: str) -> bool:
     title_e = count_english(title)
     content_e = count_english(content)
 
-    # 제목에 한글이 거의 없으면 탈락
+    # 제목에 한글 거의 없으면 탈락
     if title_h < 2:
         return False
 
-    # 본문 한글이 너무 적으면 탈락
-    if content_h < 100:
-        return False
-
-    # 본문이 영어 우세면 탈락
-    if content_e > content_h * 1.5:
+    # 본문 한글 너무 적으면 탈락
+    if content_h < 120:
         return False
 
     # 제목이 영어 우세면 탈락
-    if title_e > title_h * 2:
+    if title_e > max(title_h * 2, 20):
+        return False
+
+    # 본문이 영어 우세면 탈락
+    if content_e > max(content_h * 1.2, 250):
         return False
 
     return True
@@ -603,7 +610,7 @@ def extract_page_text(soup: BeautifulSoup):
         else:
             ps = soup.find_all("p")
             if ps:
-                text = " ".join(p.get_text(" ", strip=True) for p in ps[:40])
+                text = " ".join(p.get_text(" ", strip=True) for p in ps[:60])
             else:
                 return None
 
@@ -691,13 +698,13 @@ def fetch_page_meta(url: str, allow_domains: set[str]) -> dict:
         thumbnail = extract_page_image(soup)
         content = clean_text(extract_page_text(soup) or "") if FETCH_ARTICLE_TEXT else ""
 
-        # 제목이 거의 영어면 바로 차단
+        # 제목 자체가 거의 영어면 차단
         if count_hangul(title) < 2 and count_english(title) >= 10:
             _meta_cache[cache_key] = result
             return result
 
-        # 본문이 영어 우세면 바로 차단
-        if count_english(content) > max(count_hangul(content) * 2, 200):
+        # 본문이 영어 우세면 차단
+        if count_english(content) > max(count_hangul(content) * 1.5, 250):
             _meta_cache[cache_key] = result
             return result
 
@@ -853,6 +860,7 @@ def extract_latest_gkg_file_urls(lines: list[str]) -> list[str]:
             if is_recent_gkg_file(url):
                 file_urls.append(url)
 
+    # 최신 파일부터 보려고 시간순 정렬
     file_urls = sorted(set(file_urls))
     return file_urls[-GDELT_LOOKBACK_FILES:]
 
@@ -940,7 +948,7 @@ def parse_gkg_zip_file(file_url: str, allow_domains: set[str]) -> list[dict]:
 
                     if allow_domains and not domain_matches(domain, allow_domains):
                         skipped_domain += 1
-                        if len(sample_unmatched_domains) < 20:
+                        if len(sample_unmatched_domains) < 20 and domain:
                             sample_unmatched_domains.append(domain)
                         continue
 
@@ -1000,6 +1008,9 @@ def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
 
     print(f"[crawler] raw candidate urls={urls}", flush=True)
     print(f"[crawler] existing matched urls={[u for u in urls if u in existing]}", flush=True)
+
+    # 최신 것부터 enrich
+    raw_items = sort_items_latest(raw_items)
 
     targets = [x for x in raw_items if normalize_url(x["url"]) not in existing]
     print(f"[crawler] enrich targets={len(targets)} existing={len(existing)}", flush=True)
@@ -1073,7 +1084,7 @@ def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
                 skipped_non_korean += 1
                 continue
 
-            if content and len(content) < MIN_CONTENT_LEN and len(title) < 8:
+            if not content or len(content) < MIN_CONTENT_LEN:
                 skipped_short_content += 1
                 continue
 
@@ -1086,6 +1097,8 @@ def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
                 "category": item.get("category") or "기타",
             })
 
+    results = sort_items_latest(results)
+
     print(
         f"[crawler] enrich done={len(results)} "
         f"skipped_no_title={skipped_no_title} "
@@ -1097,6 +1110,15 @@ def enrich_items(raw_items: list[dict], allow_domains: set[str]) -> list[dict]:
     )
 
     return results
+
+
+def sort_items_latest(items: list[dict]) -> list[dict]:
+    def sort_key(x):
+        dt = parse_dt(x.get("published_at"))
+        if not dt:
+            return datetime.min.replace(tzinfo=UTC)
+        return dt
+    return sorted(items, key=sort_key, reverse=True)
 
 
 def fetch_news_items():
@@ -1118,6 +1140,7 @@ def fetch_news_items():
         print("[crawler] no recent gkg file urls found in masterfilelist", flush=True)
         return []
 
+    # 최신 파일부터 탐색
     file_urls = list(reversed(file_urls))
 
     all_raw_items = []
@@ -1148,6 +1171,8 @@ def fetch_news_items():
         if len(all_raw_items) >= GDELT_MAX_ITEMS_PER_RUN:
             break
 
+    all_raw_items = sort_items_latest(all_raw_items)
+
     print(
         f"[crawler] collected raw items total={len(all_raw_items)} from_files={used_file_count}",
         flush=True
@@ -1165,6 +1190,8 @@ def upsert_articles(items: list[dict]):
     if not items:
         last_items = []
         return 0
+
+    items = sort_items_latest(items)
 
     cleaned = []
     seen_in_batch = set()
@@ -1187,6 +1214,9 @@ def upsert_articles(items: list[dict]):
 
         # 저장 직전 마지막 한국어 기사 재검사
         if not has_korean_article_signal(title, content):
+            continue
+
+        if not content or len(content) < MIN_CONTENT_LEN:
             continue
 
         thumb = it.get("thumbnail") or None
@@ -1215,6 +1245,8 @@ def upsert_articles(items: list[dict]):
             "raw_dt": raw_dt,
             "category": category,
         })
+
+    cleaned = sort_items_latest(cleaned)
 
     if not cleaned:
         last_items = []

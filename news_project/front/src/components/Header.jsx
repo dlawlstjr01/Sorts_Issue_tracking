@@ -292,7 +292,7 @@ export default function Header() {
   const menu = useMemo(
     () => [
       { to: "article-list", label: "기사 목록", icon: <IconList /> },
-      { to: "issue-report", label: "이슈 추적/리포트", icon: <IconChart /> },
+      { to: "issue-report", label: "이슈 추적", icon: <IconChart /> },
       { to: "archive", label: "아카이브", icon: <IconArchive /> },
       { to: "support", label: "고객센터", icon: <IconSupport /> },
     ],

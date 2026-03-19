@@ -65,7 +65,7 @@ function IconSupport(props) {
 const MENU_ITEMS = [
   { key: "main", label: "홈", icon: <IconHome /> },
   { key: "article-list", label: "기사 목록", icon: <IconList /> },
-  { key: "issue-report", label: "이슈추적/리포트", icon: <IconReports /> },
+  { key: "issue-report", label: "이슈추적", icon: <IconReports /> },
   { key: "archive", label: "아카이브", icon: <IconArchive /> },
   { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];

@@ -2,7 +2,9 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
+import GlossaryText from "../../components/GlossaryText";
 import { getNewsById, searchKoreanDictionary } from "../../api/newsApi";
+import { fetchGlossary } from "../../utils/searchService";
 import {
   ARCHIVE_STORAGE_KEY,
   getArchiveItemKey,
@@ -277,6 +279,7 @@ export default function ArticleDetailPage() {
   const [dictionaryTotal, setDictionaryTotal] = useState(0);
   const [dictionaryKeyword, setDictionaryKeyword] = useState("");
   const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
+  const [glossaryList, setGlossaryList] = useState([]);
 
   const fetchedArticleIdRef = useRef("");
 
@@ -304,6 +307,28 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     setArchiveKeys(getArchiveKeySet());
   }, [article?.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGlossary = async () => {
+      try {
+        const glossary = await fetchGlossary();
+        if (!cancelled) {
+          setGlossaryList(Array.isArray(glossary) ? glossary : []);
+        }
+      } catch (error) {
+        console.error("용어 사전 불러오기 실패:", error);
+        if (!cancelled) setGlossaryList([]);
+      }
+    };
+
+    loadGlossary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!article) return;
@@ -512,6 +537,7 @@ export default function ArticleDetailPage() {
     () => resolveBackTarget(location, "/?view=article-list"),
     [location]
   );
+
   const isSaved = useMemo(() => {
     if (!article) return false;
     const key = getArchiveItemKey(article);
@@ -617,7 +643,10 @@ export default function ArticleDetailPage() {
                 {formatPublishedDateTime(article.publishedAt)}
               </span>
             </div>
-            <h1 className="article-detail-title">{article.title}</h1>
+
+            <h1 className="article-detail-title">
+              <GlossaryText text={article.title || ""} glossary={glossaryList} />
+            </h1>
           </section>
 
           <div className="article-detail-grid">
@@ -650,7 +679,9 @@ export default function ArticleDetailPage() {
                 {paragraphs.length > 0 ? (
                   <div className="article-detail-content">
                     {paragraphs.map((line, index) => (
-                      <p key={`${article.id}-line-${index}`}>{line}</p>
+                      <p key={`${article.id}-line-${index}`}>
+                        <GlossaryText text={line} glossary={glossaryList} />
+                      </p>
                     ))}
                   </div>
                 ) : (

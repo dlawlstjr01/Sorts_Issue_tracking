@@ -98,6 +98,7 @@ const INTEREST_KEYWORD_STORAGE_KEYS = [
 const NOTIFY_FETCH_LIMIT = 24;
 const NOTIFY_POLL_INTERVAL_MS = 12000;
 const NOTIFY_MAX_ITEMS = 20;
+const MAIN_PAGE_STATE_KEY = "mainPageViewState";
 
 function toEpoch(value) {
   const ts = new Date(value).getTime();
@@ -183,13 +184,13 @@ function mapIssueToNotificationCandidate(issue) {
   const title = String(representative?.title || issue?.title || "").trim();
   const summary = String(
     issue?.short_summary ||
-      issue?.ultra_short ||
-      issue?.summary ||
-      representative?.short_summary ||
-      representative?.ultra_short ||
-      representative?.summary ||
-      representative?.description ||
-      ""
+    issue?.ultra_short ||
+    issue?.summary ||
+    representative?.short_summary ||
+    representative?.ultra_short ||
+    representative?.summary ||
+    representative?.description ||
+    ""
   ).trim();
 
   const updatedAt =
@@ -202,27 +203,27 @@ function mapIssueToNotificationCandidate(issue) {
 
   const articleKey = String(
     issue?.article_id ||
-      representative?.article_id ||
-      representative?.id ||
-      issue?.id ||
-      `${title}_${updatedAt}`
+    representative?.article_id ||
+    representative?.id ||
+    issue?.id ||
+    `${title}_${updatedAt}`
   );
   const articleId = String(
     representative?.article_id ||
-      representative?.id ||
-      issue?.article_id ||
-      issue?.id ||
-      ""
+    representative?.id ||
+    issue?.article_id ||
+    issue?.id ||
+    ""
   );
   const thumbnail = String(representative?.thumbnail || representative?.thumbnail_url || representative?.thumbnailUrl || "").trim();
   const pressName = String(representative?.press_name || representative?.press || issue?.press_name || issue?.press || "").trim();
   const publishedAt = String(
     representative?.published_at ||
-      representative?.created_at ||
-      issue?.published_at ||
-      issue?.created_at ||
-      updatedAt ||
-      ""
+    representative?.created_at ||
+    issue?.published_at ||
+    issue?.created_at ||
+    updatedAt ||
+    ""
   );
 
   return {
@@ -301,13 +302,26 @@ export default function Header() {
 
   const go = (to) => navigate(`/?view=${encodeURIComponent(to)}`);
 
+  const handleLogoHome = () => {
+    try {
+      sessionStorage.removeItem(MAIN_PAGE_STATE_KEY);
+    } catch (e) {
+      console.error("failed to reset main page state:", e);
+    }
+
+    navigate("/?view=main", {
+      state: {
+        resetMainPage: Date.now(),
+      },
+    });
+  };
+
   const [auth, setAuth] = useState({
     checked: false,
     loggedIn: false,
     login_id: "",
   });
 
-  // 로그아웃 진행 상태(버튼 잠금 + 텍스트 변경)
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
@@ -329,8 +343,7 @@ export default function Header() {
     if (navDragRef.current.isDragging) {
       navClickSuppressUntilRef.current = Date.now() + NAV_CLICK_SUPPRESS_MS;
     }
-    const capturedPointerId =
-      pointerId ?? navDragRef.current.pointerId;
+    const capturedPointerId = pointerId ?? navDragRef.current.pointerId;
     navDragRef.current.active = false;
     navDragRef.current.pointerId = null;
     navDragRef.current.isDragging = false;
@@ -350,9 +363,7 @@ export default function Header() {
     navDragRef.current.startX = e.clientX;
     navDragRef.current.startY = e.clientY;
     navDragRef.current.startScrollLeft = nav.scrollLeft;
-    navDragRef.current.startedOnItem = Boolean(
-      e.target?.closest?.(".hdr-item")
-    );
+    navDragRef.current.startedOnItem = Boolean(e.target?.closest?.(".hdr-item"));
     navDragRef.current.isDragging = false;
     setIsNavDragging(false);
   };
@@ -368,10 +379,7 @@ export default function Header() {
       : NAV_DRAG_ACTIVATION_PX;
 
     if (!navDragRef.current.isDragging) {
-      if (
-        Math.abs(dx) < activationPx ||
-        Math.abs(dx) <= Math.abs(dy)
-      ) {
+      if (Math.abs(dx) < activationPx || Math.abs(dx) <= Math.abs(dy)) {
         return;
       }
       navDragRef.current.isDragging = true;
@@ -389,25 +397,25 @@ export default function Header() {
     e.stopPropagation();
   };
 
- const refreshAuth = async () => {
-  try {
-    const res = await axios.get("/auth/me", { withCredentials: true });
+  const refreshAuth = async () => {
+    try {
+      const res = await axios.get("/auth/me", { withCredentials: true });
 
-    const id = res.data?.id ?? null;
-    if (!id) {
+      const id = res.data?.id ?? null;
+      if (!id) {
+        setAuth({ checked: true, loggedIn: false, login_id: "" });
+        return;
+      }
+
+      setAuth({
+        checked: true,
+        loggedIn: true,
+        login_id: res.data?.login_id || "",
+      });
+    } catch (e) {
       setAuth({ checked: true, loggedIn: false, login_id: "" });
-      return;
     }
-
-    setAuth({
-      checked: true,
-      loggedIn: true,
-      login_id: res.data?.login_id || "",
-    });
-  } catch (e) {
-    setAuth({ checked: true, loggedIn: false, login_id: "" });
-  }
-};
+  };
 
   useEffect(() => {
     refreshAuth();
@@ -604,7 +612,6 @@ export default function Header() {
     };
   }, [notifyOpen]);
 
-  //  약간 지연
   const handleLogout = async () => {
     if (loggingOut) return;
 
@@ -615,10 +622,8 @@ export default function Header() {
         withCredentials: true,
       });
 
-      // (0.5초)
       await new Promise((r) => setTimeout(r, 500));
     } catch (e) {
-      // 세션 만료 등으로 실패해도 사용자 입장에선 로그아웃 처리
       await new Promise((r) => setTimeout(r, 300));
     } finally {
       setAuth({ checked: true, loggedIn: false, login_id: "" });
@@ -672,7 +677,7 @@ export default function Header() {
           id: String(fetched?.id ?? articleId),
         };
       } catch {
-        // Fallback to minimum payload when article detail fetch fails.
+        // fallback
       }
     }
 
@@ -702,7 +707,7 @@ export default function Header() {
   return (
     <header className="hdr">
       <div className="hdr-inner">
-        <button className="hdr-logo" type="button" onClick={() => go("main")}>
+        <button className="hdr-logo" type="button" onClick={handleLogoHome}>
           <img className="hdr-logo-img" src={logoImg} alt="" aria-hidden="true" />
           <span className="hdr-logo-text">
             <span className="hdr-mark">NEWS</span>
@@ -730,9 +735,8 @@ export default function Header() {
             <button
               key={m.to}
               type="button"
-              className={`hdr-item ${
-                activeView && (activeView === m.to || activeView.startsWith(m.to + "-")) ? "is-active" : ""
-              }`}
+              className={`hdr-item ${activeView && (activeView === m.to || activeView.startsWith(m.to + "-")) ? "is-active" : ""
+                }`}
               onClick={() => go(m.to)}
             >
               <span className="hdr-ico">{m.icon}</span>
@@ -829,9 +833,8 @@ export default function Header() {
                               <div className="hdr-notify-item-head">
                                 <div className="hdr-notify-title">{item.title}</div>
                                 <span
-                                  className={`hdr-notify-kind ${
-                                    item.eventType === "updated" ? "is-updated" : "is-new"
-                                  }`}
+                                  className={`hdr-notify-kind ${item.eventType === "updated" ? "is-updated" : "is-new"
+                                    }`}
                                 >
                                   {item.eventType === "updated" ? "업데이트" : "신규"}
                                 </span>

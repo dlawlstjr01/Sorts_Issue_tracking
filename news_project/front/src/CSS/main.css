@@ -855,9 +855,7 @@
 
   display: grid;
   grid-template-columns:
-    minmax(280px, 1.1fr)
-    minmax(0, 2.8fr)
-    minmax(320px, 1.2fr);
+    minmax(280px, 1.1fr) minmax(0, 2.8fr) minmax(320px, 1.2fr);
 
   gap: 18px;
   min-height: calc(100vh - 92px);
@@ -1024,8 +1022,9 @@
 
 .mp-floating-scroll {
   position: fixed;
-  right: 24px;
+  left: 50%;
   bottom: 24px;
+  transform: translateX(-50%);
   z-index: 1200;
 }
 
@@ -1765,4 +1764,55 @@
   .article-detail-content-card {
     padding: 16px;
   }
+}
+
+.glossary-text {
+  display: inline;
+}
+
+.glossary-term {
+  position: relative;
+  display: inline-block;
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.glossary-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: auto;
+  transform: none;
+  min-width: 220px;
+  max-width: min(420px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(17, 24, 39, 0.98);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+  z-index: 999999;
+  pointer-events: none;
+}
+
+.glossary-tooltip strong {
+  display: block;
+  margin: 0;
+  line-height: 1.35;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.glossary-tooltip-alias {
+  margin-bottom: 6px;
+}
+
+.glossary-tooltip-meaning {
+  display: block;
+  margin-top: 0;
 }

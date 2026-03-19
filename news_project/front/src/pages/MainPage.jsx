@@ -4,6 +4,8 @@ import axios from "axios";
 import "../CSS/main.css";
 
 import { getNewsById } from "../api/newsApi";
+import { fetchGlossary } from "../utils/searchService";
+import GlossaryText from "../components/GlossaryText";
 import NoticeModal from "../components/NoticeModal";
 import { rememberArticleDetail } from "../utils/articleDetail";
 import { resolveThumbnailUrl, withImageFallback } from "../utils/imageUrl";
@@ -510,8 +512,56 @@ export default function MainPage() {
   const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
   const [archiveKeys, setArchiveKeys] = useState(new Set());
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [glossaryList, setGlossaryList] = useState([]);
 
+  const displayedArticles = useMemo(() => {
+    const filtered =
+      selectedCategory === "all"
+        ? articles
+        : articles.filter((a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory));
 
+    const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (articleListMode !== "weekly") return sorted;
+
+    const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
+    const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
+    return weekly.length ? weekly : sorted;
+  }, [articles, selectedCategory, articleListMode]);
+
+  const latestIssueByArticleId = useMemo(
+    () => new Map(latestIssues.map((issue) => [safeString(issue.articleId || issue.id), issue])),
+    [latestIssues]
+  );
+
+  const issueGroupByArticleId = useMemo(() => {
+    const map = new Map();
+
+    latestIssues.forEach((issue) => {
+      const rawRelated = Array.isArray(issue.related_articles) ? issue.related_articles : [];
+      map.set(
+        safeString(issue.articleId || issue.id),
+        rawRelated.map((article, idx) => mapRelatedArticleToGroupItem(article, issue.category || "society", idx))
+      );
+    });
+
+    return map;
+  }, [latestIssues]);
+
+  const summaryLinesByArticleId = useMemo(() => {
+    const map = new Map();
+
+    latestIssues.forEach((issue) => {
+      map.set(safeString(issue.articleId || issue.id), splitBulletSummary(issue.shortSummary || SUMMARY_FALLBACK));
+    });
+
+    articles.forEach((article) => {
+      const key = safeString(article.id);
+      if (!key || map.has(key)) return;
+      map.set(key, splitBulletSummary(article.summary?.[0] || SUMMARY_FALLBACK));
+    });
+
+    return map;
+  }, [latestIssues, articles]);
 
   const scrollToTop = () => {
     const container = centerScrollRef.current;
@@ -544,6 +594,17 @@ export default function MainPage() {
   };
 
   useEffect(() => {
+    if (!glossaryList.length || !displayedArticles.length) return;
+
+    const firstArticle = displayedArticles[0];
+    const articleId = safeString(firstArticle.articleId || firstArticle.id);
+    const lines = summaryLinesByArticleId.get(articleId) || [];
+
+    console.log("요약 lines:", lines);
+    console.log("glossary sample:", glossaryList.slice(0, 20));
+  }, [glossaryList, displayedArticles, summaryLinesByArticleId]);
+
+  useEffect(() => {
     (async () => {
       try {
         const res = await axios.get("/auth/me", { withCredentials: true });
@@ -554,6 +615,35 @@ export default function MainPage() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!location.state?.resetMainPage) return;
+
+    try {
+      sessionStorage.removeItem(MAIN_PAGE_STATE_KEY);
+    } catch (e) {
+      console.error("failed to clear main page state:", e);
+    }
+
+    restoredRef.current = false;
+    allowPersistRef.current = false;
+    initialSavedStateRef.current = null;
+
+    setSelectedCategory("all");
+    setArticleListMode("daily");
+    setSelectedId(null);
+    setActiveIssueArticleId(null);
+    setShareOpen(false);
+    setShareTarget(null);
+    setNoticeModal({ open: false, message: "" });
+
+    requestAnimationFrame(() => {
+      const container = centerScrollRef.current;
+      if (container) container.scrollTop = 0;
+    });
+
+    navigate("/?view=main", { replace: true, state: null });
+  }, [location.state, navigate]);
 
   useEffect(() => {
     (async () => {
@@ -653,55 +743,6 @@ export default function MainPage() {
     })();
   }, [userId]);
 
-  const displayedArticles = useMemo(() => {
-    const filtered =
-      selectedCategory === "all"
-        ? articles
-        : articles.filter((a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory));
-
-    const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    if (articleListMode !== "weekly") return sorted;
-
-    const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-    const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-    return weekly.length ? weekly : sorted;
-  }, [articles, selectedCategory, articleListMode]);
-
-  const latestIssueByArticleId = useMemo(
-    () => new Map(latestIssues.map((issue) => [safeString(issue.articleId || issue.id), issue])),
-    [latestIssues]
-  );
-
-  const issueGroupByArticleId = useMemo(() => {
-    const map = new Map();
-
-    latestIssues.forEach((issue) => {
-      const rawRelated = Array.isArray(issue.related_articles) ? issue.related_articles : [];
-      map.set(
-        safeString(issue.articleId || issue.id),
-        rawRelated.map((article, idx) => mapRelatedArticleToGroupItem(article, issue.category || "society", idx))
-      );
-    });
-
-    return map;
-  }, [latestIssues]);
-
-  const summaryLinesByArticleId = useMemo(() => {
-    const map = new Map();
-
-    latestIssues.forEach((issue) => {
-      map.set(safeString(issue.articleId || issue.id), splitBulletSummary(issue.shortSummary || SUMMARY_FALLBACK));
-    });
-
-    articles.forEach((article) => {
-      const key = safeString(article.id);
-      if (!key || map.has(key)) return;
-      map.set(key, splitBulletSummary(article.summary?.[0] || SUMMARY_FALLBACK));
-    });
-
-    return map;
-  }, [latestIssues, articles]);
-
   useEffect(() => {
     if (loading || !articles.length || restoredRef.current) return;
 
@@ -758,6 +799,27 @@ export default function MainPage() {
     if (!restoredRef.current) return;
     persistCurrentState();
   }, [selectedCategory, articleListMode, selectedId, activeIssueArticleId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadGlossary = async () => {
+      try {
+        const glossary = await fetchGlossary();
+        if (cancelled) return;
+        setGlossaryList(Array.isArray(glossary) ? glossary : []);
+      } catch (error) {
+        console.error("용어 사전 불러오기 실패:", error);
+        if (!cancelled) setGlossaryList([]);
+      }
+    };
+
+    loadGlossary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const selectedArticle = useMemo(
     () =>
@@ -1068,11 +1130,12 @@ export default function MainPage() {
               onScroll={persistCurrentState}
             >
               {displayedArticles.map((article) => {
-                const articleId = safeString(article.id);
+                const articleId = safeString(article.articleId || article.id);
                 const isSelected = articleId === safeString(selectedId);
                 const currentIssue = latestIssueByArticleId.get(articleId) || null;
                 const currentIssueGroup = issueGroupByArticleId.get(articleId) || [];
                 const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
+                const currentGlossary = glossaryList;
                 const currentThumb = isSelected
                   ? activeIssueArticle?.thumbnailUrl || currentIssueGroup[0]?.thumbnailUrl || article.thumbnailUrl
                   : article.thumbnailUrl;
@@ -1124,17 +1187,23 @@ export default function MainPage() {
                         {currentSummaryLines.length ? (
                           currentSummaryLines.map((line, index) => {
                             const isBullet = safeString(line).trim().startsWith("- ");
+                            const textValue = isBullet
+                              ? safeString(line).replace(/^\s*-\s*/, "").trim()
+                              : safeString(line);
+
                             return (
                               <div key={`${article.id}-summary-${index}`} className="mp-summary-line">
                                 {isBullet ? (
                                   <>
                                     <span className="mp-summary-marker">-</span>
                                     <span className="mp-summary-text">
-                                      {safeString(line).replace(/^\s*-\s*/, "").trim()}
+                                      <GlossaryText text={textValue} glossary={currentGlossary} />
                                     </span>
                                   </>
                                 ) : (
-                                  <span className="mp-summary-text">{line}</span>
+                                  <span className="mp-summary-text">
+                                    <GlossaryText text={textValue} glossary={currentGlossary} />
+                                  </span>
                                 )}
                               </div>
                             );

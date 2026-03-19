@@ -3067,6 +3067,12 @@ body {
   .archive-aside {
     position: static;
   }
+
+  .archive-keywords-inline {
+    margin-left: 0;
+    flex: 1 1 100%;
+    max-width: none;
+  }
 }
 
 .archive-tabs {
@@ -3074,6 +3080,28 @@ body {
   gap: 10px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.archive-tab-group {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.archive-keywords-inline {
+  margin-left: auto;
+  flex: 1 1 420px;
+  max-width: 640px;
+  gap: 10px;
+}
+
+.archive-keywords-inline .archive-keyword-form {
+  width: 100%;
+}
+
+.archive-keywords-inline .archive-keyword-list {
+  margin-top: 2px;
 }
 
 .archive-tab {
@@ -3160,6 +3188,44 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.archive-pagination {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.archive-page-btn {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid #dbe4f5;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 10px;
+}
+
+.archive-page-btn:hover:not(:disabled) {
+  border-color: #b9d1ff;
+  background: #eff6ff;
+}
+
+.archive-page-btn.active {
+  border-color: #cfe4ff;
+  background: #eff7ff;
+  color: #1d4ed8;
+}
+
+.archive-page-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .archive-item {
@@ -4280,7 +4346,7 @@ body {
 
 .als-floating-tools {
   position: fixed;
-  right: 18px;
+  right: 14px;
   bottom: 30px;
   display: flex;
   flex-direction: column;
@@ -4291,7 +4357,7 @@ body {
 
 .als-quick-menu-sheet {
   position: fixed;
-  right: 18px;
+  right: 14px;
   bottom: 94px;
   z-index: 95;
   animation: alsQuickMenuIn 160ms ease-out;

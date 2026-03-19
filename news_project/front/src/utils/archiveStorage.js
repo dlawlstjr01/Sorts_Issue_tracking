@@ -10,11 +10,23 @@ function safeParse(json) {
   }
 }
 
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function readArchiveList() {
   if (typeof window === "undefined") return [];
   const raw = window.localStorage.getItem(ARCHIVE_STORAGE_KEY);
   if (!raw) return [];
   return safeParse(raw).filter((item) => item && typeof item === "object");
+}
+
+export function readArchiveItems() {
+  return readArchiveList();
 }
 
 function writeArchiveList(items) {
@@ -72,15 +84,56 @@ export function normalizeArchiveItem(item) {
   const category = item?.category || raw?.category || "기타";
   const published =
     raw?.published_at || raw?.created_at || item?.published_at || item?.created_at || "";
+  const summary = firstNonEmpty(
+    item?.summary,
+    raw?.summary,
+    item?.short_summary,
+    raw?.short_summary,
+    item?.ultra_short,
+    raw?.ultra_short,
+    item?.description,
+    raw?.description
+  );
+  const shortSummary = firstNonEmpty(
+    item?.short_summary,
+    raw?.short_summary,
+    item?.description,
+    raw?.description,
+    summary
+  );
+  const ultraShort = firstNonEmpty(item?.ultra_short, raw?.ultra_short, summary);
+  const content = firstNonEmpty(
+    item?.content,
+    raw?.content,
+    item?.body,
+    raw?.body,
+    item?.description,
+    raw?.description,
+    shortSummary,
+    ultraShort
+  );
 
   return {
     id: String(id),
     title,
     category,
     url,
+    summary,
+    short_summary: shortSummary,
+    ultra_short: ultraShort,
+    description: firstNonEmpty(item?.description, raw?.description),
+    content,
     published_at: published,
     saved_at: new Date().toISOString(),
-    raw: { ...raw, url },
+    raw: {
+      ...raw,
+      url,
+      summary,
+      short_summary: shortSummary,
+      ultra_short: ultraShort,
+      description: firstNonEmpty(item?.description, raw?.description),
+      content,
+    },
   };
 }
 
@@ -122,6 +175,44 @@ export function toggleArchiveItem(item) {
 
   return {
     saved: !removed,
+    items: limited,
+    key,
+  };
+}
+
+export function upsertArchiveItem(item) {
+  const key = getArchiveItemKey(item);
+  if (!key) {
+    return { upserted: false, items: readArchiveList(), key: "" };
+  }
+
+  const normalized = normalizeArchiveItem(item);
+  const list = readArchiveList();
+  const next = [];
+  let replaced = false;
+
+  for (const entry of list) {
+    const entryKey = getArchiveItemKey(entry);
+    if (entryKey === key) {
+      if (!replaced) {
+        next.push(normalized);
+        replaced = true;
+      }
+      continue;
+    }
+    next.push(entry);
+  }
+
+  if (!replaced) {
+    next.unshift(normalized);
+  }
+
+  const limited = next.slice(0, ARCHIVE_LIMIT);
+  writeArchiveList(limited);
+
+  return {
+    upserted: true,
+    replaced,
     items: limited,
     key,
   };

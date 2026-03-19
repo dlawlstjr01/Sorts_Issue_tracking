@@ -96,3 +96,48 @@ exports.getRecentSeenArticleIds = async (req, res) => {
       .json({ message: err.message || "최근 본 기사 ID 조회 실패" });
   }
 };
+
+exports.deleteRecentSeenArticle = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { articleId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({ message: "로그인이 필요합니다." });
+    }
+
+    if (!articleId) {
+      return res.status(400).json({ message: "articleId가 필요합니다." });
+    }
+
+    const result = await userLogService.deleteRecentSeenArticle({
+      userId,
+      articleId,
+    });
+
+    return res.json(result);
+  } catch (err) {
+    console.error("deleteRecentSeenArticle error:", err);
+    return res
+      .status(err.status || 500)
+      .json({ message: err.message || "최근 본 기사 삭제 실패" });
+  }
+};
+
+exports.clearRecentSeenArticles = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ message: "로그인이 필요합니다." });
+    }
+
+    const result = await userLogService.clearRecentSeenArticles({ userId });
+    return res.json(result);
+  } catch (err) {
+    console.error("clearRecentSeenArticles error:", err);
+    return res
+      .status(err.status || 500)
+      .json({ message: err.message || "최근 본 기사 전체 삭제 실패" });
+  }
+};

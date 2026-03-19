@@ -143,3 +143,46 @@ exports.getRecentSeenArticles = async ({ userId, limit = 20 }) => {
 
   return rows;
 };
+
+exports.deleteRecentSeenArticle = async ({ userId, articleId }) => {
+  const uid = Number(userId);
+  const aid = Number(articleId);
+
+  if (!Number.isFinite(uid) || uid <= 0) {
+    const e = new Error("userId가 유효하지 않습니다.");
+    e.status = 400;
+    throw e;
+  }
+
+  if (!Number.isFinite(aid) || aid <= 0) {
+    const e = new Error("articleId가 유효하지 않습니다.");
+    e.status = 400;
+    throw e;
+  }
+
+  const [result] = await db.query(
+    `DELETE FROM user_log
+     WHERE user_id = ? AND article_id = ?`,
+    [uid, aid]
+  );
+
+  return { deleted: result.affectedRows };
+};
+
+exports.clearRecentSeenArticles = async ({ userId }) => {
+  const uid = Number(userId);
+
+  if (!Number.isFinite(uid) || uid <= 0) {
+    const e = new Error("userId가 유효하지 않습니다.");
+    e.status = 400;
+    throw e;
+  }
+
+  const [result] = await db.query(
+    `DELETE FROM user_log
+     WHERE user_id = ?`,
+    [uid]
+  );
+
+  return { deleted: result.affectedRows };
+};

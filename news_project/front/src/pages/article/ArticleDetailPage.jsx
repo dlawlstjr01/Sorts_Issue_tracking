@@ -8,6 +8,7 @@ import {
   getArchiveItemKey,
   getArchiveKeySet,
   toggleArchiveItem,
+  upsertArchiveItem,
 } from "../../utils/archiveStorage";
 import { addRecentItem } from "../../utils/recentStorage";
 import {
@@ -304,6 +305,31 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     setArchiveKeys(getArchiveKeySet());
   }, [article?.id]);
+
+  useEffect(() => {
+    if (!article) return;
+
+    const key = getArchiveItemKey(article);
+    if (!key || !archiveKeys.has(key)) return;
+
+    const hasDetail = Boolean(
+      String(article?.content || article?.summary || article?.description || "").trim()
+    );
+    if (!hasDetail) return;
+
+    upsertArchiveItem({
+      ...article,
+      published_at: article.publishedAt,
+      created_at: article.publishedAt,
+    });
+  }, [
+    article?.id,
+    article?.content,
+    article?.summary,
+    article?.description,
+    article?.publishedAt,
+    archiveKeys,
+  ]);
 
   useEffect(() => {
     if (!article) return;

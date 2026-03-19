@@ -24,4 +24,8 @@ router.get("/recent", requireAuth, userLogController.getRecentSeenArticles);
 // 최근 본 기사 ID만 조회
 router.get("/recent-ids", requireAuth, userLogController.getRecentSeenArticleIds);
 
+// 최근 본 기사 단건/전체 삭제
+router.delete("/recent/:articleId", requireAuth, userLogController.deleteRecentSeenArticle);
+router.delete("/recent", requireAuth, userLogController.clearRecentSeenArticles);
+
 module.exports = router;

@@ -122,6 +122,10 @@ async function getMyArchivedIssues(req) {
       s.short_summary,
       s.ultra_short,
       s.related_count,
+      a.title,
+      a.content,
+      a.url,
+      a.published_at,
       a.category,
       s.created_at
     FROM issue_archives ia

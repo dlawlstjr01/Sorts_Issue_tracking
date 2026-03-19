@@ -424,39 +424,6 @@ export default function MyPage() {
             </button>
           </div>
         </section>
-
-        <section className="my-card">
-          <h3 className="my-section-title">알림/수신 설정 (현재 DB 저장 X)</h3>
-          <div className="my-form">
-            <label className="login-check">
-              <input
-                type="checkbox"
-                name="agreeEmailBriefing"
-                checked={uiOnly.agreeEmailBriefing}
-                onChange={onChangeUiOnly}
-              />
-              <span>이메일 요약 브리핑 수신</span>
-            </label>
-            <label className="login-check">
-              <input
-                type="checkbox"
-                name="agreeWeeklyReport"
-                checked={uiOnly.agreeWeeklyReport}
-                onChange={onChangeUiOnly}
-              />
-              <span>주간 리포트 수신</span>
-            </label>
-            <label className="login-check">
-              <input
-                type="checkbox"
-                name="agreeHotIssuePush"
-                checked={uiOnly.agreeHotIssuePush}
-                onChange={onChangeUiOnly}
-              />
-              <span>핫이슈 푸시 알림</span>
-            </label>
-          </div>
-        </section>
       </div>
 
       <div className="my-actions">

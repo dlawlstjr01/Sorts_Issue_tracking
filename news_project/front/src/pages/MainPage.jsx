@@ -241,10 +241,14 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
     raw: {
       ...issueSummary,
+      id: articleId,
+      article_id: articleId,
+      issueSummaryId: safeString(issueSummary.id || ""),
       title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
       thumbnail: representative?.thumbnail || "",
       url: representative?.url || issueSummary.url || "",
       content: representative?.content || "",
+      category,
     },
   };
 }
@@ -505,6 +509,28 @@ export default function MainPage() {
   const [shareTarget, setShareTarget] = useState(null);
   const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
   const [archiveKeys, setArchiveKeys] = useState(new Set());
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+
+
+  const scrollToTop = () => {
+    const container = centerScrollRef.current;
+    if (!container) return;
+
+    container.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+
+    const firstArticle = displayedArticles[0];
+    if (firstArticle) {
+      const firstId = safeString(firstArticle.id);
+      setSelectedId(firstId);
+      setActiveIssueArticleId(
+        safeString(latestIssueByArticleId.get(firstId)?.articleId || firstId)
+      );
+    }
+  };
 
   const persistCurrentState = () => {
     if (!allowPersistRef.current) return;
@@ -711,6 +737,22 @@ export default function MainPage() {
     restoredRef.current = true;
     allowPersistRef.current = true;
   }, [loading, articles, displayedArticles, latestIssueByArticleId, issueGroupByArticleId]);
+
+  useEffect(() => {
+    const container = centerScrollRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      setShowScrollTop(container.scrollTop > 120);
+    };
+
+    handleScroll();
+    container.addEventListener("scroll", handleScroll);
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+    };
+  }, [loading, displayedArticles.length]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -1206,6 +1248,21 @@ export default function MainPage() {
         message={noticeModal.message}
         onClose={() => setNoticeModal({ open: false, message: "" })}
       />
+
+      {showScrollTop && (
+        <div className="mp-floating-scroll">
+          <button
+            type="button"
+            className="als-fab dark"
+            aria-label="맨 위로"
+            onClick={scrollToTop}
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
+              <path d="m12 6 8 8-1.4 1.4L12 8.8l-6.6 6.6L4 14l8-8Z" fill="currentColor" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

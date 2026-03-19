@@ -191,7 +191,7 @@ body {
 }
 
 .hdr-inner {
-  max-width: 1440px !important;
+  max-width: 1660px !important;
   width: 100%;
   margin: 0 auto;
   padding: 0 32px !important;
@@ -392,12 +392,13 @@ body {
 }
 
 .hdr-notify-anchor {
-  position: absolute;
-  left: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 3;
+  position: static;
+  left: auto;
+  top: auto;
+  transform: none;
+  margin-left: 10px; /* 필요하면 간격만 유지 */
 }
+
 
 .hdr-notify-btn {
   position: relative;
@@ -614,9 +615,40 @@ body {
 }
 
 @media (max-width: 1400px) {
+  .hdr-inner {
+    min-width: 0; /* allow children to shrink instead of overlapping */
+    gap: 10px;
+  }
+
+  .hdr-logo {
+    min-width: 0;
+    flex: 0 1 auto; /* left block can shrink */
+    gap: 10px;
+  }
+
+  .hdr-logo-text {
+    min-width: 0;
+  }
+
+  .hdr-right {
+    min-width: 0;
+    flex: 0 1 auto; /* right block can shrink too */
+    margin-left: 8px;
+    gap: 8px;
+  }
+
   .hdr-nav {
-    max-width: calc(100% - 420px);
+    position: static; /* remove absolute center layout on narrower screens */
+    left: auto;
+    transform: none;
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    flex: 1 1 0; /* center menu uses remaining space */
     justify-content: flex-start;
+    gap: 10px;
+    padding: 6px 8px;
+    margin: 0 0 0 8px;
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
@@ -633,6 +665,32 @@ body {
   }
 }
 
+@media (max-width: 1280px) {
+  .hdr-logo {
+    gap: 8px;
+  }
+
+  .hdr-logo-img {
+    width: 46px; /* reduce left block width earlier */
+    height: 46px;
+  }
+
+  .hdr-mark {
+    font-size: 26px;
+  }
+
+  .hdr-sub {
+    font-size: 12px;
+    letter-spacing: 1.3px;
+  }
+
+  .hdr-btn {
+    height: 36px;
+    padding: 0 11px;
+    font-size: 14px;
+  }
+}
+
 @media (max-width: 1180px) {
   .hdr {
     height: 94px !important;
@@ -646,27 +704,38 @@ body {
     justify-content: flex-start;
     gap: 10px;
     align-items: center;
+    min-width: 0;
   }
 
   .hdr-logo {
     min-width: 0;
-    flex: 0 0 auto;
+    flex: 0 1 auto; /* left side keeps shrinking with right side */
+    gap: 8px;
+  }
+
+  .hdr-logo-text {
+    min-width: 0;
+  }
+
+  .hdr-sub {
+    display: none; /* hide subtitle first to avoid menu overlap */
   }
 
   .hdr-right {
-    justify-self: auto;
-    flex: 0 0 auto;
-    margin-left: auto;
+    min-width: 0;
+    flex: 0 1 auto;
+    margin-left: 8px;
+    gap: 8px;
   }
 
   .hdr-nav {
     position: static;
     left: auto;
     transform: none;
-    width: max-content;
-    max-width: calc(100% - 300px);
+    width: auto;
+    max-width: none;
     min-width: 0;
-    flex: 0 1 auto;
+    flex: 1 1 0;
     justify-content: flex-start;
     gap: 8px;
     padding: 6px 8px;
@@ -703,6 +772,17 @@ body {
   .hdr-item {
     flex: 0 0 auto;
     padding: 0 14px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .hdr-right .hdr-btn span {
+    display: none; /* compress right controls before they collide with nav */
+  }
+
+  .hdr-btn {
+    min-width: 34px;
+    padding: 0 8px;
   }
 }
 

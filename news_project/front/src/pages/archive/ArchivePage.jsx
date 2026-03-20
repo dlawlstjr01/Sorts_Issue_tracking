@@ -838,7 +838,7 @@ export default function ArchivePage() {
             </div>
 
             <aside className="archive-inline-ad" aria-label="스폰서 광고">
-              <section className="right-ad-card">
+              <section className="right-ad-card2">
                 <div className="right-ad-tag">광고</div>
                 <div className="right-ad-title">프리미엄 아카이브</div>
                 <p className="right-ad-copy">저장 기사 태그 분석과 맞춤 알림 기능을 체험해보세요.</p>

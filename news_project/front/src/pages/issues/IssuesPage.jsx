@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, useReducedMotion } from "framer-motion";
 import { getIssues } from "../../api/issuesApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
@@ -104,7 +103,6 @@ function buildGeneratedReport(issue, type) {
 
 export default function IssuesPage() {
   const navigate = useNavigate();
-  const reduceMotion = useReducedMotion();
 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("전체");
@@ -310,17 +308,7 @@ export default function IssuesPage() {
           <div className="pageTitle">이슈 추적</div>
           <div className="pageDesc">핵심 이슈를 빠르게 추적하고 우선순위를 정리합니다.</div>
         </div>
-        <div className="issues-stats">
-          <div className="issues-stat">
-            <div className="issues-stat-label">활성 이슈</div>
-            <div className="issues-stat-value">{issues.length}건</div>
-          </div>
-          <div className="issues-stat">
-            <div className="issues-stat-label">분석중</div>
-            <div className="issues-stat-value">
-              {issues.filter((item) => item.status === "분석중").length}건
-            </div>
-          </div>
+        <div className="issues-stats issues-stats-single">
           <div className="issues-stat">
             <div className="issues-stat-label">오늘 업데이트</div>
             <div className="issues-stat-value">
@@ -339,30 +327,6 @@ export default function IssuesPage() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-        </div>
-        <div className="issues-filters">
-          {FILTERS.map((item) => (
-            <motion.button
-              key={item}
-              type="button"
-              className={`issues-chip ${filter === item ? "active" : ""}`}
-              onClick={() => setFilter(item)}
-              whileHover={reduceMotion ? undefined : { y: -2, scale: 1.03 }}
-              whileTap={reduceMotion ? undefined : { y: 0, scale: 0.98 }}
-              transition={
-                reduceMotion
-                  ? undefined
-                  : {
-                      type: "spring",
-                      stiffness: 420,
-                      damping: 28,
-                      mass: 0.55,
-                    }
-              }
-            >
-              {item}
-            </motion.button>
-          ))}
         </div>
       </div>
 
@@ -423,33 +387,15 @@ export default function IssuesPage() {
 
         <aside className="issues-side">
           <SideMenuCard collapsible showScrollTop />
-          <div className="issue-side-card">
-            <div className="issue-side-title">빠른 작업</div>
-            <button type="button" className="issue-quick-btn primary" onClick={openIssueModal}>
-              <span className="issue-quick-btn-top">
-                <span className="issue-quick-btn-label">신규 이슈 등록</span>
-                <span className="issue-quick-btn-state">입력형</span>
-              </span>
-              <span className="issue-quick-btn-desc">사용자가 제목/요약/카테고리를 직접 등록합니다.</span>
-            </button>
-        
-          </div>
 
-          <div className="issue-side-card">
-            <div className="issue-side-title">오늘의 요약</div>
-            <div className="issue-side-item">
-              <div className="issue-side-label">핵심 키워드</div>
-              <div className="issue-side-value">{summarySnapshot.keywords}</div>
-            </div>
-            <div className="issue-side-item">
-              <div className="issue-side-label">감성 추리</div>
-              <div className="issue-side-value">{summarySnapshot.sentiment}</div>
-            </div>
-            <div className="issue-side-item">
-              <div className="issue-side-label">주목 섹터</div>
-              <div className="issue-side-value">{summarySnapshot.sectors}</div>
-            </div>
-          </div>
+          <section className="issues-side-ad-slot" aria-label="스폰서 광고">
+            <article className="right-ad-card">
+              <div className="right-ad-tag">광고</div>
+              <div className="right-ad-title">이슈 브리핑 뉴스레터</div>
+              <p className="right-ad-copy">매일 아침 핵심 이슈를 3분 요약으로 받아보세요.</p>
+              <div className="right-ad-visual" aria-hidden="true" />
+            </article>
+          </section>
         </aside>
       </div>
 

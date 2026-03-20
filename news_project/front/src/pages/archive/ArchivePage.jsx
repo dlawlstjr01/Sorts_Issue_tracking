@@ -790,50 +790,61 @@ export default function ArchivePage() {
             </div>
           </div>
 
-          <div className="archive-list">
-            {loading && <div className="archive-empty">불러오는 중...</div>}
+          <div className="archive-content-row">
+            <div className="archive-list">
+              {loading && <div className="archive-empty">불러오는 중...</div>}
 
-            {error && !loading && (
-              <div className="archive-empty" style={{ color: "crimson" }}>
-                {error}
+              {error && !loading && (
+                <div className="archive-empty" style={{ color: "crimson" }}>
+                  {error}
+                </div>
+              )}
+
+              {!loading &&
+                !error &&
+                filtered.map((item) => {
+                  const isSavedTab = activeTab === "saved";
+                  const itemKey = isSavedTab ? getSavedItemKey(item) : getRecentItemKey(item);
+                  const isSelected = isSavedTab ? selectedSavedKeys.has(itemKey) : selectedRecentKeys.has(itemKey);
+
+                  return renderArchiveCard({
+                    item,
+                    selectable: true,
+                    itemKey,
+                    isSelected,
+                    onToggleSelect: isSavedTab ? toggleSavedSelection : toggleRecentSelection,
+                    onRemove: isSavedTab ? handleRemoveSaved : handleRemoveRecent,
+                    removeAriaLabel: isSavedTab ? "remove saved issue" : "remove recent article",
+                    hideRemove: !isSavedTab,
+                  });
+                })}
+
+              {!loading && !error && filtered.length === 0 && (
+                <div className="archive-empty">
+                  {activeTab === "saved"
+                    ? "검색한 키워드 또는 제목과 일치하는 저장한 기사가 없습니다."
+                    : "검색한 키워드 또는 제목과 일치하는 최근 본 기사가 없습니다."}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
+                <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                  이전
+                </button>
+                <button type="button" className="mp-btn" disabled={loading || page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  다음
+                </button>
               </div>
-            )}
-
-            {!loading &&
-              !error &&
-              filtered.map((item) => {
-                const isSavedTab = activeTab === "saved";
-                const itemKey = isSavedTab ? getSavedItemKey(item) : getRecentItemKey(item);
-                const isSelected = isSavedTab ? selectedSavedKeys.has(itemKey) : selectedRecentKeys.has(itemKey);
-
-                return renderArchiveCard({
-                  item,
-                  selectable: true,
-                  itemKey,
-                  isSelected,
-                  onToggleSelect: isSavedTab ? toggleSavedSelection : toggleRecentSelection,
-                  onRemove: isSavedTab ? handleRemoveSaved : handleRemoveRecent,
-                  removeAriaLabel: isSavedTab ? "remove saved issue" : "remove recent article",
-                  hideRemove: !isSavedTab,
-                });
-              })}
-
-            {!loading && !error && filtered.length === 0 && (
-              <div className="archive-empty">
-                {activeTab === "saved"
-                  ? "검색한 키워드 또는 제목과 일치하는 저장한 기사가 없습니다."
-                  : "검색한 키워드 또는 제목과 일치하는 최근 본 기사가 없습니다."}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
-              <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                이전
-              </button>
-              <button type="button" className="mp-btn" disabled={loading || page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                다음
-              </button>
             </div>
+
+            <aside className="archive-inline-ad" aria-label="스폰서 광고">
+              <section className="right-ad-card">
+                <div className="right-ad-tag">광고</div>
+                <div className="right-ad-title">프리미엄 아카이브</div>
+                <p className="right-ad-copy">저장 기사 태그 분석과 맞춤 알림 기능을 체험해보세요.</p>
+                <div className="right-ad-visual" aria-hidden="true" />
+              </section>
+            </aside>
           </div>
         </section>
 

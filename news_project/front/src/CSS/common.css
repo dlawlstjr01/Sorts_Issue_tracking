@@ -2063,6 +2063,17 @@ body {
   min-width: 360px;
 }
 
+.issues-stats-single {
+  display: flex;
+  justify-content: flex-end;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.issues-stats-single .issues-stat {
+  min-width: 180px;
+}
+
 .issues-stat {
   border: 1px solid #e5e7eb;
   border-radius: 14px;
@@ -2083,16 +2094,12 @@ body {
 }
 
 .issues-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  display: block;
   margin-bottom: 16px;
-  flex-wrap: wrap;
 }
 
 .issues-search {
-  flex: 1;
+  width: min(100%, 640px);
   min-width: 220px;
   max-width: 640px;
 }
@@ -2143,6 +2150,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: min(100%, 640px);
 }
 
 .issues-empty {
@@ -2311,6 +2319,17 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.issues-side-ad-slot {
+  margin-top: -60px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.issues-side-ad-slot .right-ad-card {
+  min-height: 540px;
 }
 
 .issue-side-card {
@@ -2809,7 +2828,7 @@ body {
 
 .archive-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-columns: 1fr;
   gap: 24px;
   align-items: stretch;
 }
@@ -2819,9 +2838,25 @@ body {
 }
 
 .archive-aside {
-  position: sticky;
-  top: 96px;
-  margin-top: 64px;
+  position: static;
+  width: 0;
+  height: 0;
+  margin-top: 0;
+}
+
+.archive-content-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+  align-items: start;
+}
+
+.archive-inline-ad {
+  align-self: start;
+}
+
+.archive-inline-ad .right-ad-card {
+  min-height: 320px;
 }
 
 .archive-side-card {
@@ -3142,6 +3177,14 @@ body {
 @media (max-width: 1080px) {
   .archive-layout {
     grid-template-columns: 1fr;
+  }
+
+  .archive-content-row {
+    grid-template-columns: 1fr;
+  }
+
+  .archive-inline-ad {
+    display: none;
   }
 
   .archive-aside {
@@ -3716,6 +3759,90 @@ body {
   animation: archiveFadeUp 220ms ease-out;
 }
 
+.right-ad-rail {
+  position: fixed;
+  top: 126px;
+  --right-ad-width: clamp(280px, 18vw, 340px);
+  width: var(--right-ad-width);
+  right: max(16px, calc((100vw - 1200px) / 2 - var(--right-ad-width) - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 8;
+}
+
+.archive-page .right-ad-rail {
+  top: 126px;
+}
+
+.archive-page:has(.side-menu-card.is-collapsible) .right-ad-rail {
+  --right-ad-width: clamp(240px, 15vw, 300px);
+  right: max(244px, calc((100vw - 1200px) / 2 - var(--right-ad-width) - 16px));
+}
+
+.right-ad-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  border-radius: 18px;
+  min-height: 210px;
+  padding: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8ff 100%);
+  box-shadow: 0 10px 22px rgba(30, 64, 175, 0.12);
+}
+
+.right-ad-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.right-ad-title {
+  margin-top: 10px;
+  font-size: 18px;
+  line-height: 1.3;
+  font-weight: 800;
+  color: #0f2f57;
+}
+
+.right-ad-copy {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #486284;
+}
+
+.right-ad-visual {
+  margin-top: auto;
+  height: 104px;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.32);
+  background:
+    radial-gradient(140px 60px at 16% 22%, rgba(56, 189, 248, 0.34), rgba(56, 189, 248, 0) 72%),
+    linear-gradient(135deg, #ecf4ff 0%, #d9e8ff 100%);
+}
+
+.right-ad-visual.right-ad-visual-alt {
+  background:
+    radial-gradient(160px 66px at 82% 10%, rgba(96, 165, 250, 0.34), rgba(96, 165, 250, 0) 72%),
+    linear-gradient(135deg, #f1f7ff 0%, #dceaff 100%);
+}
+
+@media (max-width: 1560px) {
+  .right-ad-rail {
+    display: none;
+  }
+}
+
 @keyframes archiveFadeUp {
   from {
     opacity: 0;
@@ -3769,6 +3896,11 @@ body {
 
   .issues-grid {
     grid-template-columns: 1fr;
+  }
+
+  .issues-side-ad-slot {
+    margin-top: 0;
+    display: none;
   }
 
   .issue-detail-grid {

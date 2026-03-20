@@ -1,6 +1,11 @@
 /* ===== MainPage Layout ===== */
 * { box-sizing: border-box; }
 
+.layout-main:has(.mp-wrap) {
+  height: calc(100vh - 94px);
+  overflow: hidden;
+}
+
 .mp-wrap {
   width: 100%;
   min-height: 100vh;
@@ -221,7 +226,7 @@
 .mp-left,
 .mp-right {
   position: sticky;
-  top: 96px;
+  top: 24px;
   align-self: start;
   height: calc(100vh - 120px);
 }

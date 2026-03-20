@@ -66,9 +66,11 @@ const THUMB = {
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 24;
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT * 2, 50);
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
 const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
+const ISSUE_TITLE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
 const URGENT_TITLE_MARKERS = [
   "속보",
   "단독",
@@ -135,6 +137,20 @@ const CATEGORY_ALIAS_MAP = {
 const safeString = (v) => String(v || "");
 const normalizeText = (v) => safeString(v).toLowerCase();
 const getArticleKey = (v) => safeString(v).trim();
+const ISSUE_DEDUPE_STOPWORDS = new Set([
+  "속보",
+  "단독",
+  "긴급",
+  "특보",
+  "breaking",
+  "기사",
+  "기자",
+  "보도",
+  "종합",
+  "1보",
+  "2보",
+  "3보",
+]);
 
 function getTitleUrgencyScore(value) {
   const title = safeString(value).trim();
@@ -176,6 +192,130 @@ function pickPreferredIssueTitle(primaryTitle = "", candidateTitles = []) {
   });
 
   return bestTitle || "(제목 없음)";
+}
+
+function getIssuePrimaryTitle(issue = {}) {
+  const representative = getRepresentativeArticle(issue);
+  return (
+    representative?.title ||
+    issue?.title ||
+    ""
+  );
+}
+
+function normalizeIssueTitleForDedupe(value) {
+  return safeString(value)
+    .replace(URGENT_TITLE_PREFIX_RE, " ")
+    .replace(/\s*[-|/]\s*[가-힣A-Za-z0-9\u4E00-\u9FFF .·]{2,20}\s*$/u, " ")
+    .replace(/[“”"'`‘’]/g, " ")
+    .replace(/[^\u3131-\u318E\uAC00-\uD7A3A-Za-z0-9\u4E00-\u9FFF\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getIssueTitleTokens(value) {
+  const matches = normalizeIssueTitleForDedupe(value).match(ISSUE_TITLE_TOKEN_RE) || [];
+  return matches.filter((token) => token.length >= 2 && !ISSUE_DEDUPE_STOPWORDS.has(token.toLowerCase()));
+}
+
+function getIssueArticleKeySet(issue = {}) {
+  const keys = new Set();
+  const primaryKey = getArticleKey(issue?.article_id || issue?.articleId || issue?.id || "");
+  if (primaryKey) keys.add(primaryKey);
+
+  const related = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  related.forEach((article) => {
+    const key = getArticleKey(article?.article_id || article?.articleId || article?.id || "");
+    if (key) keys.add(key);
+  });
+
+  return keys;
+}
+
+function getIssueSortTime(issue = {}) {
+  const related = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  const candidateTimes = [
+    issue?.created_at,
+    issue?.published_at,
+    issue?.raw?.created_at,
+    issue?.raw?.published_at,
+    ...related.map((article) => article?.published_at || article?.created_at),
+  ]
+    .map((value) => new Date(value || 0).getTime())
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return candidateTimes.length ? Math.max(...candidateTimes) : 0;
+}
+
+function getTokenJaccardScore(tokensA, tokensB) {
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  if (!setA.size || !setB.size) return 0;
+
+  let shared = 0;
+  setA.forEach((token) => {
+    if (setB.has(token)) shared += 1;
+  });
+
+  return shared / new Set([...setA, ...setB]).size;
+}
+
+function isDuplicateIssueSummary(current, existing) {
+  const currentArticleKeys = getIssueArticleKeySet(current);
+  const existingArticleKeys = getIssueArticleKeySet(existing);
+
+  if (currentArticleKeys.size && existingArticleKeys.size) {
+    for (const key of currentArticleKeys) {
+      if (existingArticleKeys.has(key)) return true;
+    }
+  }
+
+  const currentCategory = normalizeCategoryKey(current?.category);
+  const existingCategory = normalizeCategoryKey(existing?.category);
+  if (currentCategory && existingCategory && currentCategory !== existingCategory) {
+    return false;
+  }
+
+  const currentTitle = normalizeIssueTitleForDedupe(getIssuePrimaryTitle(current));
+  const existingTitle = normalizeIssueTitleForDedupe(getIssuePrimaryTitle(existing));
+  if (!currentTitle || !existingTitle) return false;
+
+  if (currentTitle === existingTitle) return true;
+  if (currentTitle.length >= 16 && existingTitle.length >= 16 && (currentTitle.includes(existingTitle) || existingTitle.includes(currentTitle))) {
+    return true;
+  }
+
+  const currentTokens = getIssueTitleTokens(currentTitle);
+  const existingTokens = getIssueTitleTokens(existingTitle);
+  if (!currentTokens.length || !existingTokens.length) return false;
+
+  const currentTokenSet = new Set(currentTokens);
+  const existingTokenSet = new Set(existingTokens);
+  let sharedTokenCount = 0;
+  currentTokenSet.forEach((token) => {
+    if (existingTokenSet.has(token)) sharedTokenCount += 1;
+  });
+  const jaccard = getTokenJaccardScore([...currentTokenSet], [...existingTokenSet]);
+
+  return (
+    (sharedTokenCount >= 3 && jaccard >= 0.6) ||
+    (sharedTokenCount >= 4 && jaccard >= 0.5)
+  );
+}
+
+function dedupeIssueSummaries(items = [], limit = MAIN_PAGE_ISSUE_LIMIT) {
+  const sorted = [...items].sort((a, b) => getIssueSortTime(b) - getIssueSortTime(a));
+  const deduped = [];
+
+  sorted.forEach((item) => {
+    if (deduped.some((existing) => isDuplicateIssueSummary(item, existing))) {
+      return;
+    }
+    deduped.push(item);
+  });
+
+  return deduped.slice(0, limit);
 }
 
 function loadMainPageState() {
@@ -750,14 +890,15 @@ export default function MainPage() {
         setError("");
 
         const res = await axios.get("/tracking/issues", {
-          params: { limit: MAIN_PAGE_ISSUE_LIMIT, include_article_content: 0 },
+          params: { limit: MAIN_PAGE_ISSUE_FETCH_LIMIT, include_article_content: 0 },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
         const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
+        const deduped = dedupeIssueSummaries(grouped, MAIN_PAGE_ISSUE_LIMIT);
 
-        setLatestIssues(grouped.map(mapIssueSummaryToLatestUI));
-        setArticles(grouped.map(mapIssueSummaryToMainArticle));
+        setLatestIssues(deduped.map(mapIssueSummaryToLatestUI));
+        setArticles(deduped.map(mapIssueSummaryToMainArticle));
       } catch (e) {
         console.error("latest issues load failed:", e);
         setLatestIssues([]);

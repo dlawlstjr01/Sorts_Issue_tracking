@@ -91,9 +91,11 @@ const THUMB = {
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 24;
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT * 2, 50);
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
 const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
+const ISSUE_TITLE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
 const URGENT_TITLE_MARKERS = [
   "속보",
   "단독",
@@ -160,6 +162,20 @@ const CATEGORY_ALIAS_MAP = {
 const safeString = (v) => String(v || "");
 const normalizeText = (v) => safeString(v).toLowerCase();
 const getArticleKey = (v) => safeString(v).trim();
+const ISSUE_DEDUPE_STOPWORDS = new Set([
+  "속보",
+  "단독",
+  "긴급",
+  "특보",
+  "breaking",
+  "기사",
+  "기자",
+  "보도",
+  "종합",
+  "1보",
+  "2보",
+  "3보",
+]);
 
 function getTitleUrgencyScore(value) {
   const title = safeString(value).trim();
@@ -201,6 +217,116 @@ function pickPreferredIssueTitle(primaryTitle = "", candidateTitles = []) {
   });
 
   return bestTitle || "(제목 없음)";
+}
+
+function getIssuePrimaryTitle(issue = {}) {
+  const representative = getRepresentativeArticle(issue);
+  return (
+    representative?.title ||
+    issue?.title ||
+    ""
+  );
+}
+
+function normalizeIssueTitleForDedupe(value) {
+  return safeString(value)
+    .replace(URGENT_TITLE_PREFIX_RE, " ")
+    .replace(/\s*[-|/]\s*[가-힣A-Za-z0-9\u4E00-\u9FFF .·]{2,20}\s*$/u, " ")
+    .replace(/[“”"'`‘’]/g, " ")
+    .replace(/[^\u3131-\u318E\uAC00-\uD7A3A-Za-z0-9\u4E00-\u9FFF\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getIssueTitleTokens(value) {
+  const matches = normalizeIssueTitleForDedupe(value).match(ISSUE_TITLE_TOKEN_RE) || [];
+  return matches.filter((token) => token.length >= 2 && !ISSUE_DEDUPE_STOPWORDS.has(token.toLowerCase()));
+}
+
+function getIssueArticleKeySet(issue = {}) {
+  const keys = new Set();
+  const primaryKey = getArticleKey(issue?.article_id || issue?.articleId || issue?.id || "");
+  if (primaryKey) keys.add(primaryKey);
+
+  const related = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  related.forEach((article) => {
+    const key = getArticleKey(article?.article_id || article?.articleId || article?.id || "");
+    if (key) keys.add(key);
+  });
+
+  return keys;
+}
+
+function getIssueSortTime(issue = {}) {
+  const related = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  const candidateTimes = [
+    issue?.created_at,
+    issue?.published_at,
+    issue?.raw?.created_at,
+    issue?.raw?.published_at,
+    ...related.map((article) => article?.published_at || article?.created_at),
+  ]
+    .map((value) => new Date(value || 0).getTime())
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return candidateTimes.length ? Math.max(...candidateTimes) : 0;
+}
+
+function getTokenJaccardScore(tokensA, tokensB) {
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  if (!setA.size || !setB.size) return 0;
+
+  let shared = 0;
+  setA.forEach((token) => {
+    if (setB.has(token)) shared += 1;
+  });
+
+  return shared / new Set([...setA, ...setB]).size;
+}
+
+function isDuplicateIssueSummary(current, existing) {
+  const currentArticleKeys = getIssueArticleKeySet(current);
+  const existingArticleKeys = getIssueArticleKeySet(existing);
+
+  if (currentArticleKeys.size && existingArticleKeys.size) {
+    for (const key of currentArticleKeys) {
+      if (existingArticleKeys.has(key)) return true;
+    }
+  }
+
+  const currentCategory = normalizeCategoryKey(current?.category);
+  const existingCategory = normalizeCategoryKey(existing?.category);
+  if (currentCategory && existingCategory && currentCategory !== existingCategory) {
+    return false;
+  }
+
+  const currentTitle = normalizeIssueTitleForDedupe(getIssuePrimaryTitle(current));
+  const existingTitle = normalizeIssueTitleForDedupe(getIssuePrimaryTitle(existing));
+  if (!currentTitle || !existingTitle) return false;
+
+  if (currentTitle === existingTitle) return true;
+  if (currentTitle.length >= 16 && existingTitle.length >= 16 && (currentTitle.includes(existingTitle) || existingTitle.includes(currentTitle))) {
+    return true;
+  }
+
+  const currentTokens = getIssueTitleTokens(currentTitle);
+  const existingTokens = getIssueTitleTokens(existingTitle);
+  if (!currentTokens.length || !existingTokens.length) return false;
+
+  const currentTokenSet = new Set(currentTokens);
+  const existingTokenSet = new Set(existingTokens);
+  let sharedTokenCount = 0;
+  currentTokenSet.forEach((token) => {
+    if (existingTokenSet.has(token)) sharedTokenCount += 1;
+  });
+  const jaccard = getTokenJaccardScore([...currentTokenSet], [...existingTokenSet]);
+
+  return (
+    (sharedTokenCount >= 3 && jaccard >= 0.6) ||
+    (sharedTokenCount >= 4 && jaccard >= 0.5)
+  );
 }
 
 function loadMainPageState() {
@@ -321,27 +447,18 @@ function buildIssueIdentity(issueSummary = {}) {
   };
 }
 
-function dedupeIssueSummaries(items = []) {
-  const seenIssueIds = new Set();
-  const seenArticleIds = new Set();
-  const seenUrls = new Set();
-  const seenTitles = new Set();
+function dedupeIssueSummaries(items = [], limit = MAIN_PAGE_ISSUE_LIMIT) {
+  const sorted = [...items].sort((a, b) => getIssueSortTime(b) - getIssueSortTime(a));
+  const deduped = [];
 
-  return items.filter((item) => {
-    const { issueId, articleId, url, titleKey } = buildIssueIdentity(item);
-
-    if (issueId && seenIssueIds.has(issueId)) return false;
-    if (articleId && seenArticleIds.has(articleId)) return false;
-    if (url && seenUrls.has(url)) return false;
-    if (titleKey && seenTitles.has(titleKey)) return false;
-
-    if (issueId) seenIssueIds.add(issueId);
-    if (articleId) seenArticleIds.add(articleId);
-    if (url) seenUrls.add(url);
-    if (titleKey) seenTitles.add(titleKey);
-
-    return true;
+  sorted.forEach((item) => {
+    if (deduped.some((existing) => isDuplicateIssueSummary(item, existing))) {
+      return;
+    }
+    deduped.push(item);
   });
+
+  return deduped.slice(0, limit);
 }
 
 function dedupeDisplayArticles(items = []) {
@@ -711,8 +828,8 @@ export default function MainPage() {
       selectedCategory === "all"
         ? articles
         : articles.filter(
-            (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
-          );
+          (a) => normalizeCategoryKey(a.category) === normalizeCategoryKey(selectedCategory)
+        );
 
     const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
@@ -720,10 +837,10 @@ export default function MainPage() {
       articleListMode !== "weekly"
         ? sorted
         : (() => {
-            const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-            const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-            return weekly.length ? weekly : sorted;
-          })();
+          const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
+          const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
+          return weekly.length ? weekly : sorted;
+        })();
 
     return dedupeDisplayArticles(baseList);
   }, [articles, selectedCategory, articleListMode]);
@@ -857,15 +974,15 @@ export default function MainPage() {
         setError("");
 
         const res = await axios.get("/tracking/issues", {
-          params: { limit: MAIN_PAGE_ISSUE_LIMIT, include_article_content: 0 },
+          params: { limit: MAIN_PAGE_ISSUE_FETCH_LIMIT, include_article_content: 0 },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
         const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
-        const dedupedGrouped = dedupeIssueSummaries(grouped);
+        const deduped = dedupeIssueSummaries(grouped, MAIN_PAGE_ISSUE_LIMIT);
 
-        setLatestIssues(dedupedGrouped.map(mapIssueSummaryToLatestUI));
-        setArticles(dedupedGrouped.map(mapIssueSummaryToMainArticle));
+        setLatestIssues(deduped.map(mapIssueSummaryToLatestUI));
+        setArticles(deduped.map(mapIssueSummaryToMainArticle));
       } catch (e) {
         console.error("latest issues load failed:", e);
         setLatestIssues([]);
@@ -1047,8 +1164,8 @@ export default function MainPage() {
     () =>
       selectedArticle
         ? latestIssueByArticleId.get(
-            safeString(selectedArticle.representativeArticleId || selectedArticle.articleId || selectedArticle.id)
-          ) || null
+          safeString(selectedArticle.representativeArticleId || selectedArticle.articleId || selectedArticle.id)
+        ) || null
         : null,
     [selectedArticle, latestIssueByArticleId]
   );
@@ -1057,10 +1174,18 @@ export default function MainPage() {
     () =>
       selectedIssue
         ? issueGroupByArticleId.get(
-            safeString(selectedIssue.articleId || selectedIssue.representativeArticleId || selectedIssue.id)
-          ) || []
+          safeString(selectedIssue.articleId || selectedIssue.representativeArticleId || selectedIssue.id)
+        ) || []
         : [],
     [selectedIssue, issueGroupByArticleId]
+  );
+
+  const activeIssueArticle = useMemo(
+    () =>
+      selectedIssueGroup.find(
+        (item) => safeString(item.articleId || item.id) === safeString(activeIssueArticleId)
+      ) || null,
+    [selectedIssueGroup, activeIssueArticleId]
   );
 
   const contrastArticles = useMemo(() => {
@@ -1287,11 +1412,10 @@ export default function MainPage() {
                     <button
                       key={listKey}
                       type="button"
-                      className={`mp-article-item ${
-                        listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
-                          ? "active"
-                          : ""
-                      }`}
+                      className={`mp-article-item ${listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
+                        ? "active"
+                        : ""
+                        }`}
                       onClick={() => selectIssueInCenter(a)}
                     >
                       <div className="mp-article-item-top">
@@ -1323,15 +1447,25 @@ export default function MainPage() {
                 const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
                 const currentGlossary = glossaryList;
 
+                const activeGroupArticle =
+                  currentIssueGroup.find(
+                    (item) => safeString(item.articleId || item.id) === safeString(activeIssueArticleId)
+                  ) || null;
+
                 const currentTitle = isSelected
                   ? pickPreferredIssueTitle(
-                      activeIssueArticle?.title || currentIssue?.title || article.title,
-                      currentIssueGroup.map((item) => item?.title || "")
-                    )
+                    activeGroupArticle?.title || currentIssue?.title || article.title,
+                    currentIssueGroup.map((item) => item?.title || "")
+                  )
                   : pickPreferredIssueTitle(
-                      currentIssue?.title || article.title,
-                      currentIssueGroup.map((item) => item?.title || "")
-                    );
+                    currentIssue?.title || article.title,
+                    currentIssueGroup.map((item) => item?.title || "")
+                  );
+
+                const currentThumb = resolveThumbnailUrl(
+                  currentIssue?.representativeThumbnail || article.thumbnailUrl || "",
+                  getFallbackThumb(currentIssue?.category || article.category || "society")
+                );
 
                 return (
                   <section

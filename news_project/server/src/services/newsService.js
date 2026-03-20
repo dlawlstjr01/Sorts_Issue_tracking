@@ -191,10 +191,7 @@ const DOMAIN_TO_PRESS_RULES = PRESS_DOMAIN_RULES.flatMap(({ press, domains }) =>
   .filter((rule) => rule.domain)
   .sort((a, b) => b.domain.length - a.domain.length);
 
-const HOST_SQL =
-  "LOWER(SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(url, '//', -1), '/', 1), ':', 1))";
 const MAX_VISIBLE_PAGES = 3000;
-const MAX_KEYWORD_PRESS_DOMAINS = 40;
 const NEWS_LIST_CACHE_TTL_MS = Math.max(
   0,
   Number(process.env.NEWS_LIST_CACHE_TTL_MS || 30000)
@@ -242,39 +239,13 @@ function setCachedListResponse(key, value) {
   });
 }
 
-function resolvePressByHost(rawHost) {
-  const host = normalizeHost(rawHost);
+function resolvePressByUrl(rawUrl) {
+  const host = extractHostFromUrl(rawUrl);
   if (!host) return null;
+
   for (const rule of DOMAIN_TO_PRESS_RULES) {
     if (host === rule.domain || host.endsWith(`.${rule.domain}`)) {
       return rule.press;
-    }
-  }
-  return null;
-}
-
-function normalizePressCandidate(raw) {
-  return String(raw || "")
-    .trim()
-    .replace(/^[\s"'“”‘’\[\]()[\]{}<>]+/, "")
-    .replace(/[\s"'“”‘’\[\]()[\]{}<>.,!?]+$/, "")
-    .trim();
-}
-
-function extractPressFromTitleTail(rawTitle) {
-  const title = String(rawTitle || "").trim();
-  if (!title) return null;
-
-  const separators = [" - ", " | ", " / ", " · ", " — "];
-  for (const sep of separators) {
-    if (!title.includes(sep)) continue;
-    const tail = normalizePressCandidate(title.split(sep).pop());
-    if (!tail) continue;
-    if (tail.length < 2 || tail.length > 24) continue;
-    if (!/[가-힣A-Za-z]/.test(tail)) continue;
-    if (/기자$/.test(tail)) continue;
-    if (/(신문|일보|뉴스|경제|저널|타임즈|투데이|TV|방송|포스트|리포트)$/i.test(tail)) {
-      return tail;
     }
   }
 
@@ -285,20 +256,32 @@ function appendPressWhere(where, params, pressNames) {
   if (!Array.isArray(pressNames) || pressNames.length === 0) return;
 
   const pressGroups = [];
+
   for (const rawName of pressNames) {
     const pressName = String(rawName || "").trim();
     if (!pressName) continue;
+
     const domains = PRESS_TO_DOMAINS.get(pressName);
-    if (!domains || domains.length === 0) {
-      pressGroups.push("title LIKE ?");
-      params.push(`%${pressName}%`);
-      continue;
-    }
+    if (!domains || domains.length === 0) continue;
 
     const domainGroups = [];
+
     for (const domain of domains) {
-      domainGroups.push("url LIKE ?");
-      params.push(`%${domain}%`);
+      domainGroups.push(
+        `(
+          LOWER(url) LIKE ?
+          OR LOWER(url) LIKE ?
+          OR LOWER(url) LIKE ?
+          OR LOWER(url) LIKE ?
+        )`
+      );
+
+      params.push(
+        `%://${domain}/%`,      // https://kbs.co.kr/...
+        `%://www.${domain}/%`,  // https://www.kbs.co.kr/...
+        `%://%.${domain}/%`,    // https://news.kbs.co.kr/...
+        `%${domain}/%`          // 프로토콜 없이 저장된 경우 대비
+      );
     }
 
     if (domainGroups.length) {
@@ -311,37 +294,27 @@ function appendPressWhere(where, params, pressNames) {
   }
 }
 
+function filterItemsBySelectedPresses(items, pressNames) {
+  if (!Array.isArray(pressNames) || pressNames.length === 0) {
+    return items;
+  }
+
+  const selectedSet = new Set(
+    pressNames.map((name) => String(name || "").trim()).filter(Boolean)
+  );
+
+  return (items || []).filter((item) => {
+    const resolvedPress = resolvePressByUrl(item?.url);
+    return resolvedPress && selectedSet.has(resolvedPress);
+  });
+}
+
 function appendKeywordWhere(where, params, rawKeyword) {
   const keyword = String(rawKeyword || "").trim();
   if (!keyword) return;
 
-  const searchGroups = ["title LIKE ?"];
-  params.push(`%${keyword}%`);
-
-  const keywordLower = keyword.toLowerCase();
-  const matchedDomains = new Set();
-
-  for (const [pressName, domains] of PRESS_TO_DOMAINS.entries()) {
-    if (!String(pressName || "").toLowerCase().includes(keywordLower)) continue;
-    for (const domain of domains || []) {
-      if (!domain) continue;
-      matchedDomains.add(domain);
-      if (matchedDomains.size >= MAX_KEYWORD_PRESS_DOMAINS) break;
-    }
-    if (matchedDomains.size >= MAX_KEYWORD_PRESS_DOMAINS) break;
-  }
-
-  const keywordDomain = normalizeDomain(keyword);
-  if (keywordDomain && keywordDomain.includes(".")) {
-    matchedDomains.add(keywordDomain);
-  }
-
-  for (const domain of matchedDomains) {
-    searchGroups.push("url LIKE ?");
-    params.push(`%${domain}%`);
-  }
-
-  where.push(`(${searchGroups.join(" OR ")})`);
+  where.push("(title LIKE ? OR content LIKE ?)");
+  params.push(`%${keyword}%`, `%${keyword}%`);
 }
 
 exports.listArticles = async ({
@@ -373,12 +346,12 @@ exports.listArticles = async ({
   appendKeywordWhere(where, params, q);
 
   if (date_from && isDateString(date_from)) {
-    where.push("published_at >= ?");
+    where.push("COALESCE(published_at, created_at) >= ?");
     params.push(`${String(date_from)} 00:00:00`);
   }
 
   if (date_to && isDateString(date_to)) {
-    where.push("published_at < DATE_ADD(?, INTERVAL 1 DAY)");
+    where.push("COALESCE(published_at, created_at) < DATE_ADD(?, INTERVAL 1 DAY)");
     params.push(String(date_to));
   }
 
@@ -396,49 +369,107 @@ exports.listArticles = async ({
     includePresses,
     includeTotal,
   });
+
   const cached = getCachedListResponse(cacheKey);
   if (cached) return cached;
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
-  const rowsPromise = offset >= cappedTotalLimit
-    ? Promise.resolve([[]])
-    : db.query(
+
+  const rowsPromise =
+    offset >= cappedTotalLimit
+      ? Promise.resolve([[]])
+      : db.query(
         `
-        SELECT id, url, title, thumbnail, category, published_at, created_at
-        FROM articles
-        ${whereSql}
-        ORDER BY published_at DESC, id DESC
-        LIMIT ? OFFSET ?
-        `,
+          SELECT id, url, title, thumbnail, content, category, published_at, created_at
+          FROM articles
+          ${whereSql}
+          ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+          LIMIT ? OFFSET ?
+          `,
         [...params, s, offset]
       );
+
   const countPromise = includeTotal
     ? db.query(
-        `
+      `
         SELECT COUNT(*) AS cnt
         FROM articles
         ${whereSql}
         `,
-        params
-      )
+      params
+    )
     : Promise.resolve([[{ cnt: null }]]);
 
-  const [[rows], [countRows]] = await Promise.all([rowsPromise, countPromise]);
+  let pressesPromise = Promise.resolve([[]]);
+  if (includePresses) {
+    const whereForPressList = [];
+    const pressParams = [];
+
+    if (category) {
+      whereForPressList.push("category = ?");
+      pressParams.push(String(category));
+    }
+
+    appendKeywordWhere(whereForPressList, pressParams, q);
+
+    if (date_from && isDateString(date_from)) {
+      whereForPressList.push("published_at >= ?");
+      pressParams.push(`${String(date_from)} 00:00:00`);
+    }
+
+    if (date_to && isDateString(date_to)) {
+      whereForPressList.push("published_at < DATE_ADD(?, INTERVAL 1 DAY)");
+      pressParams.push(String(date_to));
+    }
+
+    const pressWhereSql = whereForPressList.length
+      ? `WHERE ${whereForPressList.join(" AND ")}`
+      : "";
+
+    pressesPromise = db.query(
+      `
+      SELECT url
+      FROM articles
+      ${pressWhereSql}
+      ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+      LIMIT 5000
+      `,
+      pressParams
+    );
+  }
+
+  const [[rows], [countRows], [pressRows]] = await Promise.all([
+    rowsPromise,
+    countPromise,
+    pressesPromise,
+  ]);
+
   const total = includeTotal
     ? Math.min(Number(countRows?.[0]?.cnt) || 0, cappedTotalLimit)
     : null;
 
-  const items = rows.map((row) => {
-    const pressName = resolvePressByHost(extractHostFromUrl(row.url));
-    return { ...row, press_name: pressName || null };
-  });
+  const rawItems = rows.map((row) => ({
+    ...row,
+    press_name: resolvePressByUrl(row.url),
+  }));
+
+  const items = filterItemsBySelectedPresses(rawItems, selectedPresses);
 
   let presses = [];
   if (includePresses) {
-    const source = selectedPresses.length
-      ? selectedPresses
-      : Array.from(PRESS_TO_DOMAINS.keys());
-    presses = sortPressNames(Array.from(new Set(source.filter(Boolean))));
+    const pressCountMap = new Map();
+
+    for (const row of pressRows || []) {
+      const pressName = resolvePressByUrl(row.url);
+      if (!pressName) continue;
+
+      pressCountMap.set(pressName, (pressCountMap.get(pressName) || 0) + 1);
+    }
+
+    presses = sortPressNames(Array.from(pressCountMap.keys())).map((name) => ({
+      name,
+      count: pressCountMap.get(name) || 0,
+    }));
   }
 
   const response = {
@@ -448,6 +479,7 @@ exports.listArticles = async ({
     items,
     presses,
   };
+
   setCachedListResponse(cacheKey, response);
   return response;
 };
@@ -460,19 +492,32 @@ exports.getArticle = async (id) => {
 
   const [rows] = await db.query(
     `
-    SELECT id, url, title, thumbnail, content, category, published_at, created_at
-    FROM articles
-    WHERE id = ?
+    SELECT 
+      a.id,
+      a.url,
+      a.title,
+      a.thumbnail,
+      a.content,
+      a.category,
+      a.published_at,
+      a.created_at,
+      i.id AS issue_summary_id
+    FROM articles a
+    LEFT JOIN issue_summaries i
+      ON i.article_id = a.id
+    WHERE a.id = ?
     LIMIT 1
     `,
     [articleId]
   );
 
   if (!rows.length) throw makeError("기사를 찾을 수 없습니다.", 404);
+
   const article = rows[0];
+
   return {
     ...article,
-    press_name: resolvePressByHost(extractHostFromUrl(article.url)),
+    press_name: resolvePressByUrl(article.url),
   };
 };
 
@@ -491,6 +536,7 @@ exports.getArticleTerms = async (id) => {
     `,
     [articleId]
   );
+
   if (!articleRows.length) {
     throw makeError("article not found", 404);
   }

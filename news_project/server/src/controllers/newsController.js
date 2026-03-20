@@ -4,7 +4,18 @@ const dictionaryService = require("../services/dictionaryService");
 // GET /news?page=&size=&category=&q=
 exports.list = async (req, res) => {
   try {
-    const data = await newsService.listArticles(req.query);
+    const data = await newsService.listArticles({
+      page: req.query.page,
+      size: req.query.size,
+      category: req.query.category,
+      q: req.query.q,
+      date_from: req.query.date_from || req.query.dateFrom,
+      date_to: req.query.date_to || req.query.dateTo,
+      press: req.query.press || req.query.presses,
+      include_presses: req.query.include_presses || req.query.includePresses,
+      include_total: req.query.include_total || req.query.includeTotal,
+    });
+
     return res.json(data);
   } catch (err) {
     console.error("[newsController.list]", err);
@@ -58,7 +69,7 @@ exports.summary = async (req, res) => {
       return res.status(404).json({ message: "요약을 불러오지 못했습니다." });
     }
 
-    return res.json(result); // { lines: [...], related_count, keywords, created_at }
+    return res.json(result);
   } catch (e) {
     console.error("[news/summary] failed:", e);
     return res.status(500).json({ message: "요약을 불러오지 못했습니다." });

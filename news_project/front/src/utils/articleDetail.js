@@ -87,6 +87,13 @@ export function toArticleDetailPayload(raw) {
     ? merged.summary.filter(Boolean).join("\n")
     : toStringSafe(merged.summary);
 
+  const issueSummaryId = toStringSafe(
+    merged.issueSummaryId ??
+    merged.issue_summary_id ??
+    merged.issueSummary?.id ??
+    ""
+  ).trim();
+
   return {
     id,
     title: toStringSafe(merged.title).trim() || "제목 없음",
@@ -99,8 +106,13 @@ export function toArticleDetailPayload(raw) {
       ""
     ),
     category: toStringSafe(merged.category).trim(),
-    pressName: toStringSafe(merged.press_name || merged.press).trim(),
+    pressName: toStringSafe(
+      merged.pressName || merged.press_name || merged.press
+    ).trim(),
     publishedAt: normalizePublishedAt(merged),
+    issueSummaryId: issueSummaryId || "",
+    issue_summary_id: issueSummaryId || "",
+    raw: merged,
     cachedAt: Date.now(),
   };
 }

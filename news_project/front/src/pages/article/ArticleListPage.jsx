@@ -154,6 +154,14 @@ const PRESS_NAME_BY_TEXT_PRIORITY = [...PRESS_ITEMS].sort((a, b) => b.length - a
 const THUMB_FALLBACK =
   "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
 
+function makePressCacheKey(keyword, range) {
+  return JSON.stringify({
+    q: String(keyword || "").trim(),
+    from: String(range?.start || ""),
+    to: String(range?.end || ""),
+  });
+}
+
 function formatDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -335,7 +343,7 @@ function parseArticleListSearch(search) {
     sp
       .getAll("sp")
       .map((item) => String(item || "").trim())
-      .filter((name) => PRESS_FILTER_SET.has(name))
+      .filter(Boolean)
   );
 
   return {
@@ -388,14 +396,18 @@ export default function ArticleListPage() {
   const [newsItems, setNewsItems] = useState([]);
   const [currentPage, setCurrentPage] = useState(initialSearchState.page);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
+  const [availablePresses, setAvailablePresses] = useState([]);
   const [isSearchOpen, setIsSearchOpen] = useState(true);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const helpWrapRef = useRef(null);
+  const requestSeqRef = useRef(0);
+  const pressCacheRef = useRef(new Map());
 
-  const selectedCount = selectedPressFilter.size + selectedPress.size + (query.trim() ? 1 : 0);
+  const [loadingArticles, setLoadingArticles] = useState(false);
+  const [loadingPresses, setLoadingPresses] = useState(false);
+
+  const selectedCount = selectedPress.size + (query.trim() ? 1 : 0);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const visiblePages = useMemo(() => {
@@ -416,14 +428,20 @@ export default function ArticleListPage() {
       return 2;
     };
 
-    return [...new Set(PRESS_FILTER_ITEMS)].sort((a, b) => {
-      const rankA = groupRank(a);
-      const rankB = groupRank(b);
+    return [...availablePresses].sort((a, b) => {
+      const nameA = String(a?.name || "");
+      const nameB = String(b?.name || "");
+
+      const rankA = groupRank(nameA);
+      const rankB = groupRank(nameB);
+
       if (rankA !== rankB) return rankA - rankB;
-      if (rankA === 1) return a.localeCompare(b, "en", { sensitivity: "base", numeric: true });
-      return a.localeCompare(b, "ko", { sensitivity: "base", numeric: true });
+      if (rankA === 1) {
+        return nameA.localeCompare(nameB, "en", { sensitivity: "base", numeric: true });
+      }
+      return nameA.localeCompare(nameB, "ko", { sensitivity: "base", numeric: true });
     });
-  }, []);
+  }, [availablePresses]);
 
   const filteredPressItems = useMemo(() => {
     if (selectedPressFilter.size === 0) return sortedPressItems;
@@ -436,8 +454,9 @@ export default function ArticleListPage() {
       if (/^[A-Z]$/.test(token)) englishTokens.add(token);
     });
 
-    return sortedPressItems.filter((name) => {
-      const first = String(name || "").trim().charAt(0);
+    return sortedPressItems.filter((item) => {
+      const name = String(item?.name || "").trim();
+      const first = name.charAt(0);
       if (!first) return false;
 
       if (/[A-Za-z]/.test(first)) return englishTokens.has(first.toUpperCase());
@@ -450,9 +469,17 @@ export default function ArticleListPage() {
   const resetDateRange = () => setDateRange(createDefaultDateRange());
 
   const loadNews = async (targetPage, keyword, range = dateRange, presses = selectedPress) => {
+    const requestId = ++requestSeqRef.current;
+
     try {
-      setLoading(true);
+      setLoadingArticles(true);
       setError("");
+
+      const selectedPressArray =
+        presses instanceof Set ? Array.from(presses) : Array.isArray(presses) ? presses : [];
+
+      const hasSelectedPresses = selectedPressArray.length > 0;
+      const hasKeyword = Boolean(String(keyword || "").trim());
 
       const response = await fetchNews({
         page: targetPage,
@@ -460,33 +487,42 @@ export default function ArticleListPage() {
         q: keyword || undefined,
         dateFrom: range?.start,
         dateTo: range?.end,
-        presses: Array.from(presses),
+        presses: selectedPressArray,
+        includePresses: false,
+        includeTotal: !(hasSelectedPresses || hasKeyword),
       });
+
+      if (requestId !== requestSeqRef.current) return;
 
       const data = response?.data || {};
       const items = Array.isArray(data.items) ? data.items : [];
-      const normalizedItems = items.map((item) => {
-        const inferredByUrl = resolvePressByUrl(item?.url);
-        const inferredByText = resolvePressByText(item?.title, item?.content);
 
-        return {
-          ...item,
-          thumbnail: resolveThumbnailUrl(item?.thumbnail, THUMB_FALLBACK),
-          press_name: item?.press_name || inferredByUrl || inferredByText || null,
-        };
-      });
+      const normalizedItems = items.map((item) => ({
+        ...item,
+        thumbnail: resolveThumbnailUrl(item?.thumbnail, THUMB_FALLBACK),
+        press_name: item?.press_name || "기타",
+      }));
 
       const dedupedItems = dedupeNewsItems(normalizedItems);
+
       setNewsItems(dedupedItems);
-      setTotal(Number(data.total) || 0);
+      setTotal(
+        data.total === null || data.total === undefined
+          ? dedupedItems.length
+          : Number(data.total) || 0
+      );
       setCurrentPage(targetPage);
     } catch (err) {
+      if (requestId !== requestSeqRef.current) return;
+
       setError(err?.response?.data?.message || "뉴스 기사를 불러오지 못했습니다.");
       setNewsItems([]);
       setTotal(0);
       setCurrentPage(1);
     } finally {
-      setLoading(false);
+      if (requestId === requestSeqRef.current) {
+        setLoadingArticles(false);
+      }
     }
   };
 
@@ -497,6 +533,9 @@ export default function ArticleListPage() {
       initialSearchState.dateRange,
       initialSearchState.selectedPress
     );
+
+    loadPresses(initialSearchState.query, initialSearchState.dateRange);
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -523,6 +562,24 @@ export default function ArticleListPage() {
       document.removeEventListener("keydown", handleEscape);
     };
   }, [isHelpOpen]);
+
+  useEffect(() => {
+    if (!availablePresses.length) return;
+
+    const availableSet = new Set(
+      availablePresses.map((item) => String(item?.name || "").trim()).filter(Boolean)
+    );
+
+    setSelectedPress((prev) => {
+      const next = new Set([...prev].filter((name) => availableSet.has(name)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [availablePresses]);
+
+  useEffect(() => {
+    loadPresses(query.trim(), dateRange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange.start, dateRange.end]);
 
   const togglePressFilter = (name) => {
     setSelectedPressFilter((prev) => {
@@ -568,17 +625,28 @@ export default function ArticleListPage() {
     navigate({ pathname: location.pathname, search }, { replace: true });
   };
 
-  const resetFilters = async () => {
-    const emptySet = new Set();
+  const resetFilters = () => {
+    const emptyPressFilter = new Set();
+    const emptyPress = new Set();
     const nextRange = createDefaultDateRange();
 
     setQuery("");
-    setSelectedPressFilter(emptySet);
-    setSelectedPress(emptySet);
+    setSelectedPressFilter(emptyPressFilter);
+    setSelectedPress(emptyPress);
     setDateRange(nextRange);
+    setError("");
 
-    syncListUrl(1, "", nextRange, emptySet, emptySet);
-    await loadNews(1, "", nextRange, emptySet);
+    syncListUrl(1, "", nextRange, emptyPressFilter, emptyPress);
+
+    const cacheKey = makePressCacheKey("", nextRange);
+    const cachedPresses = pressCacheRef.current.get(cacheKey);
+    if (cachedPresses) {
+      setAvailablePresses(cachedPresses);
+    } else {
+      loadPresses("", nextRange);
+    }
+
+    loadNews(1, "", nextRange, emptyPress);
   };
 
   const runSearch = async () => {
@@ -588,21 +656,29 @@ export default function ArticleListPage() {
     }
 
     const keyword = query.trim();
+
     syncListUrl(1, keyword, dateRange, selectedPressFilter, selectedPress);
-    await loadNews(1, keyword, dateRange, selectedPress);
+
+    loadNews(1, keyword, dateRange, selectedPress);
+    loadPresses(keyword, dateRange);
   };
 
-  const handlePageChange = async (targetPage) => {
-    if (loading) return;
+  const handlePageChange = (targetPage) => {
+    if (loadingArticles) return;
     if (targetPage < 1 || targetPage > totalPages) return;
 
     const keyword = query.trim();
     syncListUrl(targetPage, keyword, dateRange, selectedPressFilter, selectedPress);
-    await loadNews(targetPage, keyword, dateRange, selectedPress);
+    loadNews(targetPage, keyword, dateRange, selectedPress);
   };
 
   const openArticleDetail = (item) => {
-    const normalized = rememberArticleDetail(item);
+    const normalized = rememberArticleDetail({
+      ...item,
+      issueSummaryId: item?.issueSummaryId || item?.issue_summary_id || "",
+      issue_summary_id: item?.issue_summary_id || item?.issueSummaryId || "",
+    });
+
     if (!normalized) return;
 
     navigate(`/?view=article&id=${encodeURIComponent(normalized.id)}`, {
@@ -611,6 +687,55 @@ export default function ArticleListPage() {
         from: `${location.pathname}${location.search}`,
       },
     });
+  };
+
+  const loadPresses = async (keyword, range, { force = false } = {}) => {
+    const cacheKey = makePressCacheKey(keyword, range);
+
+    if (!force && pressCacheRef.current.has(cacheKey)) {
+      setAvailablePresses(pressCacheRef.current.get(cacheKey));
+      return pressCacheRef.current.get(cacheKey);
+    }
+
+    try {
+      setLoadingPresses(true);
+
+      const response = await fetchNews({
+        page: 1,
+        size: 1,
+        q: keyword || undefined,
+        dateFrom: range?.start,
+        dateTo: range?.end,
+        presses: [],
+        includePresses: true,
+        includeTotal: false,
+      });
+
+      const data = response?.data || {};
+      const backendPressesRaw = Array.isArray(data.presses) ? data.presses : [];
+
+      const normalizedPresses = backendPressesRaw
+        .map((item) => {
+          if (typeof item === "string") {
+            return { name: String(item).trim(), count: 1 };
+          }
+
+          return {
+            name: String(item?.name || "").trim(),
+            count: Number(item?.count) || 0,
+          };
+        })
+        .filter((item) => item.name && item.name !== "기타" && item.count > 0);
+
+      pressCacheRef.current.set(cacheKey, normalizedPresses);
+      setAvailablePresses(normalizedPresses);
+      return normalizedPresses;
+    } catch (err) {
+      console.error("[loadPresses] failed:", err);
+      return [];
+    } finally {
+      setLoadingPresses(false);
+    }
   };
 
   return (
@@ -757,16 +882,24 @@ export default function ArticleListPage() {
                 </div>
 
                 <div className="als-lane-chip-wrap als-press-chip-wrap">
-                  {filteredPressItems.map((name) => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`als-chip-btn sub ${selectedPress.has(name) ? "active" : ""}`}
-                      onClick={() => togglePress(name)}
-                    >
-                      {name}
-                    </button>
-                  ))}
+                  {filteredPressItems.map((item) => {
+                    const pressName = String(item?.name || "").trim();
+                    const pressCount = Number(item?.count) || 0;
+
+                    if (!pressName) return null;
+
+                    return (
+                      <button
+                        key={pressName}
+                        type="button"
+                        className={`als-chip-btn sub ${selectedPress.has(pressName) ? "active" : ""}`}
+                        onClick={() => togglePress(pressName)}
+                        title={`${pressName} (${pressCount}건)`}
+                      >
+                        {pressName}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -790,8 +923,13 @@ export default function ArticleListPage() {
                 <button type="button" className="als-btn ghost" onClick={resetFilters}>
                   초기화
                 </button>
-                <button type="button" className="als-btn primary" onClick={runSearch} disabled={loading}>
-                  {loading ? "검색 중..." : "적용하기"}
+                <button
+                  type="button"
+                  className="als-btn primary"
+                  onClick={runSearch}
+                  disabled={loadingArticles}
+                >
+                  {loadingArticles ? "검색 중..." : "적용하기"}
                 </button>
               </div>
             </div>
@@ -809,13 +947,13 @@ export default function ArticleListPage() {
           </div>
         </div>
 
-        {loading && <div className="als-empty">뉴스를 불러오는 중입니다...</div>}
-        {!loading && error && <div className="als-empty is-error">{error}</div>}
-        {!loading && !error && newsItems.length === 0 && (
+        {loadingArticles && <div className="als-empty">뉴스를 불러오는 중입니다...</div>}
+        {!loadingArticles && error && <div className="als-empty is-error">{error}</div>}
+        {!loadingArticles && !error && newsItems.length === 0 && (
           <div className="als-empty">표시할 뉴스 기사가 없습니다.</div>
         )}
 
-        {!loading && !error && newsItems.length > 0 && (
+        {!loadingArticles && !error && newsItems.length > 0 && (
           <>
             <div className="als-news-grid">
               {newsItems.map((item) => (
@@ -841,7 +979,12 @@ export default function ArticleListPage() {
                         {formatPublishedDate(item.published_at || item.created_at)}
                       </span>
                     </div>
+
                     <div className="als-news-item-title">{item.title || "제목 없음"}</div>
+
+                    <div className="als-news-meta" style={{ marginTop: 8 }}>
+                      <span className="als-news-cat">{item.press_name || "기타"}</span>
+                    </div>
                   </div>
                 </button>
               ))}

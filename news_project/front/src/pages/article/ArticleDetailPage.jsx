@@ -3,14 +3,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import SideMenuCard from "../../components/SideMenuCard";
 import GlossaryText from "../../components/GlossaryText";
+import NoticeModal from "../../components/NoticeModal";
 import { getNewsById, searchKoreanDictionary } from "../../api/newsApi";
 import { fetchGlossary } from "../../utils/searchService";
-import {
-  ARCHIVE_STORAGE_KEY,
-  getArchiveItemKey,
-  getArchiveKeySet,
-  toggleArchiveItem,
-} from "../../utils/archiveStorage";
 import { addRecentItem } from "../../utils/recentStorage";
 import {
   getRememberedArticleDetail,
@@ -234,8 +229,9 @@ export default function ArticleDetailPage() {
   const [dictionaryResults, setDictionaryResults] = useState([]);
   const [dictionaryTotal, setDictionaryTotal] = useState(0);
   const [dictionaryKeyword, setDictionaryKeyword] = useState("");
-  const [archiveKeys, setArchiveKeys] = useState(() => getArchiveKeySet());
   const [glossaryList, setGlossaryList] = useState([]);
+  const [archiveKeys, setArchiveKeys] = useState(new Set());
+  const [noticeModal, setNoticeModal] = useState({ open: false, message: "" });
 
   const fetchedArticleIdRef = useRef("");
   const [userId, setUserId] = useState(null);
@@ -244,6 +240,18 @@ export default function ArticleDetailPage() {
   const scrollCountRef = useRef(0);
   const createdLogForArticleRef = useRef("");
   const updatedLogRef = useRef(false);
+
+  const issueSummaryId = useMemo(() => {
+    return String(
+      article?.issueSummaryId ||
+      article?.issue_summary_id ||
+      article?.raw?.issueSummaryId ||
+      article?.raw?.issue_summary_id ||
+      location.state?.article?.issueSummaryId ||
+      location.state?.article?.issue_summary_id ||
+      ""
+    ).trim();
+  }, [article, location.state?.article]);
 
   useEffect(() => {
     setArticle(initialArticle);
@@ -256,10 +264,6 @@ export default function ArticleDetailPage() {
     setDictionaryResults([]);
     setDictionaryTotal(0);
     setDictionaryKeyword("");
-  }, [article?.id]);
-
-  useEffect(() => {
-    setArchiveKeys(getArchiveKeySet());
   }, [article?.id]);
 
   useEffect(() => {
@@ -292,17 +296,6 @@ export default function ArticleDetailPage() {
   }, [article?.id]);
 
   useEffect(() => {
-    const handleStorage = (event) => {
-      if (event.key === ARCHIVE_STORAGE_KEY) {
-        setArchiveKeys(getArchiveKeySet());
-      }
-    };
-
-    window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
-
-  useEffect(() => {
     const loadMe = async () => {
       try {
         const res = await axios.get("/auth/me", { withCredentials: true });
@@ -332,8 +325,8 @@ export default function ArticleDetailPage() {
   useEffect(() => {
     let mounted = true;
 
-    if (!isNumericArticleId(articleId)) return () => {};
-    if (fetchedArticleIdRef.current === articleId) return () => {};
+    if (!isNumericArticleId(articleId)) return () => { };
+    if (fetchedArticleIdRef.current === articleId) return () => { };
 
     fetchedArticleIdRef.current = articleId;
 
@@ -366,6 +359,24 @@ export default function ArticleDetailPage() {
       mounted = false;
     };
   }, [articleId, initialArticle]);
+
+  useEffect(() => {
+    if (!userId) {
+      setArchiveKeys(new Set());
+      return;
+    }
+
+    (async () => {
+      try {
+        const res = await axios.get("/issue-archives/my/keys", { withCredentials: true });
+        const items = Array.isArray(res.data?.items) ? res.data.items : [];
+        setArchiveKeys(new Set(items.map(String)));
+      } catch (e) {
+        console.error("[issue-archives/my/keys] failed:", e);
+        setArchiveKeys(new Set());
+      }
+    })();
+  }, [userId]);
 
   useEffect(() => {
     const createLog = async () => {
@@ -460,22 +471,45 @@ export default function ArticleDetailPage() {
   );
 
   const isSaved = useMemo(() => {
-    if (!article) return false;
-    const key = getArchiveItemKey(article);
-    return key ? archiveKeys.has(key) : false;
-  }, [article, archiveKeys]);
+    return !!issueSummaryId && archiveKeys.has(issueSummaryId);
+  }, [issueSummaryId, archiveKeys]);
 
-  const handleToggleArchive = () => {
-    if (!article) return;
+  const handleToggleArchive = async () => {
+    if (!userId) {
+      setNoticeModal({ open: true, message: "로그인 후 저장할 수 있습니다." });
+      return;
+    }
 
-    const payload = {
-      ...article,
-      published_at: article.publishedAt,
-      created_at: article.publishedAt,
-    };
+    if (!issueSummaryId) {
+      setNoticeModal({ open: true, message: "저장할 이슈 정보를 찾을 수 없습니다." });
+      return;
+    }
 
-    const result = toggleArchiveItem(payload);
-    setArchiveKeys(getArchiveKeySet(result.items));
+    try {
+      if (archiveKeys.has(issueSummaryId)) {
+        await axios.delete(`/issue-archives/${issueSummaryId}`, { withCredentials: true });
+        setArchiveKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(issueSummaryId);
+          return next;
+        });
+        setNoticeModal({ open: true, message: "저장이 해제되었습니다." });
+      } else {
+        await axios.post(`/issue-archives/${issueSummaryId}`, {}, { withCredentials: true });
+        setArchiveKeys((prev) => {
+          const next = new Set(prev);
+          next.add(issueSummaryId);
+          return next;
+        });
+        setNoticeModal({ open: true, message: "저장되었습니다." });
+      }
+    } catch (e) {
+      console.error("[handleToggleArchive] failed:", e);
+      setNoticeModal({
+        open: true,
+        message: e?.response?.data?.message || "저장 처리 중 오류가 발생했습니다.",
+      });
+    }
   };
 
   const handleDictionarySearch = async () => {
@@ -526,7 +560,7 @@ export default function ArticleDetailPage() {
           onClick={handleToggleArchive}
           disabled={!article}
         >
-          {isSaved ? "저장됨" : "저장"}
+          {isSaved ? "저장 해제" : "저장"}
         </button>
       </div>
 
@@ -621,11 +655,6 @@ export default function ArticleDetailPage() {
                 <div className="article-detail-source-row">
                   <span>출처</span>
                   <span>{sourceHost || "-"}</span>
-                </div>
-
-                <div className="article-detail-source-row">
-                  <span>기사 ID</span>
-                  <span>{article.id}</span>
                 </div>
 
                 <button
@@ -745,6 +774,12 @@ export default function ArticleDetailPage() {
           </div>
         </>
       )}
+
+      <NoticeModal
+        open={noticeModal.open}
+        message={noticeModal.message}
+        onClose={() => setNoticeModal({ open: false, message: "" })}
+      />
     </div>
   );
 }

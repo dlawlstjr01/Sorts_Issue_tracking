@@ -535,19 +535,6 @@ export default function ArchivePage() {
             <span className="archive-item-cat">{item.category}</span>
           </div>
 
-          <div className="archive-item-actions">
-            <span className="archive-item-date">{item.date}</span>
-            {!hideRemove && onRemove && (
-              <button
-                type="button"
-                className="archive-item-remove"
-                onClick={(event) => onRemove(event, item)}
-                aria-label={removeAriaLabel}
-              >
-                삭제
-              </button>
-            )}
-          </div>
         </div>
 
         <div className="archive-item-title clamp-2">{renderHighlightedText(item.title, highlightTerms)}</div>

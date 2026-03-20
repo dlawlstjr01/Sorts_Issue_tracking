@@ -95,7 +95,7 @@ const INTEREST_KEYWORD_STORAGE_KEYS = [
   "userInterestKeywords",
   "preferredKeywords",
 ];
-const NOTIFY_FETCH_LIMIT = 24;
+const NOTIFY_FETCH_LIMIT = 80;
 const NOTIFY_POLL_INTERVAL_MS = 12000;
 const NOTIFY_MAX_ITEMS = 20;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
@@ -293,7 +293,7 @@ export default function Header() {
   const menu = useMemo(
     () => [
       { to: "article-list", label: "기사 목록", icon: <IconList /> },
-      { to: "issue-report", label: "이슈 추적", icon: <IconChart /> },
+      { to: "issue-report", label: "이슈 추적/리포트", icon: <IconChart /> },
       { to: "archive", label: "아카이브", icon: <IconArchive /> },
       { to: "support", label: "고객센터", icon: <IconSupport /> },
     ],
@@ -495,10 +495,7 @@ export default function Header() {
 
       try {
         const res = await axios.get("/tracking/issues", {
-          params: {
-            limit: NOTIFY_FETCH_LIMIT,
-            include_article_content: 0,
-          },
+          params: { limit: NOTIFY_FETCH_LIMIT },
         });
         if (!mounted) {
           inFlight = false;

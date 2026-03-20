@@ -724,6 +724,17 @@ export default function MainPage() {
   }, []);
 
   useEffect(() => {
+    const resetWindowScroll = () => {
+      if (typeof window === "undefined") return;
+      window.scrollTo(0, 0);
+    };
+
+    resetWindowScroll();
+    const rafId = requestAnimationFrame(resetWindowScroll);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  useEffect(() => {
     if (!location.state?.resetMainPage) return;
 
     try {
@@ -881,13 +892,12 @@ export default function MainPage() {
       const container = centerScrollRef.current;
       if (!container) return;
 
-      if (typeof saved?.centerScrollTop === "number") {
-        container.scrollTop = saved.centerScrollTop;
-        return;
-      }
-
       const targetEl = sectionRefs.current[nextSelectedId];
-      if (targetEl) targetEl.scrollIntoView({ behavior: "auto", block: "start" });
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: "auto", block: "start" });
+      } else {
+        container.scrollTop = 0;
+      }
     });
 
     restoredRef.current = true;

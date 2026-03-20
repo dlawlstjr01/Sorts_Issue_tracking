@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -190,6 +190,10 @@ function getRecentItemKey(item) {
   );
 }
 
+function getRecentArticleId(item) {
+  return String(item?.raw?.article_id || item?.raw?.id || item?.id || "").trim();
+}
+
 export default function ArchivePage() {
   const navigate = useNavigate();
   const reduceMotion = useReducedMotion();
@@ -208,6 +212,7 @@ export default function ArchivePage() {
   const [confirmModal, setConfirmModal] = useState({ open: false, message: "" });
 
   const confirmActionRef = useRef(null);
+  const selectAllCheckboxRef = useRef(null);
   const pageSize = 10;
 
   const motionProps = reduceMotion
@@ -320,10 +325,35 @@ export default function ArchivePage() {
 
   const filtered = filteredResult.items;
   const totalPages = Math.max(1, Math.ceil(filteredResult.total / pageSize));
+  const visibleSelectableKeys = useMemo(
+    () =>
+      filtered
+        .map((item) => (activeTab === "saved" ? getSavedItemKey(item) : getRecentItemKey(item)))
+        .filter(Boolean),
+    [activeTab, filtered]
+  );
+  const visibleSelectedCount = useMemo(() => {
+    const selectedSet = activeTab === "saved" ? selectedSavedKeys : selectedRecentKeys;
+    return visibleSelectableKeys.reduce(
+      (count, key) => (selectedSet.has(key) ? count + 1 : count),
+      0
+    );
+  }, [activeTab, selectedSavedKeys, selectedRecentKeys, visibleSelectableKeys]);
+  const isAllVisibleSelected =
+    visibleSelectableKeys.length > 0 &&
+    visibleSelectedCount === visibleSelectableKeys.length;
+  const isPartiallyVisibleSelected =
+    visibleSelectedCount > 0 && visibleSelectedCount < visibleSelectableKeys.length;
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
+
+  useEffect(() => {
+    if (selectAllCheckboxRef.current) {
+      selectAllCheckboxRef.current.indeterminate = isPartiallyVisibleSelected;
+    }
+  }, [isPartiallyVisibleSelected]);
 
   const highlightTerms = useMemo(
     () => [...new Set([query].map((term) => String(term || "").trim()).filter(Boolean))],
@@ -373,6 +403,30 @@ export default function ArchivePage() {
       next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
+  };
+
+  const toggleVisibleSelection = () => {
+    if (!visibleSelectableKeys.length) return;
+
+    const applyToggle = (prev) => {
+      const next = new Set(prev);
+      const shouldUnselectAll = visibleSelectableKeys.every((key) => next.has(key));
+
+      if (shouldUnselectAll) {
+        visibleSelectableKeys.forEach((key) => next.delete(key));
+      } else {
+        visibleSelectableKeys.forEach((key) => next.add(key));
+      }
+
+      return next;
+    };
+
+    if (activeTab === "saved") {
+      setSelectedSavedKeys(applyToggle);
+      return;
+    }
+
+    setSelectedRecentKeys(applyToggle);
   };
 
   const handleRemoveSaved = async (event, item) => {
@@ -459,7 +513,67 @@ export default function ArchivePage() {
 
   const handleDeleteSelectedRecent = () => {
     if (selectedRecentKeys.size === 0) return;
-    setError("최근 본 기사 선택 삭제 기능은 아직 백엔드 API가 없습니다.");
+
+    const selectedItems = recentItems.filter((item) =>
+      selectedRecentKeys.has(getRecentItemKey(item))
+    );
+    const articleIds = [
+      ...new Set(
+        selectedItems
+          .map(getRecentArticleId)
+          .map((id) => String(id || "").trim())
+          .filter((id) => /^\d+$/.test(id))
+      ),
+    ];
+
+    if (articleIds.length === 0) {
+      setError("삭제할 최근 본 기사 정보를 찾을 수 없습니다.");
+      return;
+    }
+
+    const count = articleIds.length;
+    confirmActionRef.current = async () => {
+      try {
+        const results = await Promise.allSettled(
+          articleIds.map((articleId) =>
+            axios.delete(`/user-log/recent/${articleId}`, { withCredentials: true })
+          )
+        );
+
+        const successIds = articleIds.filter(
+          (_, index) => results[index]?.status === "fulfilled"
+        );
+        const failedResults = results.filter((result) => result.status === "rejected");
+
+        if (successIds.length > 0) {
+          const successIdSet = new Set(successIds.map(String));
+          setRecentItems((prev) =>
+            prev.filter((item) => !successIdSet.has(getRecentArticleId(item)))
+          );
+          setSelectedRecentKeys(new Set());
+          setPage(1);
+        }
+
+        if (failedResults.length > 0) {
+          const firstError = failedResults[0];
+          setError(
+            firstError?.reason?.response?.data?.message ||
+              `선택한 최근 본 기사 ${failedResults.length}개를 삭제하지 못했습니다.`
+          );
+          return;
+        }
+
+        setError("");
+      } catch (e) {
+        console.error("[handleDeleteSelectedRecent] failed:", e);
+        setError(e?.response?.data?.message || "선택 삭제 중 오류가 발생했습니다.");
+      }
+    };
+
+    setConfirmModal({
+      open: true,
+      message: `선택한 최근 본 기사 ${count}개를 삭제할까요?`,
+    });
   };
 
   const handleClearRecent = () => {
@@ -601,16 +715,28 @@ export default function ArchivePage() {
           </div>
 
           <div className="archive-toolbar">
-            <input
-              className="archive-search"
-              type="text"
-              placeholder="키워드 또는 제목으로 검색하세요"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
-            />
+            <div className="archive-toolbar-main">
+              <label className="archive-item-check archive-select-all-check archive-select-all-inline">
+                <input
+                  ref={selectAllCheckboxRef}
+                  type="checkbox"
+                  checked={isAllVisibleSelected}
+                  onChange={toggleVisibleSelection}
+                  disabled={loading || visibleSelectableKeys.length === 0}
+                  aria-label="toggle select all visible items"
+                />
+              </label>
+              <input
+                className="archive-search"
+                type="text"
+                placeholder="키워드 또는 제목으로 검색하세요"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+              />
+            </div>
 
             <div className="archive-sort">
               <motion.button type="button" className={sort === "latest" ? "active" : ""} onClick={() => setSort("latest")} {...motionProps}>
@@ -630,17 +756,7 @@ export default function ArchivePage() {
                     disabled={loading || selectedSavedKeys.size === 0}
                     {...motionProps}
                   >
-                    선택삭제
-                  </motion.button>
-
-                  <motion.button
-                    type="button"
-                    className="archive-clear"
-                    onClick={handleClearSaved}
-                    disabled={loading || savedItems.length === 0}
-                    {...motionProps}
-                  >
-                    모두삭제
+                    삭제
                   </motion.button>
                 </>
               )}
@@ -651,70 +767,71 @@ export default function ArchivePage() {
                     type="button"
                     className="archive-clear"
                     onClick={handleDeleteSelectedRecent}
-                    disabled
+                    disabled={loading || selectedRecentKeys.size === 0}
                     {...motionProps}
                   >
-                    선택삭제
-                  </motion.button>
-
-                  <motion.button
-                    type="button"
-                    className="archive-clear"
-                    onClick={handleClearRecent}
-                    disabled
-                    {...motionProps}
-                  >
-                    모두삭제
+                    삭제
                   </motion.button>
                 </>
               )}
             </div>
           </div>
 
-          <div className="archive-list">
-            {loading && <div className="archive-empty">불러오는 중...</div>}
+          <div className="archive-content-row">
+            <div className="archive-list">
+              {loading && <div className="archive-empty">불러오는 중...</div>}
 
-            {error && !loading && (
-              <div className="archive-empty" style={{ color: "crimson" }}>
-                {error}
+              {error && !loading && (
+                <div className="archive-empty" style={{ color: "crimson" }}>
+                  {error}
+                </div>
+              )}
+
+              {!loading &&
+                !error &&
+                filtered.map((item) => {
+                  const isSavedTab = activeTab === "saved";
+                  const itemKey = isSavedTab ? getSavedItemKey(item) : getRecentItemKey(item);
+                  const isSelected = isSavedTab ? selectedSavedKeys.has(itemKey) : selectedRecentKeys.has(itemKey);
+
+                  return renderArchiveCard({
+                    item,
+                    selectable: true,
+                    itemKey,
+                    isSelected,
+                    onToggleSelect: isSavedTab ? toggleSavedSelection : toggleRecentSelection,
+                    onRemove: isSavedTab ? handleRemoveSaved : handleRemoveRecent,
+                    removeAriaLabel: isSavedTab ? "remove saved issue" : "remove recent article",
+                    hideRemove: !isSavedTab,
+                  });
+                })}
+
+              {!loading && !error && filtered.length === 0 && (
+                <div className="archive-empty">
+                  {activeTab === "saved"
+                    ? "검색한 키워드 또는 제목과 일치하는 저장한 기사가 없습니다."
+                    : "검색한 키워드 또는 제목과 일치하는 최근 본 기사가 없습니다."}
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
+                <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
+                  이전
+                </button>
+                <button type="button" className="mp-btn" disabled={loading || page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                  다음
+                </button>
               </div>
-            )}
-
-            {!loading &&
-              !error &&
-              filtered.map((item) => {
-                const isSavedTab = activeTab === "saved";
-                const itemKey = isSavedTab ? getSavedItemKey(item) : getRecentItemKey(item);
-                const isSelected = isSavedTab ? selectedSavedKeys.has(itemKey) : selectedRecentKeys.has(itemKey);
-
-                return renderArchiveCard({
-                  item,
-                  selectable: true,
-                  itemKey,
-                  isSelected,
-                  onToggleSelect: isSavedTab ? toggleSavedSelection : toggleRecentSelection,
-                  onRemove: isSavedTab ? handleRemoveSaved : handleRemoveRecent,
-                  removeAriaLabel: isSavedTab ? "remove saved issue" : "remove recent article",
-                  hideRemove: !isSavedTab,
-                });
-              })}
-
-            {!loading && !error && filtered.length === 0 && (
-              <div className="archive-empty">
-                {activeTab === "saved"
-                  ? "검색한 키워드 또는 제목과 일치하는 저장한 기사가 없습니다."
-                  : "검색한 키워드 또는 제목과 일치하는 최근 본 기사가 없습니다."}
-              </div>
-            )}
-
-            <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
-              <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                이전
-              </button>
-              <button type="button" className="mp-btn" disabled={loading || page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                다음
-              </button>
             </div>
+
+            <aside className="archive-inline-ad" aria-label="스폰서 광고">
+              <section className="right-ad-card2">
+                <div className="right-ad-tag">광고</div>
+                <div className="right-ad-title">프리미엄 아카이브</div>
+                <p className="right-ad-copy">저장 기사 태그 분석과 맞춤 알림 기능을 체험해보세요.</p>
+                <div className="right-ad-visual" aria-hidden="true" />
+              </section>
+            </aside>
           </div>
         </section>
 

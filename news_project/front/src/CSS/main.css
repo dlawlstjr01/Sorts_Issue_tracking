@@ -74,6 +74,10 @@
 }
 
 .mp-article-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
   border: 1px solid #c7d4e5;
   border-radius: 16px;
   padding: 10px;
@@ -214,10 +218,12 @@
 /* LEFT - 기사 목록 */
 .mp-article-list {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
   padding: 2px 8px 2px 2px;
-  max-height: calc(100vh - 220px);
+  max-height: none;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
@@ -238,6 +244,10 @@
   height: calc(100vh - 120px);
   overflow-y: auto;
   overflow-x: hidden;
+}
+
+.mp-left .mp-panel {
+  overflow-y: hidden;
 }
 
 .mp-article-item,

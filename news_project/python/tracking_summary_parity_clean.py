@@ -369,6 +369,49 @@ SUMMARY_SHORT_MAX_CHARS = 72
 SUMMARY_COMPLETE_SOFT_MAX_CHARS = 112
 SUMMARY_COMPLETE_HARD_MAX_CHARS = 168
 SUMMARY_SHORT_MIN_CHARS = 14
+URGENT_TITLE_MAX_LINES = 2
+URGENT_TITLE_PREFIX_RE = re.compile(
+    r"^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\s*[:\-]?\s*",
+    re.IGNORECASE,
+)
+URGENT_TITLE_MARKERS = (
+    "속보",
+    "단독",
+    "긴급",
+    "특보",
+    "체포",
+    "구속",
+    "기소",
+    "사퇴",
+    "파면",
+    "탄핵",
+    "공습",
+    "공격",
+    "폭발",
+    "발사",
+    "침공",
+    "봉쇄",
+    "철수",
+    "휴전",
+    "종전",
+    "사망",
+    "실종",
+    "화재",
+    "지진",
+    "홍수",
+    "폭우",
+    "태풍",
+    "산불",
+    "참사",
+    "해킹",
+    "셧다운",
+    "폐쇄",
+    "중단",
+    "급등",
+    "급락",
+    "폭등",
+    "폭락",
+)
 REVIEW_KEYWORD_MIN_K = 3
 REVIEW_KEYWORD_BLOCKLIST = {
     "못하고", "못한", "못해", "하며", "하면서", "같은", "가운데", "현재", "이어",
@@ -1686,6 +1729,66 @@ def _title_to_complete_sentence(title: str) -> str:
     candidate = t + "."
     return candidate if _summary_line_usable(candidate) else ""
 
+def _title_urgency_score(title: str, is_representative: bool = False) -> int:
+    raw = html.unescape(str(title or ""))
+    if not raw.strip():
+        return 0
+
+    score = 0
+    if URGENT_TITLE_PREFIX_RE.search(raw):
+        score += 6
+
+    cleaned = _clean_title_text(raw)
+    if not cleaned:
+        return score
+
+    marker_hits = {marker for marker in URGENT_TITLE_MARKERS if marker in cleaned}
+    score += len(marker_hits) * 2
+
+    if is_representative and score > 0:
+        score += 1
+
+    return score
+
+def build_priority_title_summary_lines(
+    representative_title: str,
+    articles: List[Dict[str, Any]],
+    max_lines: int = URGENT_TITLE_MAX_LINES,
+) -> List[str]:
+    if int(max_lines) <= 0:
+        return []
+
+    candidates: List[Tuple[int, int, str]] = []
+    seen_keys: set = set()
+    raw_candidates: List[Dict[str, Any]] = [{"title": representative_title, "is_representative": True}]
+    raw_candidates.extend(list(articles or []))
+
+    for idx, article in enumerate(raw_candidates):
+        title = str(article.get("title", "") or "").strip()
+        if not title:
+            continue
+
+        score = _title_urgency_score(
+            title,
+            is_representative=bool(article.get("is_representative")) or idx == 0,
+        )
+        if score <= 0:
+            continue
+
+        line = _title_to_complete_sentence(title)
+        if not line:
+            continue
+
+        key = _summary_line_key(line)
+        if not key or key in seen_keys:
+            continue
+
+        seen_keys.add(key)
+        candidates.append((score, idx, line))
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    return [line for _score, _idx, line in candidates[: int(max_lines)]]
+
 def _normalize_complete_summary_output(lines_or_text: Any, max_lines: int) -> List[str]:
     raw_items: List[str] = []
     if isinstance(lines_or_text, (list, tuple)):
@@ -1973,6 +2076,11 @@ def build_issue_short_summary(
         max_k=6,
         min_k=REVIEW_KEYWORD_MIN_K,
     )
+    priority_title_lines = build_priority_title_summary_lines(
+        representative_title=representative_title,
+        articles=picked_articles,
+        max_lines=min(int(URGENT_TITLE_MAX_LINES), int(target_lines)),
+    )
 
     headline_lines = []
     if int(SUMMARY_SHORT_HEADLINE_LINES) > 0:
@@ -2047,13 +2155,20 @@ def build_issue_short_summary(
                 hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
             )
 
-    lines = _normalize_complete_summary_output(lines, max_lines=target_lines)
+    preferred_opening_lines = priority_title_lines
+    lines = _normalize_complete_summary_output(preferred_opening_lines + lines, max_lines=target_lines)
     if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and title_sentence_fallbacks:
-        lines = _normalize_complete_summary_output(lines + title_sentence_fallbacks, max_lines=target_lines)
+        lines = _normalize_complete_summary_output(
+            preferred_opening_lines + lines + title_sentence_fallbacks,
+            max_lines=target_lines,
+        )
     if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and representative_title:
         rep_sentence = _title_to_complete_sentence(representative_title)
         if rep_sentence:
-            lines = _normalize_complete_summary_output(lines + [rep_sentence], max_lines=target_lines)
+            lines = _normalize_complete_summary_output(
+                preferred_opening_lines + lines + [rep_sentence],
+                max_lines=target_lines,
+            )
 
     return "\n".join(lines).strip()
 

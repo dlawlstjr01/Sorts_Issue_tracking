@@ -502,6 +502,51 @@ SUMMARY_SOURCE_ONLY_EXACT = {
     "오마이뉴스", "노컷뉴스", "데일리안", "프레시안", "머니s", "시사in", "더벨", "블로터",
     "헬로디디", "더팩트", "뉴스엔", "매경이코노미",
 }
+SUMMARY_SOURCE_ONLY_EXACT.update(
+    {
+        "매일경제",
+        "매경",
+        "매경닷컴",
+        "한국경제",
+        "한국경제tv",
+        "서울경제",
+        "아시아경제",
+        "헤럴드경제",
+        "파이낸셜뉴스",
+        "머니투데이",
+        "머니s",
+        "이데일리",
+        "이투데이",
+        "조선일보",
+        "중앙일보",
+        "동아일보",
+        "한겨레",
+        "경향신문",
+        "국민일보",
+        "세계일보",
+        "문화일보",
+        "서울신문",
+        "한국일보",
+        "전자신문",
+        "디지털타임스",
+        "오마이뉴스",
+        "프레시안",
+        "데일리안",
+        "미디어오늘",
+        "뉴스핌",
+        "뉴스엔",
+        "뉴스1",
+        "뉴시스",
+        "연합뉴스",
+        "연합뉴스tv",
+        "채널a",
+        "tv조선",
+        "로이터",
+        "reuters",
+        "ap",
+        "afp",
+    }
+)
 SUMMARY_SOURCE_TOKEN_RE = re.compile(
     r"^(?:[A-Z]{2,10}|뉴스\d+|채널A|TV조선|머니S|시사IN|"
     r"[가-힣A-Za-z0-9]+(?:일보|신문|뉴스|경제|TV|방송|타임즈|타임스|데일리|투데이|저널|미디어|포스트|리포트|코리아|헤럴드|파이낸스))$",
@@ -673,6 +718,41 @@ def clean_html_text(value):
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
+def _fold_summary_source_name(text: str) -> str:
+    s = clean_html_text(text)
+    s = s.strip(" \"'“”‘’()[]{}.,;:!?")
+    s = re.sub(r"\s+", "", s)
+    return s.lower()
+
+def _looks_like_summary_source_name(text: str) -> bool:
+    folded = _fold_summary_source_name(text)
+    if not folded:
+        return False
+    if folded in SUMMARY_SOURCE_ONLY_EXACT:
+        return True
+    plain = clean_html_text(text).strip(" \"'“”‘’()[]{}.,;:!?")
+    if not plain:
+        return False
+    return bool(SUMMARY_SOURCE_TOKEN_RE.fullmatch(plain))
+
+def _strip_summary_source_tail(text: str) -> str:
+    s = clean_html_text(text)
+    if not s:
+        return ""
+
+    prev = None
+    while s and s != prev:
+        prev = s
+        match = re.search(r"\s*(?:[-|/·•,]\s*)([^-|/·•,]+?)\s*$", s)
+        if not match:
+            break
+        tail = match.group(1).strip(" \"'“”‘’()[]{}")
+        if not _looks_like_summary_source_name(tail):
+            break
+        s = s[: match.start()].rstrip(" -:;,/|")
+
+    return re.sub(r"\s+", " ", s).strip()
+
 def clean_summary_text(value):
     if not value:
         return ""
@@ -741,6 +821,7 @@ def _normalize_summary_candidate_text(text: str) -> str:
     s = re.sub(r"^[\-\*\u2022\u25E6\u00B7]+\s*", "", s)
     s = SUMMARY_PREFIX_NOISE_RE.sub("", s).strip()
     s = SUMMARY_REPORTER_TAIL_RE.sub("", s).strip()
+    s = _strip_summary_source_tail(s)
     s = re.sub(r"^(?:속보|단독)\s+", "", s).strip()
     return re.sub(r"\s+", " ", s).strip(" -:;,/|")
 
@@ -788,6 +869,27 @@ def _summary_content_tokens(text: str) -> List[str]:
             continue
         out.append(t)
     return out
+
+def _is_source_like_token(token: str) -> bool:
+    t = re.sub(r"[^0-9A-Za-z가-힣]+", "", str(token or "").strip())
+    if not t:
+        return False
+    return _looks_like_summary_source_name(t)
+
+def _is_source_only_summary_line(text: str) -> bool:
+    probe = _summary_probe_text(text)
+    if not probe:
+        return True
+    if SUMMARY_SOURCE_LINE_RE.match(probe):
+        probe = SUMMARY_SOURCE_LINE_RE.sub("", probe).strip()
+        if not probe:
+            return True
+    if _looks_like_summary_source_name(probe):
+        return True
+    toks = TOKEN_RE.findall(probe)
+    if not toks or len(toks) > 3:
+        return False
+    return all(_is_source_like_token(tok) for tok in toks)
 
 def _summary_line_usable(text: str, min_chars: int = SUMMARY_SHORT_MIN_CHARS) -> bool:
     s = _normalize_summary_candidate_text(text)
@@ -1694,6 +1796,7 @@ def _compact_title_summary(title: str, max_chars: int = SUMMARY_SHORT_MAX_CHARS)
     elif parts:
         t = parts[0]
     t = re.sub(r"\s+", " ", t).strip(" -:;,/")
+    t = _strip_summary_source_tail(t)
     if _is_source_only_summary_line(t):
         return ""
     return _truncate_with_ellipsis(t, int(max_chars))
@@ -1702,6 +1805,7 @@ def _title_to_complete_sentence(title: str) -> str:
     t = _clean_title_text(title)
     t = re.sub(r"\s*(?:\.\.\.|…)\s*", ", ", t).strip()
     t = re.sub(r"\s+", " ", t).strip(" -:;,/")
+    t = _strip_summary_source_tail(t)
     if not t:
         return ""
     if _is_source_only_summary_line(t):
@@ -1805,6 +1909,9 @@ def _normalize_complete_summary_output(lines_or_text: Any, max_lines: int) -> Li
         for block in re.split(r"\n+", text):
             s = str(block or "").lstrip("- ").strip()
             if not s:
+                continue
+            s = _strip_summary_source_tail(s)
+            if not s or _looks_like_summary_source_name(s):
                 continue
             if "..." in s or "…" in s:
                 continue

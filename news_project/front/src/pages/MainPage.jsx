@@ -68,6 +68,45 @@ const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 24;
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
+const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
+const URGENT_TITLE_MARKERS = [
+  "속보",
+  "단독",
+  "긴급",
+  "특보",
+  "체포",
+  "구속",
+  "기소",
+  "사퇴",
+  "파면",
+  "탄핵",
+  "공습",
+  "공격",
+  "폭발",
+  "발사",
+  "침공",
+  "봉쇄",
+  "철수",
+  "휴전",
+  "종전",
+  "사망",
+  "실종",
+  "화재",
+  "지진",
+  "홍수",
+  "폭우",
+  "태풍",
+  "산불",
+  "참사",
+  "해킹",
+  "셧다운",
+  "폐쇄",
+  "중단",
+  "급등",
+  "급락",
+  "폭등",
+  "폭락",
+];
 
 const CATEGORY_ALIAS_MAP = {
   all: "all",
@@ -96,6 +135,48 @@ const CATEGORY_ALIAS_MAP = {
 const safeString = (v) => String(v || "");
 const normalizeText = (v) => safeString(v).toLowerCase();
 const getArticleKey = (v) => safeString(v).trim();
+
+function getTitleUrgencyScore(value) {
+  const title = safeString(value).trim();
+  if (!title) return 0;
+
+  let score = 0;
+  const normalized = normalizeText(title);
+  if (URGENT_TITLE_PREFIX_RE.test(title)) score += 6;
+
+  URGENT_TITLE_MARKERS.forEach((marker) => {
+    if (normalized.includes(marker.toLowerCase())) score += 2;
+  });
+
+  return score;
+}
+
+function pickPreferredIssueTitle(primaryTitle = "", candidateTitles = []) {
+  const base = safeString(primaryTitle).trim();
+  let bestTitle = base;
+  let bestScore = getTitleUrgencyScore(base);
+
+  candidateTitles.forEach((candidate, idx) => {
+    const title = safeString(candidate).trim();
+    if (!title) return;
+
+    const score = getTitleUrgencyScore(title);
+    if (!bestTitle || score > bestScore) {
+      bestTitle = title;
+      bestScore = score;
+      return;
+    }
+
+    if (score === bestScore && score > 0) {
+      const currentLen = safeString(bestTitle).trim().length;
+      if (!currentLen || title.length < currentLen || (idx === 0 && title.length === currentLen)) {
+        bestTitle = title;
+      }
+    }
+  });
+
+  return bestTitle || "(제목 없음)";
+}
 
 function loadMainPageState() {
   if (typeof window === "undefined") return null;
@@ -204,13 +285,17 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const representative = getRepresentativeArticle(issueSummary);
   const category = getIssueCategory(issueSummary, representative) || "society";
+  const preferredTitle = pickPreferredIssueTitle(
+    representative?.title || issueSummary.title || "",
+    related.map((article) => article?.title || "")
+  );
 
   return {
     id: safeString(issueSummary.id ?? issueSummary.article_id ?? ""),
     issueSummaryId: safeString(issueSummary.id ?? ""),
     articleId: safeString(issueSummary.article_id || representative?.id || representative?.article_id || ""),
     category,
-    title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
+    title: preferredTitle || "(이슈 제목 없음)",
     relatedCount: Number(issueSummary.related_count || related.length || 0),
     related_articles: related,
     shortSummary: issueSummary.short_summary || "",
@@ -230,6 +315,10 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
   const articleId = safeString(
     issueSummary.article_id || representative?.id || representative?.article_id || issueSummary.id || ""
   );
+  const preferredTitle = pickPreferredIssueTitle(
+    representative?.title || issueSummary.title || "",
+    related.map((relatedArticle) => relatedArticle?.title || "")
+  );
 
   return {
     id: articleId,
@@ -237,7 +326,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     articleId,
     category,
     badge: `묶음 ${Number(issueSummary.related_count || related.length || 0)}`,
-    title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
+    title: preferredTitle || "(이슈 제목 없음)",
     thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || "", getFallbackThumb(category)),
     summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
     createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
@@ -246,7 +335,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
       id: articleId,
       article_id: articleId,
       issueSummaryId: safeString(issueSummary.id || ""),
-      title: representative?.title || issueSummary.title || "(이슈 제목 없음)",
+      title: preferredTitle || "(이슈 제목 없음)",
       thumbnail: representative?.thumbnail || "",
       url: representative?.url || issueSummary.url || "",
       content: representative?.content || "",
@@ -1148,8 +1237,14 @@ export default function MainPage() {
                   : article.thumbnailUrl;
 
                 const currentTitle = isSelected
-                  ? activeIssueArticle?.title || currentIssue?.title || article.title
-                  : currentIssue?.title || article.title;
+                  ? pickPreferredIssueTitle(
+                      activeIssueArticle?.title || currentIssue?.title || article.title,
+                      currentIssueGroup.map((item) => item?.title || "")
+                    )
+                  : pickPreferredIssueTitle(
+                      currentIssue?.title || article.title,
+                      currentIssueGroup.map((item) => item?.title || "")
+                    );
 
                 return (
                   <section

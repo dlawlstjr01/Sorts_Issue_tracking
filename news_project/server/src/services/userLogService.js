@@ -124,7 +124,11 @@ exports.getRecentSeenArticles = async ({ userId, limit = 20 }) => {
       a.category,
       a.url,
       a.published_at,
-      recent.last_viewed_at
+      recent.last_viewed_at,
+      s.short_summary,
+      s.ultra_short,
+      s.keywords,
+      s.id AS issue_summary_id
     FROM (
       SELECT
         article_id,
@@ -132,11 +136,20 @@ exports.getRecentSeenArticles = async ({ userId, limit = 20 }) => {
       FROM user_log
       WHERE user_id = ?
       GROUP BY article_id
+      ORDER BY last_viewed_at DESC
+      LIMIT ?
     ) recent
     INNER JOIN articles a
       ON a.id = recent.article_id
+    LEFT JOIN issue_summaries s
+      ON s.id = (
+        SELECT s2.id
+        FROM issue_summaries s2
+        WHERE s2.article_id = a.id
+        ORDER BY s2.created_at DESC, s2.id DESC
+        LIMIT 1
+      )
     ORDER BY recent.last_viewed_at DESC
-    LIMIT ?
     `,
     [uid, lim]
   );

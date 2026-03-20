@@ -43,6 +43,39 @@ export default defineConfig({
   server: {
     host: "0.0.0.0",
     allowedHosts: true,
-    proxy: Object.fromEntries(PROXY_PATHS.map((path) => [path, createProxyOptions()])),
+    proxy: {
+      "/auth": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/news": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/log": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/reco": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/tracking": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/issue-archives": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/user-log": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+      "/search": {
+        target: "http://127.0.0.1:5000",
+        changeOrigin: true,
+      },
+    },
   },
 });

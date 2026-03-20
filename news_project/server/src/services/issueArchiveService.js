@@ -5,15 +5,20 @@ function extractUserId(req) {
     return (
         req?.user?.id ||
         req?.user?.user_id ||
+        req?.user?.userId ||
         req?.session?.user?.id ||
+        req?.session?.user?.user_id ||
+        req?.session?.user?.userId ||
         req?.session?.passport?.user?.id ||
+        req?.session?.passport?.user?.user_id ||
+        req?.session?.passport?.user?.userId ||
         req?.session?.passport?.user ||
         null
     );
 }
 
 async function saveIssueArchive(req, issueSummaryId) {
-    const userId = req.user?.userId;
+    const userId = extractUserId(req);
 
     if (!userId) {
         const err = new Error("로그인이 필요합니다.");
@@ -23,11 +28,11 @@ async function saveIssueArchive(req, issueSummaryId) {
 
     const [existsRows] = await db.query(
         `
-    SELECT id
-    FROM issue_archives
-    WHERE user_id = ? AND issue_summary_id = ?
-    LIMIT 1
-    `,
+        SELECT id
+        FROM issue_archives
+        WHERE user_id = ? AND issue_summary_id = ?
+        LIMIT 1
+        `,
         [userId, issueSummaryId]
     );
 
@@ -42,9 +47,9 @@ async function saveIssueArchive(req, issueSummaryId) {
 
     await db.query(
         `
-    INSERT INTO issue_archives (user_id, issue_summary_id, saved_at)
-    VALUES (?, ?, NOW())
-    `,
+        INSERT INTO issue_archives (user_id, issue_summary_id, saved_at)
+        VALUES (?, ?, NOW())
+        `,
         [userId, issueSummaryId]
     );
 
@@ -57,7 +62,7 @@ async function saveIssueArchive(req, issueSummaryId) {
 }
 
 async function removeIssueArchive(req, issueSummaryId) {
-    const userId = req.user?.userId;
+    const userId = extractUserId(req);
 
     if (!userId) {
         const err = new Error("로그인이 필요합니다.");
@@ -67,9 +72,9 @@ async function removeIssueArchive(req, issueSummaryId) {
 
     await db.query(
         `
-    DELETE FROM issue_archives
-    WHERE user_id = ? AND issue_summary_id = ?
-    `,
+        DELETE FROM issue_archives
+        WHERE user_id = ? AND issue_summary_id = ?
+        `,
         [userId, issueSummaryId]
     );
 
@@ -81,7 +86,7 @@ async function removeIssueArchive(req, issueSummaryId) {
 }
 
 async function getMyArchiveKeys(req) {
-    const userId = req.user?.userId;
+    const userId = extractUserId(req);
 
     if (!userId) {
         const err = new Error("로그인이 필요합니다.");
@@ -91,11 +96,11 @@ async function getMyArchiveKeys(req) {
 
     const [rows] = await db.query(
         `
-    SELECT issue_summary_id
-    FROM issue_archives
-    WHERE user_id = ?
-    ORDER BY saved_at DESC
-    `,
+        SELECT issue_summary_id
+        FROM issue_archives
+        WHERE user_id = ?
+        ORDER BY saved_at DESC
+        `,
         [userId]
     );
 
@@ -103,7 +108,7 @@ async function getMyArchiveKeys(req) {
 }
 
 async function getMyArchivedIssues(req) {
-    const userId = req.user?.userId;
+    const userId = extractUserId(req);
 
     if (!userId) {
         const err = new Error("로그인이 필요합니다.");
@@ -113,29 +118,37 @@ async function getMyArchivedIssues(req) {
 
     const [rows] = await db.query(
         `
-    SELECT
-      ia.id AS archive_id,
-      ia.saved_at,
-      ia.issue_summary_id,
-      s.id,
-      s.article_id,
-      s.short_summary,
-      s.ultra_short,
-      s.related_count,
-      a.title,
-      a.content,
-      a.url,
-      a.published_at,
-      a.category,
-      s.created_at
-    FROM issue_archives ia
-    INNER JOIN issue_summaries s
-      ON ia.issue_summary_id = s.id
-    LEFT JOIN articles a
-      ON s.article_id = a.id
-    WHERE ia.user_id = ?
-    ORDER BY ia.saved_at DESC
-    `,
+        SELECT
+          ia.id AS archive_id,
+          ia.saved_at,
+          ia.issue_summary_id,
+
+          s.id AS issue_summary_pk,
+          s.article_id,
+          s.short_summary,
+          s.ultra_short,
+          s.related_count,
+          s.keywords,
+          s.background,
+          s.article_ids_json,
+          s.created_at AS issue_created_at,
+
+          a.id AS article_pk,
+          a.title,
+          a.content,
+          a.url,
+          a.thumbnail,
+          a.category,
+          a.published_at,
+          a.created_at AS article_created_at
+        FROM issue_archives ia
+        INNER JOIN issue_summaries s
+          ON ia.issue_summary_id = s.id
+        LEFT JOIN articles a
+          ON s.article_id = a.id
+        WHERE ia.user_id = ?
+        ORDER BY ia.saved_at DESC
+        `,
         [userId]
     );
 

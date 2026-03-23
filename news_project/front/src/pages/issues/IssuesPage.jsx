@@ -201,6 +201,9 @@ function getVisiblePages(currentPage, totalPages, maxVisible = 5) {
 export default function IssuesPage() {
   const navigate = useNavigate();
 
+  const [query, setQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [filter, setFilter] = useState("전체");
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -310,6 +313,10 @@ export default function IssuesPage() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+  const submitSearch = (event) => {
+    event?.preventDefault?.();
+    setQuery(searchInput.trim());
+  };
 
   const selectedReportIssue = useMemo(
     () => issues.find((item) => String(item.id) === String(reportForm.issueId)) || null,
@@ -410,7 +417,7 @@ export default function IssuesPage() {
 
     setFilter("전체");
     setQuery("");
-    setCurrentPage(1);
+    setSearchInput("");
     closeIssueModal();
     setQuickToast(`${newIssue.id} 이슈가 등록되었습니다.`);
   };
@@ -495,38 +502,18 @@ export default function IssuesPage() {
       </div>
 
       <div className="issues-toolbar">
-        <div className="issues-search">
+        <form className="issues-search" onSubmit={submitSearch}>
           <input
             className="issues-input"
             type="text"
-            placeholder="이슈 제목, 요약, ID, 언론사, 키워드로 검색"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            placeholder="이슈 제목, 요약, ID로 검색"
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
           />
-        </div>
-
-        <div className="issues-toolbar-actions">
-          <button type="button" className="issues-btn secondary" onClick={openReportModal}>
-            리포트 생성
+          <button className="issues-search-btn" type="submit">
+            검색
           </button>
-          <button type="button" className="issues-btn primary" onClick={openIssueModal}>
-            신규 이슈 등록
-          </button>
-        </div>
-      </div>
-
-      <div className="issues-filter-row">
-        {FILTERS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={`issues-filter-chip ${filter === item ? "active" : ""}`}
-            onClick={() => setFilter(item)}
-          >
-            {item}
-            <span className="issues-filter-count">{getCategoryCount(issues, item)}</span>
-          </button>
-        ))}
+        </form>
       </div>
 
       <div className="issues-grid">

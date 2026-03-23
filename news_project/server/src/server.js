@@ -55,4 +55,19 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
+
+  setTimeout(() => {
+    void warmIssuesCache({
+      limit: 12,
+      include_related: 1,
+      include_article_content: 0,
+      refresh_summary: 0,
+    });
+    void warmIssuesCache({
+      limit: 20,
+      include_related: 0,
+      include_article_content: 0,
+      refresh_summary: 0,
+    });
+  }, 1500);
 });

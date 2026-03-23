@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import "../CSS/main.css";
@@ -90,12 +90,15 @@ const THUMB = {
 };
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
-const MAIN_PAGE_ISSUE_LIMIT = 24;
-const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT * 2, 50);
+const MAIN_PAGE_ISSUE_LIMIT = 12;
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = MAIN_PAGE_ISSUE_LIMIT;
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
+const MAIN_PAGE_DATA_CACHE_KEY = "mainPageIssueData:v1";
+const MAIN_PAGE_DATA_CACHE_TTL = 1000 * 60 * 3;
 const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
 const ISSUE_TITLE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
+const SUMMARY_LINE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
 const URGENT_TITLE_MARKERS = [
   "속보",
   "단독",
@@ -176,6 +179,9 @@ const ISSUE_DEDUPE_STOPWORDS = new Set([
   "2보",
   "3보",
 ]);
+
+const SUMMARY_SOURCE_TAIL_RE =
+  /\s*[-|/]\s*(?:연합뉴스|뉴시스|뉴스1|매일경제|한국경제|조선일보|중앙일보|동아일보|한겨레|경향신문|세계일보|국민일보|서울신문|파이낸셜뉴스|머니투데이|이데일리|아시아경제|오마이뉴스)\.?$/i;
 
 function getTitleUrgencyScore(value) {
   const title = safeString(value).trim();
@@ -340,6 +346,108 @@ function loadMainPageState() {
   }
 }
 
+function getStartOfLocalDay(value = Date.now()) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function getStartOfLocalWeek(value = Date.now()) {
+  const date = new Date(getStartOfLocalDay(value));
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  date.setDate(date.getDate() - diffToMonday);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function getIssueWindowFlags(value, nowTs = Date.now()) {
+  const ts = Number(value) || 0;
+  if (!Number.isFinite(ts) || ts <= 0) {
+    return { isDaily: false, isWeekly: false, isActive: false };
+  }
+
+  const startOfToday = getStartOfLocalDay(nowTs);
+  const startOfWeekly = getStartOfLocalWeek(nowTs);
+  const isDaily = ts >= startOfToday;
+  const isWeekly = ts >= startOfWeekly && ts < startOfToday;
+  return { isDaily, isWeekly, isActive: isDaily || isWeekly };
+}
+
+function pruneMainPageWindowData(nextState, nowTs = Date.now()) {
+  const latestIssues = Array.isArray(nextState?.latestIssues) ? nextState.latestIssues : [];
+  const articles = Array.isArray(nextState?.articles) ? nextState.articles : [];
+
+  const filteredLatestIssues = latestIssues.filter((issue) =>
+    getIssueWindowFlags(issue?.createdAt, nowTs).isActive
+  );
+  const filteredArticles = articles.filter((article) =>
+    getIssueWindowFlags(article?.createdAt, nowTs).isActive
+  );
+
+  return {
+    latestIssues: filteredLatestIssues,
+    articles: filteredArticles,
+  };
+}
+
+function loadMainPageDataCache() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = sessionStorage.getItem(MAIN_PAGE_DATA_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const latestIssues = Array.isArray(parsed?.latestIssues) ? parsed.latestIssues : [];
+    const articles = Array.isArray(parsed?.articles) ? parsed.articles : [];
+    const ts = Number(parsed?.ts) || 0;
+    const pruned = pruneMainPageWindowData({ latestIssues, articles }, Date.now());
+
+    if (!pruned.latestIssues.length || !pruned.articles.length || !ts) return null;
+
+    return { latestIssues: pruned.latestIssues, articles: pruned.articles, ts };
+  } catch (e) {
+    console.error("failed to load main page data cache:", e);
+    return null;
+  }
+}
+
+function saveMainPageDataCache(nextState) {
+  if (typeof window === "undefined") return;
+
+  try {
+    const pruned = pruneMainPageWindowData(nextState, Date.now());
+    sessionStorage.setItem(
+      MAIN_PAGE_DATA_CACHE_KEY,
+      JSON.stringify({
+        latestIssues: pruned.latestIssues,
+        articles: pruned.articles,
+        ts: Date.now(),
+      })
+    );
+  } catch (e) {
+    console.error("failed to save main page data cache:", e);
+  }
+}
+
+function scheduleIdleTask(task, timeout = 800) {
+  if (typeof window === "undefined") return null;
+  if (typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback(task, { timeout });
+  }
+  return window.setTimeout(task, timeout);
+}
+
+function cancelIdleTask(taskId) {
+  if (taskId == null || typeof window === "undefined") return;
+  if (typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(taskId);
+    return;
+  }
+  window.clearTimeout(taskId);
+}
+
 function saveMainPageState(nextState) {
   if (typeof window === "undefined") return;
   try {
@@ -361,6 +469,95 @@ function getFallbackThumb(category) {
   return `${THUMB[category || "society"] || THUMB.society}${UQ}`;
 }
 
+function normalizeSummaryLineForCompare(value) {
+  return safeString(value)
+    .replace(/^\s*-\s*/, "")
+    .replace(SUMMARY_SOURCE_TAIL_RE, " ")
+    .replace(/\(([A-Za-z0-9\s,."'`:;!?/-]{2,160})\)/g, " ")
+    .replace(/[“”"'`‘’]/g, " ")
+    .replace(/[^\u3131-\u318E\uAC00-\uD7A3A-Za-z0-9\u4E00-\u9FFF\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getSummaryLineTokens(value) {
+  return (normalizeSummaryLineForCompare(value).match(SUMMARY_LINE_TOKEN_RE) || []).filter(
+    (token) => token.length >= 2
+  );
+}
+
+function getSummaryLineScore(value) {
+  const line = safeString(value).replace(/^\s*-\s*/, "").trim();
+  if (!line) return 0;
+
+  const normalized = normalizeSummaryLineForCompare(line);
+  const tokenCount = (normalized.match(SUMMARY_LINE_TOKEN_RE) || []).length;
+  let score = tokenCount * 10 + line.length;
+
+  if (/[0-9]/.test(line)) score += 4;
+  if (/[A-Za-z]/.test(line)) score += 4;
+  if (/[“”"'`‘’]/.test(line)) score += 2;
+
+  return score;
+}
+
+function isDuplicateSummaryLine(current, existing) {
+  const currentLine = normalizeSummaryLineForCompare(current);
+  const existingLine = normalizeSummaryLineForCompare(existing);
+  if (!currentLine || !existingLine) return false;
+
+  if (currentLine === existingLine) return true;
+  if (
+    currentLine.length >= 18 &&
+    existingLine.length >= 18 &&
+    (currentLine.includes(existingLine) || existingLine.includes(currentLine))
+  ) {
+    return true;
+  }
+
+  const currentTokens = new Set(getSummaryLineTokens(currentLine));
+  const existingTokens = new Set(getSummaryLineTokens(existingLine));
+  if (!currentTokens.size || !existingTokens.size) return false;
+
+  let sharedCount = 0;
+  currentTokens.forEach((token) => {
+    if (existingTokens.has(token)) sharedCount += 1;
+  });
+
+  const smallerSize = Math.min(currentTokens.size, existingTokens.size);
+  const combinedSize = new Set([...currentTokens, ...existingTokens]).size;
+  const overlap = sharedCount / smallerSize;
+  const jaccard = sharedCount / combinedSize;
+
+  return (
+    (sharedCount >= 5 && overlap >= 0.8) ||
+    (sharedCount >= 6 && overlap >= 0.72) ||
+    (sharedCount >= 6 && jaccard >= 0.62)
+  );
+}
+
+function dedupeSummaryLines(lines = []) {
+  const deduped = [];
+
+  lines.forEach((line) => {
+    const nextLine = safeString(line).trim();
+    if (!nextLine) return;
+
+    const existingIndex = deduped.findIndex((existing) => isDuplicateSummaryLine(nextLine, existing));
+    if (existingIndex < 0) {
+      deduped.push(nextLine);
+      return;
+    }
+
+    if (getSummaryLineScore(nextLine) > getSummaryLineScore(deduped[existingIndex])) {
+      deduped[existingIndex] = nextLine;
+    }
+  });
+
+  return deduped;
+}
+
 function splitBulletSummary(value) {
   const raw = safeString(value).replace(/\r\n?/g, "\n").trim();
   if (!raw) return [];
@@ -376,9 +573,11 @@ function splitBulletSummary(value) {
     .map((line) => safeString(line).trim())
     .filter(Boolean);
 
-  return hasBullet
+  const normalizedChunks = hasBullet
     ? chunks.map((line) => line.replace(/^\s*-\s*/, "").trim()).filter(Boolean).map((line) => `- ${line}`)
     : chunks;
+
+  return dedupeSummaryLines(normalizedChunks);
 }
 
 function normalizeTitleForDedupe(value) {
@@ -505,6 +704,7 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const representative = getRepresentativeArticle(issueSummary);
   const category = getIssueCategory(issueSummary, representative) || "society";
+  const issueTime = getIssueSortTime(issueSummary) || (issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now());
   const preferredTitle = pickPreferredIssueTitle(
     representative?.title || issueSummary.title || "",
     related.map((article) => article?.title || "")
@@ -523,7 +723,7 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
     related_articles: related,
     shortSummary: issueSummary.short_summary || "",
     ultraShort: issueSummary.ultra_short || "",
-    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
+    createdAt: issueTime,
     representativeUrl: representative?.url || issueSummary.url || "",
     representativeThumbnail: representative?.thumbnail || "",
     representativeContent: representative?.content || "",
@@ -535,6 +735,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
   const representative = getRepresentativeArticle(issueSummary);
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const category = getIssueCategory(issueSummary, representative) || "society";
+  const issueTime = getIssueSortTime(issueSummary) || (issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now());
   const representativeArticleId = safeString(
     issueSummary.article_id || representative?.id || representative?.article_id || ""
   );
@@ -553,7 +754,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     title: preferredTitle || "(이슈 제목 없음)",
     thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || "", getFallbackThumb(category)),
     summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
-    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
+    createdAt: issueTime,
     raw: {
       ...issueSummary,
       issueSummaryId: safeString(issueSummary.id || ""),
@@ -848,25 +1049,24 @@ export default function MainPage() {
   const location = useLocation();
 
   const initialSavedStateRef = useRef(loadMainPageState());
+  const initialIssueDataRef = useRef(loadMainPageDataCache());
   const allowPersistRef = useRef(false);
   const restoredRef = useRef(false);
   const centerScrollRef = useRef(null);
   const articleListRef = useRef(null);
   const recoListRef = useRef(null);
   const contrastListRef = useRef(null);
-  const sectionRefs = useRef({});
-
   const [userId, setUserId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(initialSavedStateRef.current?.selectedCategory || "all");
   const [articleListMode, setArticleListMode] = useState(initialSavedStateRef.current?.articleListMode || "daily");
-  const [latestIssues, setLatestIssues] = useState([]);
-  const [articles, setArticles] = useState([]);
+  const [latestIssues, setLatestIssues] = useState(() => initialIssueDataRef.current?.latestIssues || []);
+  const [articles, setArticles] = useState(() => initialIssueDataRef.current?.articles || []);
   const [selectedId, setSelectedId] = useState(initialSavedStateRef.current?.selectedId || null);
   const [activeIssueArticleId, setActiveIssueArticleId] = useState(initialSavedStateRef.current?.activeIssueArticleId || null);
   const [recoItems, setRecoItems] = useState([]);
   const [recoLoading, setRecoLoading] = useState(false);
   const [recoReady, setRecoReady] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => !initialIssueDataRef.current);
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
@@ -874,11 +1074,12 @@ export default function MainPage() {
   const [archiveKeys, setArchiveKeys] = useState(new Set());
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [glossaryList, setGlossaryList] = useState([]);
+  const deferredGlossaryList = React.useDeferredValue(glossaryList);
   const [articleListScrollCue, setArticleListScrollCue] = useState({ showUp: false, showDown: false });
   const [recoListScrollCue, setRecoListScrollCue] = useState({ showUp: false, showDown: false });
   const [contrastListScrollCue, setContrastListScrollCue] = useState({ showUp: false, showDown: false });
 
-  const displayedArticles = useMemo(() => {
+  const articleBuckets = useMemo(() => {
     const filtered =
       selectedCategory === "all"
         ? articles
@@ -888,17 +1089,23 @@ export default function MainPage() {
 
     const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    const baseList =
-      articleListMode !== "weekly"
-        ? sorted
-        : (() => {
-          const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-          const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-          return weekly.length ? weekly : sorted;
-        })();
+    const daily = sorted.filter((article) => getIssueWindowFlags(article?.createdAt).isDaily);
+    const weekly = sorted.filter((article) => getIssueWindowFlags(article?.createdAt).isWeekly);
 
-    return dedupeDisplayArticles(baseList);
-  }, [articles, selectedCategory, articleListMode]);
+    return {
+      daily: dedupeDisplayArticles(daily),
+      weekly: dedupeDisplayArticles(weekly),
+    };
+  }, [articles, selectedCategory]);
+
+  const displayedArticles = useMemo(
+    () => (articleListMode === "weekly" ? articleBuckets.weekly : articleBuckets.daily),
+    [articleBuckets.daily, articleBuckets.weekly, articleListMode]
+  );
+  const emptyArticleMessage =
+    articleListMode === "weekly"
+      ? "최근 7일 이슈가 없습니다."
+      : "오늘 등록된 이슈가 없습니다.";
 
   const latestIssueByArticleId = useMemo(
     () => new Map(latestIssues.map((issue) => [safeString(issue.articleId || issue.representativeArticleId || issue.id), issue])),
@@ -954,15 +1161,6 @@ export default function MainPage() {
       top: 0,
       behavior: "smooth",
     });
-
-    const firstArticle = displayedArticles[0];
-    if (firstArticle) {
-      const firstId = safeString(firstArticle.representativeArticleId || firstArticle.articleId || firstArticle.id);
-      setSelectedId(firstId);
-      setActiveIssueArticleId(
-        safeString(latestIssueByArticleId.get(firstId)?.articleId || firstId)
-      );
-    }
   };
 
   useEffect(() => {
@@ -1032,15 +1230,26 @@ export default function MainPage() {
   };
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    const run = async () => {
       try {
         const res = await axios.get("/auth/me", { withCredentials: true });
-        setUserId(res.data?.id ?? null);
+        if (!cancelled) setUserId(res.data?.id ?? null);
       } catch (e) {
         if (e?.response?.status !== 401) console.error("[auth/me] failed:", e);
-        setUserId(null);
+        if (!cancelled) setUserId(null);
       }
-    })();
+    };
+
+    const taskId = scheduleIdleTask(() => {
+      void run();
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      cancelIdleTask(taskId);
+    };
   }, []);
 
   useEffect(() => {
@@ -1084,30 +1293,78 @@ export default function MainPage() {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const cachedData = initialIssueDataRef.current;
+    const hasCachedData = Boolean(cachedData?.latestIssues?.length && cachedData?.articles?.length);
+    const isFreshCache = hasCachedData && Date.now() - (cachedData?.ts || 0) < MAIN_PAGE_DATA_CACHE_TTL;
+
+    const loadLatestIssues = async ({ silent = false } = {}) => {
       try {
-        setLoading(true);
-        setError("");
+        if (!silent) {
+          setLoading(true);
+          setError("");
+        }
 
         const res = await axios.get("/tracking/issues", {
-          params: { limit: MAIN_PAGE_ISSUE_FETCH_LIMIT, include_article_content: 0 },
+          params: {
+            limit: MAIN_PAGE_ISSUE_FETCH_LIMIT,
+            include_related: 1,
+            include_article_content: 0,
+            refresh_summary: 0,
+          },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
         const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
         const deduped = dedupeIssueSummaries(grouped, MAIN_PAGE_ISSUE_LIMIT);
+        const nextLatestIssues = deduped.map(mapIssueSummaryToLatestUI);
+        const nextArticles = deduped.map(mapIssueSummaryToMainArticle);
+        const prunedWindowData = pruneMainPageWindowData({
+          latestIssues: nextLatestIssues,
+          articles: nextArticles,
+        });
 
-        setLatestIssues(deduped.map(mapIssueSummaryToLatestUI));
-        setArticles(deduped.map(mapIssueSummaryToMainArticle));
+        if (cancelled) return;
+
+        startTransition(() => {
+          setLatestIssues(prunedWindowData.latestIssues);
+          setArticles(prunedWindowData.articles);
+        });
+        setError("");
+        saveMainPageDataCache(prunedWindowData);
       } catch (e) {
         console.error("latest issues load failed:", e);
-        setLatestIssues([]);
-        setArticles([]);
-        setError("이슈를 불러오지 못했습니다.");
+        if (cancelled) return;
+
+        if (!hasCachedData) {
+          setLatestIssues([]);
+          setArticles([]);
+          setError("이슈를 불러오지 못했습니다.");
+        }
       } finally {
-        setLoading(false);
+        if (!silent && !cancelled) {
+          setLoading(false);
+        }
       }
-    })();
+    };
+
+    let taskId = null;
+
+    if (hasCachedData) {
+      setLoading(false);
+      if (!isFreshCache) {
+        taskId = scheduleIdleTask(() => {
+          void loadLatestIssues({ silent: true });
+        }, 900);
+      }
+    } else {
+      void loadLatestIssues();
+    }
+
+    return () => {
+      cancelled = true;
+      cancelIdleTask(taskId);
+    };
   }, []);
 
   useEffect(() => {
@@ -1186,14 +1443,30 @@ export default function MainPage() {
     if (loading || !articles.length || restoredRef.current) return;
 
     const saved = initialSavedStateRef.current;
-    const hasSelectedInCurrentList = displayedArticles.some(
+    const savedMode = safeString(saved?.articleListMode || articleListMode);
+    const nextMode =
+      savedMode === "weekly"
+        ? articleBuckets.weekly.length > 0
+          ? "weekly"
+          : articleBuckets.daily.length > 0
+            ? "daily"
+            : "weekly"
+        : articleBuckets.daily.length > 0
+          ? "daily"
+          : articleBuckets.weekly.length > 0
+            ? "weekly"
+            : "daily";
+
+    const visibleArticles = nextMode === "weekly" ? articleBuckets.weekly : articleBuckets.daily;
+    const hasSelectedInCurrentList = visibleArticles.some(
       (a) =>
         safeString(a.representativeArticleId || a.articleId || a.id) === safeString(saved?.selectedId)
     );
     const nextSelectedId = hasSelectedInCurrentList
       ? safeString(saved?.selectedId)
-      : safeString(displayedArticles[0]?.representativeArticleId || displayedArticles[0]?.articleId || displayedArticles[0]?.id);
+      : safeString(visibleArticles[0]?.representativeArticleId || visibleArticles[0]?.articleId || visibleArticles[0]?.id);
 
+    setArticleListMode(nextMode);
     setSelectedId(nextSelectedId || null);
 
     const matchedIssue = latestIssueByArticleId.get(nextSelectedId);
@@ -1211,18 +1484,12 @@ export default function MainPage() {
     requestAnimationFrame(() => {
       const container = centerScrollRef.current;
       if (!container) return;
-
-      const targetEl = sectionRefs.current[nextSelectedId];
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: "auto", block: "start" });
-      } else {
-        container.scrollTop = 0;
-      }
+      container.scrollTop = 0;
     });
 
     restoredRef.current = true;
     allowPersistRef.current = true;
-  }, [loading, articles, displayedArticles, latestIssueByArticleId, issueGroupByArticleId]);
+  }, [loading, articles, articleBuckets.daily, articleBuckets.weekly, articleListMode, latestIssueByArticleId, issueGroupByArticleId]);
 
   useEffect(() => {
     const container = centerScrollRef.current;
@@ -1259,21 +1526,32 @@ export default function MainPage() {
       }
     };
 
-    loadGlossary();
+    const taskId = scheduleIdleTask(() => {
+      void loadGlossary();
+    }, 1200);
 
     return () => {
       cancelled = true;
+      cancelIdleTask(taskId);
     };
   }, []);
 
   const selectedArticle = useMemo(
-    () =>
-      displayedArticles.find(
-        (a) => safeString(a.representativeArticleId || a.articleId || a.id) === safeString(selectedId)
-      ) ||
-      displayedArticles[0] ||
-      null,
-    [displayedArticles, selectedId]
+    () => {
+      const selectedKey = safeString(selectedId);
+      if (selectedKey) {
+        return (
+          articles.find(
+            (a) => safeString(a.representativeArticleId || a.articleId || a.id) === selectedKey
+          ) ||
+          displayedArticles[0] ||
+          null
+        );
+      }
+
+      return displayedArticles[0] || null;
+    },
+    [articles, displayedArticles, selectedId]
   );
 
   const selectedIssue = useMemo(
@@ -1350,9 +1628,7 @@ export default function MainPage() {
 
     setSelectedId(nextId);
     setActiveIssueArticleId(safeString(latestIssueByArticleId.get(nextId)?.articleId || nextId));
-
-    const targetEl = sectionRefs.current[nextId];
-    if (targetEl) targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    centerScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const openOriginal = (article) => {
@@ -1520,27 +1796,31 @@ export default function MainPage() {
               </div>
 
               <div className="mp-article-list" ref={articleListRef}>
-                {displayedArticles.map((a) => {
-                  const listKey = safeString(a.representativeArticleId || a.articleId || a.id);
-                  const matchedIssue = latestIssueByArticleId.get(listKey) || null;
+                {displayedArticles.length === 0 ? (
+                  <div style={{ padding: 14, opacity: 0.68, fontSize: 13 }}>{emptyArticleMessage}</div>
+                ) : (
+                  displayedArticles.map((a) => {
+                    const listKey = safeString(a.representativeArticleId || a.articleId || a.id);
+                    const matchedIssue = latestIssueByArticleId.get(listKey) || null;
 
-                  return (
-                    <button
-                      key={listKey}
-                      type="button"
-                      className={`mp-article-item ${listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
-                        ? "active"
-                        : ""
-                        }`}
-                      onClick={() => selectIssueInCenter(a)}
-                    >
-                      <div className="mp-article-item-top">
-                        <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                      </div>
-                      <div className="mp-article-item-title">{matchedIssue?.title || a.title}</div>
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={listKey}
+                        type="button"
+                        className={`mp-article-item ${listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
+                          ? "active"
+                          : ""
+                          }`}
+                        onClick={() => selectIssueInCenter(a)}
+                      >
+                        <div className="mp-article-item-top">
+                          <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
+                        </div>
+                        <div className="mp-article-item-title">{matchedIssue?.title || a.title}</div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               <ScrollMoreCue
@@ -1560,47 +1840,29 @@ export default function MainPage() {
         </aside>
 
         <main className="mp-center">
-          {!displayedArticles.length ? (
-            <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : "표시할 이슈가 없습니다."}</div>
+          {!selectedArticle ? (
+            <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : emptyArticleMessage}</div>
           ) : (
             <div className="mp-center-scroll" ref={centerScrollRef} onScroll={persistCurrentState}>
-              {displayedArticles.map((article) => {
+              {(() => {
+                const article = selectedArticle;
                 const articleId = safeString(article.representativeArticleId || article.articleId || article.id);
-                const isSelected = articleId === safeString(selectedId);
-                const currentIssue = latestIssueByArticleId.get(articleId) || null;
-                const currentIssueGroup = issueGroupByArticleId.get(articleId) || [];
+                const currentIssue = selectedIssue;
+                const currentIssueGroup = selectedIssueGroup;
                 const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
-                const currentGlossary = glossaryList;
-
-                const activeGroupArticle =
-                  currentIssueGroup.find(
-                    (item) => safeString(item.articleId || item.id) === safeString(activeIssueArticleId)
-                  ) || null;
-
-                const currentTitle = isSelected
-                  ? pickPreferredIssueTitle(
-                    activeGroupArticle?.title || currentIssue?.title || article.title,
-                    currentIssueGroup.map((item) => item?.title || "")
-                  )
-                  : pickPreferredIssueTitle(
-                    currentIssue?.title || article.title,
-                    currentIssueGroup.map((item) => item?.title || "")
-                  );
-
+                const currentGlossary = deferredGlossaryList;
+                const activeGroupArticle = activeIssueArticle;
+                const currentTitle = pickPreferredIssueTitle(
+                  activeGroupArticle?.title || currentIssue?.title || article.title,
+                  currentIssueGroup.map((item) => item?.title || "")
+                );
                 const currentThumb = resolveThumbnailUrl(
                   currentIssue?.representativeThumbnail || article.thumbnailUrl || "",
                   getFallbackThumb(currentIssue?.category || article.category || "society")
                 );
 
                 return (
-                  <section
-                    key={articleId}
-                    ref={(el) => {
-                      sectionRefs.current[articleId] = el;
-                    }}
-                    className={`mp-center-inner ${isSelected ? "active" : ""}`}
-                    onMouseEnter={() => setSelectedId(articleId)}
-                  >
+                  <section key={articleId} className="mp-center-inner active">
                     <div className="mp-head">
                       <h1 className="mp-title">{currentTitle}</h1>
                       <Badge type={article.badge} />
@@ -1713,7 +1975,7 @@ export default function MainPage() {
                     />
                   </section>
                 );
-              })}
+              })()}
             </div>
           )}
         </main>

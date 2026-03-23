@@ -10,6 +10,9 @@ import "../../CSS/sub.css";
 
 const PAGE_SIZE = 30;
 const PAGINATION_GROUP_SIZE = 10;
+const ARTICLE_LIST_NEWS_CACHE_PREFIX = "articleListNews:v1:";
+const ARTICLE_LIST_PRESS_CACHE_PREFIX = "articleListPresses:v1:";
+const ARTICLE_LIST_CACHE_TTL = 1000 * 60 * 3;
 
 const FILTER_TABS = [
   { key: "period", label: "기간" },
@@ -154,11 +157,60 @@ const PRESS_NAME_BY_TEXT_PRIORITY = [...PRESS_ITEMS].sort((a, b) => b.length - a
 const THUMB_FALLBACK =
   "https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=1200&q=80";
 
+function readTimedCache(storageKey) {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = sessionStorage.getItem(storageKey);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const ts = Number(parsed?.ts) || 0;
+    if (!ts || Date.now() - ts > ARTICLE_LIST_CACHE_TTL) return null;
+
+    return parsed?.value ?? null;
+  } catch (error) {
+    console.error("failed to read article list cache:", error);
+    return null;
+  }
+}
+
+function writeTimedCache(storageKey, value) {
+  if (typeof window === "undefined") return value;
+
+  try {
+    sessionStorage.setItem(
+      storageKey,
+      JSON.stringify({
+        ts: Date.now(),
+        value,
+      })
+    );
+  } catch (error) {
+    console.error("failed to write article list cache:", error);
+  }
+
+  return value;
+}
+
 function makePressCacheKey(keyword, range) {
   return JSON.stringify({
     q: String(keyword || "").trim(),
     from: String(range?.start || ""),
     to: String(range?.end || ""),
+  });
+}
+
+function makeNewsCacheKey(page, keyword, range, presses) {
+  const selectedPressArray =
+    presses instanceof Set ? Array.from(presses) : Array.isArray(presses) ? presses : [];
+
+  return JSON.stringify({
+    page: Math.max(1, Number(page) || 1),
+    q: String(keyword || "").trim(),
+    from: String(range?.start || ""),
+    to: String(range?.end || ""),
+    presses: selectedPressArray.map((item) => String(item || "").trim()).filter(Boolean).sort((a, b) => a.localeCompare(b, "ko")),
   });
 }
 
@@ -386,6 +438,24 @@ export default function ArticleListPage() {
   const location = useLocation();
 
   const initialSearchState = useMemo(() => parseArticleListSearch(location.search), [location.search]);
+  const initialNewsCacheRef = useRef(
+    readTimedCache(
+      `${ARTICLE_LIST_NEWS_CACHE_PREFIX}${makeNewsCacheKey(
+        initialSearchState.page,
+        initialSearchState.query,
+        initialSearchState.dateRange,
+        initialSearchState.selectedPress
+      )}`
+    )
+  );
+  const initialPressCacheRef = useRef(
+    readTimedCache(
+      `${ARTICLE_LIST_PRESS_CACHE_PREFIX}${makePressCacheKey(
+        initialSearchState.query,
+        initialSearchState.dateRange
+      )}`
+    )
+  );
 
   const [query, setQuery] = useState(initialSearchState.query);
   const [activeTab, setActiveTab] = useState("period");
@@ -393,18 +463,18 @@ export default function ArticleListPage() {
   const [selectedPress, setSelectedPress] = useState(() => new Set(initialSearchState.selectedPress));
   const [dateRange, setDateRange] = useState(initialSearchState.dateRange);
 
-  const [newsItems, setNewsItems] = useState([]);
+  const [newsItems, setNewsItems] = useState(() => initialNewsCacheRef.current?.items || []);
   const [currentPage, setCurrentPage] = useState(initialSearchState.page);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState(() => Number(initialNewsCacheRef.current?.total) || 0);
   const [error, setError] = useState("");
-  const [availablePresses, setAvailablePresses] = useState([]);
+  const [availablePresses, setAvailablePresses] = useState(() => initialPressCacheRef.current || []);
   const [isSearchOpen, setIsSearchOpen] = useState(true);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const helpWrapRef = useRef(null);
   const requestSeqRef = useRef(0);
   const pressCacheRef = useRef(new Map());
 
-  const [loadingArticles, setLoadingArticles] = useState(false);
+  const [loadingArticles, setLoadingArticles] = useState(() => !initialNewsCacheRef.current);
   const [loadingPresses, setLoadingPresses] = useState(false);
 
   const selectedCount = selectedPress.size + (query.trim() ? 1 : 0);
@@ -470,13 +540,21 @@ export default function ArticleListPage() {
 
   const loadNews = async (targetPage, keyword, range = dateRange, presses = selectedPress) => {
     const requestId = ++requestSeqRef.current;
+    const selectedPressArray =
+      presses instanceof Set ? Array.from(presses) : Array.isArray(presses) ? presses : [];
+    const cacheKey = makeNewsCacheKey(targetPage, keyword, range, selectedPressArray);
+    const cachedPayload = readTimedCache(`${ARTICLE_LIST_NEWS_CACHE_PREFIX}${cacheKey}`);
 
     try {
-      setLoadingArticles(true);
+      if (cachedPayload) {
+        setNewsItems(Array.isArray(cachedPayload?.items) ? cachedPayload.items : []);
+        setTotal(Number(cachedPayload?.total) || 0);
+        setCurrentPage(targetPage);
+        setLoadingArticles(false);
+      } else {
+        setLoadingArticles(true);
+      }
       setError("");
-
-      const selectedPressArray =
-        presses instanceof Set ? Array.from(presses) : Array.isArray(presses) ? presses : [];
 
       const hasSelectedPresses = selectedPressArray.length > 0;
       const hasKeyword = Boolean(String(keyword || "").trim());
@@ -504,21 +582,28 @@ export default function ArticleListPage() {
       }));
 
       const dedupedItems = dedupeNewsItems(normalizedItems);
-
-      setNewsItems(dedupedItems);
-      setTotal(
+      const resolvedTotal =
         data.total === null || data.total === undefined
           ? dedupedItems.length
-          : Number(data.total) || 0
-      );
+          : Number(data.total) || 0;
+
+      writeTimedCache(`${ARTICLE_LIST_NEWS_CACHE_PREFIX}${cacheKey}`, {
+        items: dedupedItems,
+        total: resolvedTotal,
+      });
+
+      setNewsItems(dedupedItems);
+      setTotal(resolvedTotal);
       setCurrentPage(targetPage);
     } catch (err) {
       if (requestId !== requestSeqRef.current) return;
 
-      setError(err?.response?.data?.message || "뉴스 기사를 불러오지 못했습니다.");
-      setNewsItems([]);
-      setTotal(0);
-      setCurrentPage(1);
+      if (!cachedPayload) {
+        setError(err?.response?.data?.message || "뉴스 기사를 불러오지 못했습니다.");
+        setNewsItems([]);
+        setTotal(0);
+        setCurrentPage(1);
+      }
     } finally {
       if (requestId === requestSeqRef.current) {
         setLoadingArticles(false);
@@ -691,14 +776,23 @@ export default function ArticleListPage() {
 
   const loadPresses = async (keyword, range, { force = false } = {}) => {
     const cacheKey = makePressCacheKey(keyword, range);
+    const storageKey = `${ARTICLE_LIST_PRESS_CACHE_PREFIX}${cacheKey}`;
+    const storedCache = !force ? readTimedCache(storageKey) : null;
 
     if (!force && pressCacheRef.current.has(cacheKey)) {
-      setAvailablePresses(pressCacheRef.current.get(cacheKey));
-      return pressCacheRef.current.get(cacheKey);
+      const cached = pressCacheRef.current.get(cacheKey);
+      setAvailablePresses(cached);
+      return cached;
+    }
+
+    if (!force && storedCache) {
+      pressCacheRef.current.set(cacheKey, storedCache);
+      setAvailablePresses(storedCache);
+      return storedCache;
     }
 
     try {
-      setLoadingPresses(true);
+      if (!storedCache) setLoadingPresses(true);
 
       const response = await fetchNews({
         page: 1,
@@ -728,6 +822,7 @@ export default function ArticleListPage() {
         .filter((item) => item.name && item.name !== "기타" && item.count > 0);
 
       pressCacheRef.current.set(cacheKey, normalizedPresses);
+      writeTimedCache(storageKey, normalizedPresses);
       setAvailablePresses(normalizedPresses);
       return normalizedPresses;
     } catch (err) {

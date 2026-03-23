@@ -107,6 +107,17 @@ function splitParagraphs(article) {
   return cleaned.length > 0 ? cleaned : deduped;
 }
 
+function normalizeInlineText(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return String(value || "").replace(/\r/g, "").trim();
+}
+
 function resolveBackTarget(location, fallback) {
   const candidate = String(location.state?.from || "").trim();
   if (!candidate) return fallback;
@@ -485,6 +496,53 @@ export default function ArticleDetailPage() {
 
   const paragraphs = useMemo(() => splitParagraphs(article), [article]);
   const sourceHost = useMemo(() => extractHost(article?.url), [article?.url]);
+  const summaryLines = useMemo(() => {
+    if (!article) return [];
+
+    const pressNames = new Set(
+      [article?.pressName, article?.press_name]
+        .map((value) => String(value || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+    );
+    const normalizedTitle = String(article?.title || "").replace(/\s+/g, " ").trim();
+    const summarySources = [article?.short_summary, article?.summary, article?.description];
+    const lines = [];
+    const seen = new Set();
+
+    for (const source of summarySources) {
+      const summaryText = normalizeInlineText(source);
+      if (
+        !summaryText ||
+        summaryText === "요약 정보가 없습니다." ||
+        summaryText === "기사를 클릭하면 상세 내용을 확인할 수 있습니다."
+      ) {
+        continue;
+      }
+
+      const splitLines = summaryText
+        .split(/\n+/)
+        .map((line) => String(line || "").replace(/^[\-•·▪]+\s*/, "").replace(/\s+/g, " ").trim())
+        .filter(Boolean);
+
+      for (const line of splitLines) {
+        if (line === normalizedTitle) continue;
+        if (pressNames.has(line)) continue;
+        if (line.length < 8 && !/\d/.test(line)) continue;
+        if (seen.has(line)) continue;
+
+        seen.add(line);
+        lines.push(line);
+      }
+
+      if (lines.length > 0) break;
+    }
+
+    return lines.slice(0, 4);
+  }, [article]);
+  const estimatedReadMinutes = useMemo(() => {
+    const characters = paragraphs.join("").replace(/\s+/g, "").length;
+    return Math.max(1, Math.round(characters / 650));
+  }, [paragraphs]);
 
   const displayCategory = useMemo(() => {
     if (!article) return "society";
@@ -635,6 +693,22 @@ export default function ArticleDetailPage() {
             <h1 className="article-detail-title">
               <GlossaryText text={article.title || ""} glossary={glossaryList} />
             </h1>
+
+            <div className="article-detail-reading-meta">
+              {paragraphs.length > 0 && (
+                <>
+                  <span className="article-detail-reading-pill">
+                    약 {estimatedReadMinutes}분 읽기
+                  </span>
+                  <span className="article-detail-reading-pill subtle">
+                    문단 {paragraphs.length}개
+                  </span>
+                </>
+              )}
+              {sourceHost && (
+                <span className="article-detail-reading-pill subtle">{sourceHost}</span>
+              )}
+            </div>
           </section>
 
           <div className="article-detail-grid">
@@ -651,30 +725,52 @@ export default function ArticleDetailPage() {
                 </div>
               )}
 
-              <article className="article-detail-content-card">
-                <div className="article-detail-content-title">본문</div>
-
-                {detailLoading && (
-                  <p className="article-detail-empty-content">본문을 불러오는 중입니다...</p>
-                )}
-
-                {detailError && !detailLoading && (
-                  <p className="article-detail-empty-content">{detailError}</p>
-                )}
-
-                {paragraphs.length > 0 ? (
-                  <div className="article-detail-content">
-                    {paragraphs.map((line, index) => (
-                      <p key={`${article.id}-line-${index}`}>
+              {summaryLines.length > 0 && (
+                <section className="article-detail-summary-card" aria-label="핵심 요약">
+                  <div className="article-detail-summary-label">핵심 요약</div>
+                  <div className="article-detail-summary-list">
+                    {summaryLines.map((line, index) => (
+                      <p key={`${article.id}-summary-${index}`} className="article-detail-summary-text">
                         <GlossaryText text={line} glossary={glossaryList} />
                       </p>
                     ))}
                   </div>
-                ) : (
-                  <p className="article-detail-empty-content">
-                    본문 텍스트가 없어 요약 정보만 제공합니다.
-                  </p>
-                )}
+                </section>
+              )}
+
+              <article className="article-detail-content-card">
+                <div className="article-detail-content-inner">
+                  <div className="article-detail-content-header">
+                    <div className="article-detail-content-title">본문</div>
+                    {paragraphs.length > 0 && (
+                      <div className="article-detail-content-subtle">
+                        문단별로 정리된 읽기 화면
+                      </div>
+                    )}
+                  </div>
+
+                  {detailLoading && (
+                    <p className="article-detail-empty-content">본문을 불러오는 중입니다...</p>
+                  )}
+
+                  {detailError && !detailLoading && (
+                    <p className="article-detail-empty-content">{detailError}</p>
+                  )}
+
+                  {paragraphs.length > 0 ? (
+                    <div className="article-detail-content">
+                      {paragraphs.map((line, index) => (
+                        <p key={`${article.id}-line-${index}`}>
+                          <GlossaryText text={line} glossary={glossaryList} />
+                        </p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="article-detail-empty-content">
+                      본문 텍스트가 없어 요약 정보만 제공합니다.
+                    </p>
+                  )}
+                </div>
               </article>
             </section>
 

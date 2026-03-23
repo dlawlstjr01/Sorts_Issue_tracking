@@ -37,6 +37,83 @@ function normalizeSummaryValue(value) {
   return String(value || "").trim();
 }
 
+function normalizeDetailValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return String(value || "").replace(/\r/g, "").trim();
+}
+
+function normalizeCompactText(value) {
+  return normalizeDetailValue(value).replace(/\s+/g, " ").trim();
+}
+
+function splitReadableBlocks(value) {
+  const text = normalizeDetailValue(value)
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+-\s+/g, "\n\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!text) return [];
+
+  const splitLongBlock = (block) => {
+    const normalized = String(block || "").replace(/\s+/g, " ").trim();
+    if (!normalized) return [];
+    if (normalized.length <= 150) return [normalized];
+
+    const sentences =
+      normalized
+        .match(/[^.!?。！？…]+(?:[.!?。！？…]+["'”’)\]]*|$)/g)
+        ?.map((item) => item.trim())
+        .filter(Boolean) || [normalized];
+
+    if (sentences.length <= 1) return [normalized];
+
+    const chunks = [];
+    let current = "";
+
+    for (const sentence of sentences) {
+      const next = current ? `${current} ${sentence}` : sentence;
+      if (next.length > 150 && current) {
+        chunks.push(current.trim());
+        current = sentence;
+      } else {
+        current = next;
+      }
+    }
+
+    if (current.trim()) chunks.push(current.trim());
+    return chunks;
+  };
+
+  const blocks = [];
+  const seen = new Set();
+
+  text
+    .split(/\n{2,}|\n+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .flatMap(splitLongBlock)
+    .forEach((block) => {
+      const normalized = String(block || "").replace(/\s+/g, " ").trim();
+      if (!normalized || normalized.length < 6) return;
+
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      blocks.push(normalized);
+    });
+
+  return blocks;
+}
+
 function normalizeKeywordArray(value) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item || "").trim()).filter(Boolean);
@@ -377,6 +454,39 @@ export default function ArchivePage() {
     if (!selectedArticleDetail) return [];
     return [...new Set([query].map((term) => String(term || "").trim()).filter(Boolean))];
   }, [selectedArticleDetail, query]);
+  const selectedArticleSummaryBlocks = useMemo(
+    () => splitReadableBlocks(selectedArticleDetail?.summary).slice(0, 5),
+    [selectedArticleDetail?.summary]
+  );
+  const selectedArticleBodyText = useMemo(
+    () =>
+      normalizeDetailValue(
+        selectedArticleDetail?.raw?.content ||
+          selectedArticleDetail?.raw?.body ||
+          selectedArticleDetail?.raw?.description
+      ),
+    [
+      selectedArticleDetail?.raw?.content,
+      selectedArticleDetail?.raw?.body,
+      selectedArticleDetail?.raw?.description,
+    ]
+  );
+  const selectedArticleBodyBlocks = useMemo(() => {
+    if (!selectedArticleBodyText) return [];
+
+    const summaryCompact = normalizeCompactText(selectedArticleDetail?.summary);
+    if (summaryCompact && normalizeCompactText(selectedArticleBodyText) === summaryCompact) {
+      return [];
+    }
+
+    return splitReadableBlocks(selectedArticleBodyText).slice(0, 8);
+  }, [selectedArticleBodyText, selectedArticleDetail?.summary]);
+  const archiveDetailEstimatedReadMinutes = useMemo(() => {
+    const characters = [...selectedArticleSummaryBlocks, ...selectedArticleBodyBlocks]
+      .join("")
+      .replace(/\s+/g, "").length;
+    return Math.max(1, Math.round(characters / 650));
+  }, [selectedArticleSummaryBlocks, selectedArticleBodyBlocks]);
 
   const openArticleDetail = (item) => {
     if (item) setSelectedArticleDetail(item);
@@ -926,21 +1036,69 @@ export default function ArchivePage() {
               {renderHighlightedText(selectedArticleDetail.title, selectedArticleDetailTerms)}
             </h3>
 
-            <p className="archive-article-modal-summary">
-              {renderHighlightedText(selectedArticleDetail.summary, selectedArticleDetailTerms)}
-            </p>
+            <div className="archive-article-modal-reading-meta">
+              <span className="archive-article-modal-pill">
+                약 {archiveDetailEstimatedReadMinutes}분 읽기
+              </span>
+              <span className="archive-article-modal-pill subtle">
+                요약 {selectedArticleSummaryBlocks.length || 1}개 단락
+              </span>
+              {!!selectedArticleDetail?.keywords?.length && (
+                <span className="archive-article-modal-pill subtle">
+                  키워드 {selectedArticleDetail.keywords.length}개
+                </span>
+              )}
+            </div>
+
+            {selectedArticleSummaryBlocks.length > 0 ? (
+              <section className="archive-article-modal-section archive-article-modal-section-summary">
+                <div className="archive-article-modal-section-title">핵심 내용</div>
+                <div className="archive-article-modal-copy">
+                  {selectedArticleSummaryBlocks.map((block, index) => (
+                    <p
+                      key={`archive-summary-${selectedArticleDetail.id}-${index}`}
+                      className="archive-article-modal-paragraph archive-article-modal-paragraph-summary"
+                    >
+                      {renderHighlightedText(block, selectedArticleDetailTerms)}
+                    </p>
+                  ))}
+                </div>
+              </section>
+            ) : (
+              <p className="archive-article-modal-summary">
+                {renderHighlightedText(selectedArticleDetail.summary, selectedArticleDetailTerms)}
+              </p>
+            )}
+
+            {selectedArticleBodyBlocks.length > 0 && (
+              <section className="archive-article-modal-section">
+                <div className="archive-article-modal-section-title">본문 미리보기</div>
+                <div className="archive-article-modal-copy archive-article-modal-copy-body">
+                  {selectedArticleBodyBlocks.map((block, index) => (
+                    <p
+                      key={`archive-body-${selectedArticleDetail.id}-${index}`}
+                      className="archive-article-modal-paragraph"
+                    >
+                      {renderHighlightedText(block, selectedArticleDetailTerms)}
+                    </p>
+                  ))}
+                </div>
+              </section>
+            )}
 
             {!!selectedArticleDetail?.keywords?.length && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 }}>
-                {selectedArticleDetail.keywords.slice(0, 12).map((keyword, idx) => (
-                  <span
-                    key={`detail-kw-${idx}`}
-                    className="archive-keyword-chip"
-                    style={{ padding: "4px 10px", borderRadius: 999, background: "#f3f6fb", fontSize: 12, color: "#334155" }}
-                  >
-                    #{renderHighlightedText(keyword, selectedArticleDetailTerms)}
-                  </span>
-                ))}
+              <div className="archive-article-modal-keywords">
+                <div className="archive-article-modal-section-title">관련 키워드</div>
+                <div className="archive-article-modal-keyword-list">
+                  {selectedArticleDetail.keywords.slice(0, 12).map((keyword, idx) => (
+                    <span
+                      key={`detail-kw-${idx}`}
+                      className="archive-keyword-chip archive-article-modal-keyword-chip"
+                    >
+                      #{renderHighlightedText(keyword, selectedArticleDetailTerms)}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 

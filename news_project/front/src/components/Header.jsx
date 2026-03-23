@@ -493,12 +493,17 @@ export default function Header() {
         setNotifyLoading(true);
       }
 
-      try {
-        const res = await axios.get("/tracking/issues", {
-          params: { limit: NOTIFY_FETCH_LIMIT },
-        });
-        if (!mounted) {
-          inFlight = false;
+        try {
+          const res = await axios.get("/tracking/issues", {
+            params: {
+              limit: NOTIFY_FETCH_LIMIT,
+              include_related: 0,
+              include_article_content: 0,
+              refresh_summary: 0,
+            },
+          });
+          if (!mounted) {
+            inFlight = false;
           return;
         }
 

@@ -2239,16 +2239,47 @@ body {
   width: min(100%, 640px);
   min-width: 220px;
   max-width: 640px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .issues-input {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   height: 44px;
   border-radius: 12px;
   border: 1px solid #e5e7eb;
   padding: 0 14px;
   font-size: 15px;
   background: #ffffff;
+}
+
+.issues-search-btn {
+  flex: 0 0 auto;
+  min-width: 84px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid #b9d1ff;
+  background: linear-gradient(180deg, #f4f8ff 0%, #e8f0ff 100%);
+  color: #1f4dff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.issues-search-btn:hover {
+  border-color: #8bb4ff;
+  background: linear-gradient(180deg, #edf4ff 0%, #dceaff 100%);
+  box-shadow: 0 8px 18px rgba(31, 77, 255, 0.14);
+  transform: translateY(-1px);
+}
+
+.issues-search-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(31, 77, 255, 0.12);
 }
 
 .issues-filters {
@@ -3993,6 +4024,7 @@ body {
 .issues-hero,
 .issues-stat,
 .issues-input,
+.issues-search-btn,
 .issues-chip,
 .issues-empty,
 .issue-card,

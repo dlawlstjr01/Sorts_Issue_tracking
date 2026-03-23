@@ -105,6 +105,7 @@ export default function IssuesPage() {
   const navigate = useNavigate();
 
   const [query, setQuery] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [filter, setFilter] = useState("전체");
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -167,6 +168,11 @@ export default function IssuesPage() {
       return categoryMatch && textMatch;
     });
   }, [issues, query, filter]);
+
+  const submitSearch = (event) => {
+    event?.preventDefault?.();
+    setQuery(searchInput.trim());
+  };
 
   const selectedReportIssue = useMemo(
     () => issues.find((item) => item.id === reportForm.issueId) || null,
@@ -253,6 +259,7 @@ export default function IssuesPage() {
 
     setFilter("전체");
     setQuery("");
+    setSearchInput("");
     closeIssueModal();
     setQuickToast(`${newIssue.id} 이슈가 등록되었습니다.`);
   };
@@ -319,15 +326,18 @@ export default function IssuesPage() {
       </div>
 
       <div className="issues-toolbar">
-        <div className="issues-search">
+        <form className="issues-search" onSubmit={submitSearch}>
           <input
             className="issues-input"
             type="text"
             placeholder="이슈 제목, 요약, ID로 검색"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
           />
-        </div>
+          <button className="issues-search-btn" type="submit">
+            검색
+          </button>
+        </form>
       </div>
 
       <div className="issues-grid">

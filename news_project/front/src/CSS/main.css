@@ -1,15 +1,24 @@
 /* ===== MainPage Layout ===== */
 .layout-main:has(.mp-wrap) {
-  height: calc(100vh - 94px);
+  height: 100dvh;
+  min-height: 100dvh;
+  padding-top: 0;
   overflow: hidden;
 }
 
 .mp-wrap {
+  --mp-shell-padding-top: calc(var(--header-height, 94px) + 22px);
+  --mp-shell-padding-x: 24px;
+  --mp-shell-padding-bottom: 22px;
+  --mp-column-top: 0px;
+  --mp-column-height: calc(100dvh - var(--mp-shell-padding-top) - var(--mp-shell-padding-bottom));
   width: 100%;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100%;
   max-width: none;
-  margin: 25px;
-  padding: 36px 24px 32px;
+  margin: 0;
+  padding: var(--mp-shell-padding-top) var(--mp-shell-padding-x) var(--mp-shell-padding-bottom);
+  overflow: hidden;
 }
 
 /* 공통 패널 */
@@ -237,16 +246,16 @@
 .mp-left,
 .mp-right {
   position: sticky;
-  top: 24px;
+  top: var(--mp-column-top);
   align-self: start;
-  height: calc(100vh - 120px);
+  height: var(--mp-column-height);
 }
 
 .mp-left .mp-panel,
 .mp-right .mp-panel {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 120px);
+  height: var(--mp-column-height);
 }
 
 .mp-left .mp-panel {
@@ -275,6 +284,8 @@
     border 0.15s ease,
     box-shadow 0.15s ease,
     transform 0.15s ease;
+  content-visibility: auto;
+  contain-intrinsic-size: 96px;
 }
 
 .mp-article-item:hover {
@@ -330,8 +341,8 @@
 .mp-center {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 132px);
-  margin-top: 25px;
+  height: var(--mp-column-height);
+  margin-top: 0;
   min-height: 0;
   overflow: visible;
 }
@@ -354,7 +365,7 @@
 .mp-center-inner {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 132px);
+  height: var(--mp-column-height);
   margin-bottom: 16px;
   padding: 18px;
   background: #fff;
@@ -365,6 +376,12 @@
   overflow: hidden;
   scroll-snap-align: start;
   scroll-snap-stop: always;
+  content-visibility: auto;
+  contain-intrinsic-size: 960px;
+}
+
+.mp-center-inner.active {
+  content-visibility: visible;
 }
 
 .mp-head {
@@ -772,7 +789,8 @@
 .mp-grid {
   width: 100%;
   max-width: 1800px;
-  min-height: calc(100vh - 92px);
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
   display: grid;
   grid-template-columns: minmax(280px, 1.1fr) minmax(0, 2.8fr) minmax(320px, 1.2fr);
@@ -959,9 +977,30 @@
 }
 
 @media (max-width: 1320px) {
+  .layout-main:has(.mp-wrap) {
+    height: auto;
+    min-height: calc(100vh - var(--header-height, 94px));
+    padding-top: var(--header-height, 94px);
+    overflow: visible;
+  }
+
+  .mp-wrap {
+    --mp-column-top: 24px;
+    --mp-column-height: calc(100vh - 120px);
+    height: auto;
+    min-height: calc(100vh - var(--header-height, 94px));
+    margin: 25px;
+    padding: 36px 24px 32px;
+    overflow: visible;
+  }
+
+  .mp-grid {
+    height: auto;
+  }
+
   .mp-center {
     height: auto;
-    margin-top: 12px;
+    margin-top: 0;
     overflow: visible;
   }
 

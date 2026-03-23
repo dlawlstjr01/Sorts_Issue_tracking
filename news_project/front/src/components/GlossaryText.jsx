@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useEffect, useMemo, useRef, useState } from "react";
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export default function GlossaryText({ text = "", glossary = [] }) {
+function GlossaryText({ text = "", glossary = [] }) {
   const [hoveredItem, setHoveredItem] = useState(null);
   const [tooltipStyle, setTooltipStyle] = useState({
     top: 0,
@@ -247,3 +247,5 @@ export default function GlossaryText({ text = "", glossary = [] }) {
     </>
   );
 }
+
+export default memo(GlossaryText);

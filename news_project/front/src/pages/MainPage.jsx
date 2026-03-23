@@ -91,11 +91,14 @@ const THUMB = {
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 24;
-const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT * 2, 50);
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT + 12, 40);
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
+const MAIN_PAGE_DATA_CACHE_KEY = "mainPageIssueData:v1";
+const MAIN_PAGE_DATA_CACHE_TTL = 1000 * 60 * 3;
 const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
 const ISSUE_TITLE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
+const SUMMARY_LINE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
 const URGENT_TITLE_MARKERS = [
   "속보",
   "단독",
@@ -176,6 +179,9 @@ const ISSUE_DEDUPE_STOPWORDS = new Set([
   "2보",
   "3보",
 ]);
+
+const SUMMARY_SOURCE_TAIL_RE =
+  /\s*[-|/]\s*(?:연합뉴스|뉴시스|뉴스1|매일경제|한국경제|조선일보|중앙일보|동아일보|한겨레|경향신문|세계일보|국민일보|서울신문|파이낸셜뉴스|머니투데이|이데일리|아시아경제|오마이뉴스)\.?$/i;
 
 function getTitleUrgencyScore(value) {
   const title = safeString(value).trim();
@@ -340,6 +346,61 @@ function loadMainPageState() {
   }
 }
 
+function loadMainPageDataCache() {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = sessionStorage.getItem(MAIN_PAGE_DATA_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const latestIssues = Array.isArray(parsed?.latestIssues) ? parsed.latestIssues : [];
+    const articles = Array.isArray(parsed?.articles) ? parsed.articles : [];
+    const ts = Number(parsed?.ts) || 0;
+
+    if (!latestIssues.length || !articles.length || !ts) return null;
+
+    return { latestIssues, articles, ts };
+  } catch (e) {
+    console.error("failed to load main page data cache:", e);
+    return null;
+  }
+}
+
+function saveMainPageDataCache(nextState) {
+  if (typeof window === "undefined") return;
+
+  try {
+    sessionStorage.setItem(
+      MAIN_PAGE_DATA_CACHE_KEY,
+      JSON.stringify({
+        latestIssues: Array.isArray(nextState?.latestIssues) ? nextState.latestIssues : [],
+        articles: Array.isArray(nextState?.articles) ? nextState.articles : [],
+        ts: Date.now(),
+      })
+    );
+  } catch (e) {
+    console.error("failed to save main page data cache:", e);
+  }
+}
+
+function scheduleIdleTask(task, timeout = 800) {
+  if (typeof window === "undefined") return null;
+  if (typeof window.requestIdleCallback === "function") {
+    return window.requestIdleCallback(task, { timeout });
+  }
+  return window.setTimeout(task, timeout);
+}
+
+function cancelIdleTask(taskId) {
+  if (taskId == null || typeof window === "undefined") return;
+  if (typeof window.cancelIdleCallback === "function") {
+    window.cancelIdleCallback(taskId);
+    return;
+  }
+  window.clearTimeout(taskId);
+}
+
 function saveMainPageState(nextState) {
   if (typeof window === "undefined") return;
   try {
@@ -361,6 +422,95 @@ function getFallbackThumb(category) {
   return `${THUMB[category || "society"] || THUMB.society}${UQ}`;
 }
 
+function normalizeSummaryLineForCompare(value) {
+  return safeString(value)
+    .replace(/^\s*-\s*/, "")
+    .replace(SUMMARY_SOURCE_TAIL_RE, " ")
+    .replace(/\(([A-Za-z0-9\s,."'`:;!?/-]{2,160})\)/g, " ")
+    .replace(/[“”"'`‘’]/g, " ")
+    .replace(/[^\u3131-\u318E\uAC00-\uD7A3A-Za-z0-9\u4E00-\u9FFF\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function getSummaryLineTokens(value) {
+  return (normalizeSummaryLineForCompare(value).match(SUMMARY_LINE_TOKEN_RE) || []).filter(
+    (token) => token.length >= 2
+  );
+}
+
+function getSummaryLineScore(value) {
+  const line = safeString(value).replace(/^\s*-\s*/, "").trim();
+  if (!line) return 0;
+
+  const normalized = normalizeSummaryLineForCompare(line);
+  const tokenCount = (normalized.match(SUMMARY_LINE_TOKEN_RE) || []).length;
+  let score = tokenCount * 10 + line.length;
+
+  if (/[0-9]/.test(line)) score += 4;
+  if (/[A-Za-z]/.test(line)) score += 4;
+  if (/[“”"'`‘’]/.test(line)) score += 2;
+
+  return score;
+}
+
+function isDuplicateSummaryLine(current, existing) {
+  const currentLine = normalizeSummaryLineForCompare(current);
+  const existingLine = normalizeSummaryLineForCompare(existing);
+  if (!currentLine || !existingLine) return false;
+
+  if (currentLine === existingLine) return true;
+  if (
+    currentLine.length >= 18 &&
+    existingLine.length >= 18 &&
+    (currentLine.includes(existingLine) || existingLine.includes(currentLine))
+  ) {
+    return true;
+  }
+
+  const currentTokens = new Set(getSummaryLineTokens(currentLine));
+  const existingTokens = new Set(getSummaryLineTokens(existingLine));
+  if (!currentTokens.size || !existingTokens.size) return false;
+
+  let sharedCount = 0;
+  currentTokens.forEach((token) => {
+    if (existingTokens.has(token)) sharedCount += 1;
+  });
+
+  const smallerSize = Math.min(currentTokens.size, existingTokens.size);
+  const combinedSize = new Set([...currentTokens, ...existingTokens]).size;
+  const overlap = sharedCount / smallerSize;
+  const jaccard = sharedCount / combinedSize;
+
+  return (
+    (sharedCount >= 5 && overlap >= 0.8) ||
+    (sharedCount >= 6 && overlap >= 0.72) ||
+    (sharedCount >= 6 && jaccard >= 0.62)
+  );
+}
+
+function dedupeSummaryLines(lines = []) {
+  const deduped = [];
+
+  lines.forEach((line) => {
+    const nextLine = safeString(line).trim();
+    if (!nextLine) return;
+
+    const existingIndex = deduped.findIndex((existing) => isDuplicateSummaryLine(nextLine, existing));
+    if (existingIndex < 0) {
+      deduped.push(nextLine);
+      return;
+    }
+
+    if (getSummaryLineScore(nextLine) > getSummaryLineScore(deduped[existingIndex])) {
+      deduped[existingIndex] = nextLine;
+    }
+  });
+
+  return deduped;
+}
+
 function splitBulletSummary(value) {
   const raw = safeString(value).replace(/\r\n?/g, "\n").trim();
   if (!raw) return [];
@@ -376,9 +526,11 @@ function splitBulletSummary(value) {
     .map((line) => safeString(line).trim())
     .filter(Boolean);
 
-  return hasBullet
+  const normalizedChunks = hasBullet
     ? chunks.map((line) => line.replace(/^\s*-\s*/, "").trim()).filter(Boolean).map((line) => `- ${line}`)
     : chunks;
+
+  return dedupeSummaryLines(normalizedChunks);
 }
 
 function normalizeTitleForDedupe(value) {
@@ -833,6 +985,7 @@ export default function MainPage() {
   const location = useLocation();
 
   const initialSavedStateRef = useRef(loadMainPageState());
+  const initialIssueDataRef = useRef(loadMainPageDataCache());
   const allowPersistRef = useRef(false);
   const restoredRef = useRef(false);
   const centerScrollRef = useRef(null);
@@ -844,14 +997,14 @@ export default function MainPage() {
   const [userId, setUserId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(initialSavedStateRef.current?.selectedCategory || "all");
   const [articleListMode, setArticleListMode] = useState(initialSavedStateRef.current?.articleListMode || "daily");
-  const [latestIssues, setLatestIssues] = useState([]);
-  const [articles, setArticles] = useState([]);
+  const [latestIssues, setLatestIssues] = useState(() => initialIssueDataRef.current?.latestIssues || []);
+  const [articles, setArticles] = useState(() => initialIssueDataRef.current?.articles || []);
   const [selectedId, setSelectedId] = useState(initialSavedStateRef.current?.selectedId || null);
   const [activeIssueArticleId, setActiveIssueArticleId] = useState(initialSavedStateRef.current?.activeIssueArticleId || null);
   const [recoItems, setRecoItems] = useState([]);
   const [recoLoading, setRecoLoading] = useState(false);
   const [recoReady, setRecoReady] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => !initialIssueDataRef.current);
   const [error, setError] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
@@ -859,6 +1012,7 @@ export default function MainPage() {
   const [archiveKeys, setArchiveKeys] = useState(new Set());
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [glossaryList, setGlossaryList] = useState([]);
+  const deferredGlossaryList = React.useDeferredValue(glossaryList);
   const [articleListScrollCue, setArticleListScrollCue] = useState({ showUp: false, showDown: false });
   const [recoListScrollCue, setRecoListScrollCue] = useState({ showUp: false, showDown: false });
   const [contrastListScrollCue, setContrastListScrollCue] = useState({ showUp: false, showDown: false });
@@ -1017,15 +1171,26 @@ export default function MainPage() {
   };
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    const run = async () => {
       try {
         const res = await axios.get("/auth/me", { withCredentials: true });
-        setUserId(res.data?.id ?? null);
+        if (!cancelled) setUserId(res.data?.id ?? null);
       } catch (e) {
         if (e?.response?.status !== 401) console.error("[auth/me] failed:", e);
-        setUserId(null);
+        if (!cancelled) setUserId(null);
       }
-    })();
+    };
+
+    const taskId = scheduleIdleTask(() => {
+      void run();
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      cancelIdleTask(taskId);
+    };
   }, []);
 
   useEffect(() => {
@@ -1069,10 +1234,17 @@ export default function MainPage() {
   }, [location.state, navigate]);
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+    const cachedData = initialIssueDataRef.current;
+    const hasCachedData = Boolean(cachedData?.latestIssues?.length && cachedData?.articles?.length);
+    const isFreshCache = hasCachedData && Date.now() - (cachedData?.ts || 0) < MAIN_PAGE_DATA_CACHE_TTL;
+
+    const loadLatestIssues = async ({ silent = false } = {}) => {
       try {
-        setLoading(true);
-        setError("");
+        if (!silent) {
+          setLoading(true);
+          setError("");
+        }
 
         const res = await axios.get("/tracking/issues", {
           params: { limit: MAIN_PAGE_ISSUE_FETCH_LIMIT, include_article_content: 0 },
@@ -1081,18 +1253,51 @@ export default function MainPage() {
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
         const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
         const deduped = dedupeIssueSummaries(grouped, MAIN_PAGE_ISSUE_LIMIT);
+        const nextLatestIssues = deduped.map(mapIssueSummaryToLatestUI);
+        const nextArticles = deduped.map(mapIssueSummaryToMainArticle);
 
-        setLatestIssues(deduped.map(mapIssueSummaryToLatestUI));
-        setArticles(deduped.map(mapIssueSummaryToMainArticle));
+        if (cancelled) return;
+
+        setLatestIssues(nextLatestIssues);
+        setArticles(nextArticles);
+        setError("");
+        saveMainPageDataCache({
+          latestIssues: nextLatestIssues,
+          articles: nextArticles,
+        });
       } catch (e) {
         console.error("latest issues load failed:", e);
-        setLatestIssues([]);
-        setArticles([]);
-        setError("이슈를 불러오지 못했습니다.");
+        if (cancelled) return;
+
+        if (!hasCachedData) {
+          setLatestIssues([]);
+          setArticles([]);
+          setError("이슈를 불러오지 못했습니다.");
+        }
       } finally {
-        setLoading(false);
+        if (!silent && !cancelled) {
+          setLoading(false);
+        }
       }
-    })();
+    };
+
+    let taskId = null;
+
+    if (hasCachedData) {
+      setLoading(false);
+      if (!isFreshCache) {
+        taskId = scheduleIdleTask(() => {
+          void loadLatestIssues({ silent: true });
+        }, 900);
+      }
+    } else {
+      void loadLatestIssues();
+    }
+
+    return () => {
+      cancelled = true;
+      cancelIdleTask(taskId);
+    };
   }, []);
 
   useEffect(() => {
@@ -1244,10 +1449,13 @@ export default function MainPage() {
       }
     };
 
-    loadGlossary();
+    const taskId = scheduleIdleTask(() => {
+      void loadGlossary();
+    }, 1200);
 
     return () => {
       cancelled = true;
+      cancelIdleTask(taskId);
     };
   }, []);
 
@@ -1555,7 +1763,7 @@ export default function MainPage() {
                 const currentIssue = latestIssueByArticleId.get(articleId) || null;
                 const currentIssueGroup = issueGroupByArticleId.get(articleId) || [];
                 const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
-                const currentGlossary = glossaryList;
+                const currentGlossary = deferredGlossaryList;
 
                 const activeGroupArticle =
                   currentIssueGroup.find(

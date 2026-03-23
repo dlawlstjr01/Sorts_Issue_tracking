@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import SideMenuCard from "../../components/SideMenuCard";
+import { fetchNotices } from "../../api/newsApi";
 
 const FAQS = [
   {
@@ -19,8 +20,6 @@ const FAQS = [
     a: "기사 상세 화면의 저장, 공유 버튼으로 바로 이용할 수 있습니다.",
   },
 ];
-
-const NOTICE_LIST = [];
 
 const INQUIRY_HISTORY = [
   {
@@ -64,6 +63,13 @@ const TABS = [
   { id: "faq", label: "자주 묻는 질문 (FAQ)" },
   { id: "inquiry", label: "1:1 문의" },
 ];
+
+function formatDate(raw) {
+  if (!raw) return "";
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return String(raw).slice(0, 10);
+  return date.toLocaleDateString("ko-KR");
+}
 
 function InquiryHistoryRow({ item, isOpen, onToggle }) {
   const isAnswered = Boolean(item.answer);
@@ -133,6 +139,31 @@ export default function SupportPage() {
   const [tab, setTab] = useState("notice");
   const [openedInquiryId, setOpenedInquiryId] = useState(null);
 
+  const [notices, setNotices] = useState([]);
+  const [noticeLoading, setNoticeLoading] = useState(false);
+  const [noticeError, setNoticeError] = useState("");
+
+  useEffect(() => {
+    const loadNotices = async () => {
+      try {
+        setNoticeLoading(true);
+        setNoticeError("");
+
+        const res = await fetchNotices();
+        const rows = Array.isArray(res?.data) ? res.data : [];
+
+        setNotices(rows);
+      } catch (error) {
+        console.error("공지사항 조회 실패:", error);
+        setNoticeError("요청 실패");
+      } finally {
+        setNoticeLoading(false);
+      }
+    };
+
+    loadNotices();
+  }, []);
+
   return (
     <div className="page support-page">
       <div className="support-layout">
@@ -157,16 +188,22 @@ export default function SupportPage() {
 
           {tab === "notice" && (
             <>
-              <div className="support-alert">요청 실패</div>
+              {noticeError && <div className="support-alert">{noticeError}</div>}
+
               <div className="support-panel">
-                {NOTICE_LIST.length === 0 ? (
+                {noticeLoading ? (
+                  <div className="support-empty">공지사항을 불러오는 중입니다.</div>
+                ) : notices.length === 0 ? (
                   <div className="support-empty">공지사항이 없습니다.</div>
                 ) : (
                   <div className="support-notice-list">
-                    {NOTICE_LIST.map((notice) => (
+                    {notices.map((notice) => (
                       <div key={notice.id} className="support-notice-item">
                         <div className="support-notice-title">{notice.title}</div>
-                        <div className="support-notice-date">{notice.date}</div>
+                        <div className="support-notice-date">
+                          {formatDate(notice.created_at || notice.date)}
+                        </div>
+                        <div className="support-notice-content">{notice.content}</div>
                       </div>
                     ))}
                   </div>

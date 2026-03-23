@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
-import { getIssues } from "../../api/issuesApi";
+import { getIssues, getIssueArticleById } from "../../api/newsApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
 const FILTERS = ["전체", "정책", "산업", "경제", "규제"];

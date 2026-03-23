@@ -1,15 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getIssues } from "../../api/issuesApi";
+import { getIssues } from "../../api/newsApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
 const FILTERS = ["전체", "정책", "산업", "경제", "규제"];
 const CATEGORY_OPTIONS = FILTERS.filter((item) => item !== "전체");
 const STATUS_OPTIONS = ["모니터링", "분석중", "요약완료"];
 
-// ✅ 사용자 입력 이슈와 AI 생성 리포트를 브라우저에 저장하는 키
 const CUSTOM_ISSUES_KEY = "customIssues";
 const GENERATED_REPORTS_KEY = "generatedReports";
+const PAGE_SIZE = 10;
 
 function priorityByCategory(category) {
   if (category === "정책") return "높음";
@@ -42,10 +42,11 @@ function nextIssueId(issues) {
     const num = matched ? Number(matched[1]) : 0;
     return Number.isFinite(num) ? Math.max(acc, num) : acc;
   }, 0);
+
   return `ISS-${String(max + 1).padStart(3, "0")}`;
 }
 
-function buildIssueDetail(summary, category) {
+function buildIssueDetail(summary, category, keywords = []) {
   return {
     why: `${category} 관련 이슈가 새롭게 등록되어 배경 맥락을 수집 중입니다.`,
     now: summary,
@@ -54,11 +55,10 @@ function buildIssueDetail(summary, category) {
     highlights: ["초기 이슈 등록", "담당자 검토 필요", "근거 기사 연결 예정"],
     timeline: [{ time: "지금", event: "사용자 이슈 등록", source: "수동 입력" }],
     evidence: [{ sum: "등록된 요약 기반", ev: summary, source: "사용자 입력" }],
-    keywords: [category, "신규 이슈"],
+    keywords: Array.isArray(keywords) ? keywords : [category, "신규 이슈"],
   };
 }
 
-// ✅ 이슈 데이터를 기반으로 리포트 본문을 자동 생성한다.
 function buildGeneratedReport(issue, type) {
   const generatedAt = Date.now();
   const reportId = `REP-${String(generatedAt).slice(-6)}`;
@@ -66,54 +66,151 @@ function buildGeneratedReport(issue, type) {
   const highlights = [
     `이슈 ${issue.id} 핵심: ${issue.title}`,
     `현재 상태: ${issue.status}, 우선순위: ${issue.priority}`,
-    `카테고리 ${issue.category} 기준 후속 모니터링 필요`,
-  ];
-
-  const timeline = [
-    { time: issue.updatedAt || "최근", event: "이슈 신호 감지 및 등록" },
-    { time: "현재", event: "핵심 요약 및 리포트 초안 자동 생성" },
-    { time: "다음", event: "근거 기사 및 지표 추가 분석 예정" },
-  ];
-
-  const related = [
-    { title: issue.title, source: "이슈 추적" },
-    { title: `${issue.category} 배경 기사 수집`, source: "자동 추천" },
-  ];
+    `카테고리: ${issue.category}`,
+    issue.related_count ? `연관 기사 수: ${issue.related_count}` : null,
+  ].filter(Boolean);
 
   return {
     id: reportId,
     type,
-    title: `${issue.title} ${type}`,
-    updatedAt: "오늘",
-    desc: issue.summary,
-    status: "신규",
-    summary: `${issue.summary} AI 초안 기준으로 핵심 포인트를 구조화했으며, 팀 검토 후 최종본으로 확정하는 흐름을 권장합니다.`,
-    highlights,
-    timeline,
-    related,
-    metrics: {
-      coverage: "초안",
-      volatility: issue.severity || "보통",
-      sentiment: issue.status === "요약완료" ? "중립" : "혼합",
-    },
-    sourceIssueId: issue.id,
-    createdAt: generatedAt,
+    createdAt: new Date(generatedAt).toLocaleString("ko-KR"),
+    issueId: issue.id,
+    issueSummaryId: issue.issue_summary_id || null,
+    articleId: issue.article_id || null,
+    title: `[${type}] ${issue.title}`,
+    summary: issue.summary,
+    body: [
+      `${issue.title} 관련 핵심 내용을 정리한 ${type} 초안입니다.`,
+      "",
+      "1. 핵심 요약",
+      issue.summary || "요약 데이터가 없습니다.",
+      "",
+      issue.background ? `배경: ${issue.background}` : "",
+      issue.keywords ? `키워드: ${issue.keywords}` : "",
+      issue.related_count ? `연관 기사 수: ${issue.related_count}` : "",
+      "",
+      "2. 현재 상태",
+      `- 상태: ${issue.status}`,
+      `- 카테고리: ${issue.category}`,
+      `- 우선순위: ${issue.priority}`,
+      `- 위험도: ${issue.severity}`,
+      "",
+      "3. 주요 포인트",
+      ...highlights.map((item) => `- ${item}`),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
+}
+
+function parseKeywords(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (!value) return [];
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeBackendIssue(item) {
+  const category = item?.category || "산업";
+  const status = item?.status || "요약완료";
+  const summary =
+    item?.summary ||
+    item?.short_summary ||
+    item?.ultra_short ||
+    item?.background ||
+    "요약 내용이 없습니다.";
+  const keywords = parseKeywords(item?.keywords);
+
+  return {
+    id: item?.issue_summary_id || item?.id,
+    issue_summary_id: item?.issue_summary_id || item?.id || null,
+    article_id: item?.article_id ?? null,
+    title: item?.title || "제목 없음",
+    summary,
+    short_summary: item?.short_summary || "",
+    ultra_short: item?.ultra_short || "",
+    background: item?.background || "",
+    keywords: item?.keywords || "",
+    keywordList: keywords,
+    related_count: Number(item?.related_count || 0),
+    category,
+    status,
+    updatedAt: item?.updatedAt || "-",
+    priority: item?.priority || priorityByCategory(category),
+    severity: item?.severity || severityByStatus(status),
+    press_name: item?.press_name || "언론사 미상",
+    detail: item?.detail || buildIssueDetail(summary, category, keywords),
+    isCustom: false,
+  };
+}
+
+function normalizeCustomIssue(item) {
+  const category = item?.category || "산업";
+  const status = item?.status || "모니터링";
+  const summary = item?.summary || "요약 내용이 없습니다.";
+
+  return {
+    id: item?.id,
+    issue_summary_id: item?.issue_summary_id || null,
+    article_id: item?.article_id || null,
+    title: item?.title || "제목 없음",
+    summary,
+    short_summary: summary,
+    ultra_short: "",
+    background: "",
+    keywords: item?.keywords || "",
+    keywordList: parseKeywords(item?.keywords),
+    related_count: Number(item?.related_count || 0),
+    category,
+    status,
+    updatedAt: item?.updatedAt || "오늘",
+    priority: item?.priority || priorityByCategory(category),
+    severity: item?.severity || severityByStatus(status),
+    press_name: item?.press_name || "직접 등록",
+    detail:
+      item?.detail ||
+      buildIssueDetail(summary, category, parseKeywords(item?.keywords)),
+    isCustom: true,
+  };
+}
+
+function getCategoryCount(items, category) {
+  if (category === "전체") return items.length;
+  return items.filter((item) => item.category === category).length;
+}
+
+function getVisiblePages(currentPage, totalPages, maxVisible = 5) {
+  if (totalPages <= maxVisible) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  const half = Math.floor(maxVisible / 2);
+  let start = Math.max(1, currentPage - half);
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = end - maxVisible + 1;
+  }
+
+  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 }
 
 export default function IssuesPage() {
   const navigate = useNavigate();
 
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("전체");
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  // ✅ 빠른 작업 피드백 토스트: 작업 완료 결과를 짧게 보여준다.
+  const [filter, setFilter] = useState("전체");
+  const [query, setQuery] = useState("");
   const [quickToast, setQuickToast] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [selectedIssue, setSelectedIssue] = useState(null);
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
 
-  // ✅ 신규 이슈 등록 모달 상태/폼
   const [issueModalOpen, setIssueModalOpen] = useState(false);
   const [issueForm, setIssueForm] = useState({
     title: "",
@@ -123,7 +220,6 @@ export default function IssuesPage() {
   });
   const [issueFormError, setIssueFormError] = useState("");
 
-  // ✅ 요약 리포트 생성 모달 상태/폼
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportForm, setReportForm] = useState({
     issueId: "",
@@ -134,22 +230,31 @@ export default function IssuesPage() {
   useEffect(() => {
     let mounted = true;
 
-    const fetchIssues = async () => {
+    const fetchAllIssues = async () => {
       try {
         setLoading(true);
         setError("");
+
         const seed = await getIssues();
-        const custom = readLocalArray(CUSTOM_ISSUES_KEY);
-        // ✅ 더미 이슈 + 사용자 등록 이슈를 함께 보여준다.
-        if (mounted) setIssues([...custom, ...seed]);
-      } catch {
+        const backendIssues = Array.isArray(seed)
+          ? seed.map(normalizeBackendIssue)
+          : [];
+
+        const customIssues = readLocalArray(CUSTOM_ISSUES_KEY).map(normalizeCustomIssue);
+
+        if (mounted) {
+          setIssues([...customIssues, ...backendIssues]);
+        }
+      } catch (err) {
+        console.error("이슈 데이터 조회 실패:", err);
         if (mounted) setError("이슈 데이터를 불러오지 못했습니다.");
       } finally {
         if (mounted) setLoading(false);
       }
     };
 
-    fetchIssues();
+    fetchAllIssues();
+
     return () => {
       mounted = false;
     };
@@ -157,19 +262,57 @@ export default function IssuesPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return issues.filter((issue) => {
-      const categoryMatch = filter === "전체" || issue.category === filter;
-      const textMatch =
-        !q ||
-        String(issue.title || "").toLowerCase().includes(q) ||
-        String(issue.summary || "").toLowerCase().includes(q) ||
-        String(issue.id || "").toLowerCase().includes(q);
-      return categoryMatch && textMatch;
-    });
+
+    return [...issues]
+      .filter((issue) => {
+        const categoryMatch = filter === "전체" || issue.category === filter;
+        const textMatch =
+          !q ||
+          String(issue.title || "").toLowerCase().includes(q) ||
+          String(issue.summary || "").toLowerCase().includes(q) ||
+          String(issue.id || "").toLowerCase().includes(q) ||
+          String(issue.article_id || "").toLowerCase().includes(q) ||
+          String(issue.press_name || "").toLowerCase().includes(q) ||
+          String(issue.keywords || "").toLowerCase().includes(q);
+
+        return categoryMatch && textMatch;
+      })
+      .sort((a, b) => {
+        const aCount = Number(a?.related_count || 0);
+        const bCount = Number(b?.related_count || 0);
+
+        // 연관기사 수 많은 순 정렬
+        if (bCount !== aCount) return bCount - aCount;
+
+        // 같으면 최신 이슈가 위로 오도록 보조 정렬
+        return String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
+      });
   }, [issues, query, filter]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+
+  const pagedIssues = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filtered, currentPage]);
+
+  const visiblePages = useMemo(
+    () => getVisiblePages(currentPage, totalPages, 5),
+    [currentPage, totalPages]
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, filter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const selectedReportIssue = useMemo(
-    () => issues.find((item) => item.id === reportForm.issueId) || null,
+    () => issues.find((item) => String(item.id) === String(reportForm.issueId)) || null,
     [issues, reportForm.issueId]
   );
 
@@ -183,10 +326,12 @@ export default function IssuesPage() {
     }
 
     const categories = [...new Set(issues.map((item) => item.category).filter(Boolean))];
+    const presses = [...new Set(issues.map((item) => item.press_name).filter(Boolean))];
+
     return {
       keywords: categories.slice(0, 3).join(" · ") || "데이터 없음",
-      sentiment: "데이터 없음",
-      sectors: "데이터 없음",
+      sentiment: "요약완료 중심",
+      sectors: presses.slice(0, 3).join(" · ") || "데이터 없음",
     };
   }, [issues]);
 
@@ -216,8 +361,9 @@ export default function IssuesPage() {
       setQuickToast("생성할 이슈가 없어 먼저 이슈를 등록해 주세요.");
       return;
     }
+
     setReportForm({
-      issueId: issues[0].id,
+      issueId: String(issues[0].id),
       type: "이슈 리포트",
     });
     setReportFormError("");
@@ -226,6 +372,7 @@ export default function IssuesPage() {
 
   const submitIssue = (event) => {
     event.preventDefault();
+
     const title = issueForm.title.trim();
     const summary = issueForm.summary.trim();
 
@@ -236,14 +383,24 @@ export default function IssuesPage() {
 
     const newIssue = {
       id: nextIssueId(issues),
+      issue_summary_id: null,
+      article_id: null,
       title,
       summary,
+      short_summary: summary,
+      ultra_short: "",
+      background: "",
+      keywords: "",
+      keywordList: [],
+      related_count: 0,
       category: issueForm.category,
       status: issueForm.status,
       updatedAt: "오늘",
       priority: priorityByCategory(issueForm.category),
       severity: severityByStatus(issueForm.status),
-      detail: buildIssueDetail(summary, issueForm.category),
+      press_name: "직접 등록",
+      detail: buildIssueDetail(summary, issueForm.category, []),
+      isCustom: true,
     };
 
     setIssues((prev) => [newIssue, ...prev]);
@@ -253,6 +410,7 @@ export default function IssuesPage() {
 
     setFilter("전체");
     setQuery("");
+    setCurrentPage(1);
     closeIssueModal();
     setQuickToast(`${newIssue.id} 이슈가 등록되었습니다.`);
   };
@@ -265,7 +423,7 @@ export default function IssuesPage() {
       return;
     }
 
-    const issue = issues.find((item) => item.id === reportForm.issueId);
+    const issue = issues.find((item) => String(item.id) === String(reportForm.issueId));
     if (!issue) {
       setReportFormError("선택한 이슈를 찾지 못했습니다. 다시 선택해 주세요.");
       return;
@@ -280,7 +438,17 @@ export default function IssuesPage() {
     navigate(`/?view=reports&generated=${encodeURIComponent(generated.id)}`);
   };
 
-  // ✅ ESC 키로 모달을 닫아 키보드 접근성을 맞춘다.
+  const handleMoveDetail = (issue) => {
+    const articleId = issue?.article_id;
+
+    if (!articleId) {
+      alert("이 이슈에 연결된 기사 본문 ID가 없습니다.");
+      return;
+    }
+
+    navigate(`/?view=article&id=${articleId}`);
+  };
+
   useEffect(() => {
     if (!issueModalOpen && !reportModalOpen) return undefined;
 
@@ -294,12 +462,21 @@ export default function IssuesPage() {
     return () => window.removeEventListener("keydown", handleEscape);
   }, [issueModalOpen, reportModalOpen]);
 
-  // ✅ 토스트는 잠깐 보여주고 자동으로 닫는다.
   useEffect(() => {
     if (!quickToast) return undefined;
     const timer = window.setTimeout(() => setQuickToast(""), 2200);
     return () => window.clearTimeout(timer);
   }, [quickToast]);
+
+  const openDetailModal = (issue) => {
+    setSelectedIssue(issue);
+    setDetailModalOpen(true);
+  };
+
+  const closeDetailModal = () => {
+    setDetailModalOpen(false);
+    setSelectedIssue(null);
+  };
 
   return (
     <div className="page issues-page">
@@ -308,12 +485,11 @@ export default function IssuesPage() {
           <div className="pageTitle">이슈 추적</div>
           <div className="pageDesc">핵심 이슈를 빠르게 추적하고 우선순위를 정리합니다.</div>
         </div>
+
         <div className="issues-stats issues-stats-single">
           <div className="issues-stat">
-            <div className="issues-stat-label">오늘 업데이트</div>
-            <div className="issues-stat-value">
-              {issues.filter((item) => item.updatedAt === "오늘").length}건
-            </div>
+            <div className="issues-stat-label">전체 이슈</div>
+            <div className="issues-stat-value">{issues.length}건</div>
           </div>
         </div>
       </div>
@@ -323,236 +499,427 @@ export default function IssuesPage() {
           <input
             className="issues-input"
             type="text"
-            placeholder="이슈 제목, 요약, ID로 검색"
+            placeholder="이슈 제목, 요약, ID, 언론사, 키워드로 검색"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+
+        <div className="issues-toolbar-actions">
+          <button type="button" className="issues-btn secondary" onClick={openReportModal}>
+            리포트 생성
+          </button>
+          <button type="button" className="issues-btn primary" onClick={openIssueModal}>
+            신규 이슈 등록
+          </button>
+        </div>
+      </div>
+
+      <div className="issues-filter-row">
+        {FILTERS.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={`issues-filter-chip ${filter === item ? "active" : ""}`}
+            onClick={() => setFilter(item)}
+          >
+            {item}
+            <span className="issues-filter-count">{getCategoryCount(issues, item)}</span>
+          </button>
+        ))}
       </div>
 
       <div className="issues-grid">
         <section className="issues-list">
+          <div className="issues-list-head">
+            <div className="issues-list-summary">
+              전체 <strong>{filtered.length}</strong>건
+              <span className="issues-list-divider">|</span>
+              페이지 <strong>{currentPage}</strong> / {totalPages}
+            </div>
+          </div>
+
           {loading ? (
             <div className="issues-empty">불러오는 중...</div>
           ) : error ? (
             <div className="issues-empty">{error}</div>
           ) : filtered.length === 0 ? (
-            <div className="issues-empty">검색 결과가 없습니다.</div>
+            <div className="issues-empty">조건에 맞는 이슈가 없습니다.</div>
           ) : (
-            filtered.map((issue) => (
-              <div key={issue.id} className="issue-card">
-                <div className="issue-card-top">
-                  <div className="issue-badges">
-                    <span className="issue-id">{issue.id}</span>
-                    <span
-                      className={`issue-pill issue-status ${
-                        issue.status === "요약완료" ? "done" : issue.status === "분석중" ? "analysis" : "monitor"
-                      }`}
-                    >
-                      {issue.status}
-                    </span>
-                    <span
-                      className={`issue-pill issue-priority ${
-                        issue.priority === "높음" ? "high" : issue.priority === "중간" ? "mid" : "low"
-                      }`}
-                    >
-                      우선순위 {issue.priority}
-                    </span>
-                    <span
-                      className={`issue-pill issue-severity ${
-                        issue.severity === "위험" ? "danger" : issue.severity === "경고" ? "warn" : "normal"
-                      }`}
-                    >
-                      심각도 {issue.severity}
-                    </span>
-                  </div>
-                  <span className="issue-date">{issue.updatedAt}</span>
-                </div>
-                <div className="issue-title">{issue.title}</div>
-                <div className="issue-summary">{issue.summary}</div>
-                <div className="issue-card-foot">
-                  <span className="issue-category">{issue.category}</span>
+            <>
+              {pagedIssues.map((issue) => (
+                <article
+                  key={`${issue.id}-${issue.issue_summary_id || "custom"}`}
+                  className="issue-card"
+                >
                   <button
                     type="button"
-                    className="issue-action"
-                    onClick={() => navigate(`/?view=issue&id=${encodeURIComponent(issue.id)}`)}
+                    className="issues-card-button"
+                    onClick={() => openDetailModal(issue)}
                   >
-                    상세 보기
+                    <div className="issue-card-top">
+                      <div className="issue-badges">
+                        <span className="issue-id">
+                          {issue.issue_summary_id ? `ISSUE-${issue.issue_summary_id}` : issue.id}
+                        </span>
+
+                        <span
+                          className={`issue-pill issue-status ${issue.status === "모니터링"
+                            ? "monitor"
+                            : issue.status === "분석중"
+                              ? "analysis"
+                              : "done"
+                            }`}
+                        >
+                          {issue.status}
+                        </span>
+
+                        <span className="issue-category">{issue.category}</span>
+
+                        <span
+                          className={`issue-priority ${issue.priority === "높음"
+                            ? "high"
+                            : issue.priority === "중간"
+                              ? "mid"
+                              : "low"
+                            }`}
+                        >
+                          우선순위 {issue.priority}
+                        </span>
+
+                        <span
+                          className={`issue-severity ${issue.severity === "위험"
+                            ? "danger"
+                            : issue.severity === "경고"
+                              ? "warn"
+                              : "normal"
+                            }`}
+                        >
+                          위험도 {issue.severity}
+                        </span>
+                      </div>
+
+                      <div className="issue-date">{issue.updatedAt}</div>
+                    </div>
+
+                    <div className="issue-title">{issue.title}</div>
+                    <div className="issue-summary">{issue.summary}</div>
+
+                    {!!issue.keywordList?.length && (
+                      <div className="issue-keywords">
+                        {issue.keywordList.slice(0, 5).map((keyword, index) => (
+                          <span key={`${issue.id}-kw-${index}`} className="issue-keyword">
+                            #{keyword}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="issue-card-foot">
+                      <div className="issue-foot-left">
+                        <span>언론사: {issue.press_name}</span>
+                        {issue.related_count > 0 && <span>연관 기사 수: {issue.related_count}</span>}
+                      </div>
+
+                      <button
+                        type="button"
+                        className="issue-action"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openDetailModal(issue);
+                        }}
+                      >
+                        상세 보기
+                      </button>
+                    </div>
                   </button>
+                </article>
+              ))}
+
+              {detailModalOpen && selectedIssue && (
+                <div className="archive-detail-backdrop" onClick={closeDetailModal}>
+                  <div
+                    className="archive-detail-modal"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="archive-detail-top">
+                      <span className="archive-detail-category">
+                        {selectedIssue.category || "기타"}
+                      </span>
+                      <span className="archive-detail-date">
+                        {selectedIssue.updatedAt || "-"}
+                      </span>
+                    </div>
+
+                    <div className="archive-detail-title">
+                      {selectedIssue.title}
+                    </div>
+
+                    <div className="archive-detail-summary">
+                      {selectedIssue.summary}
+                    </div>
+
+                    {!!selectedIssue.keywordList?.length && (
+                      <div className="archive-detail-keywords">
+                        {selectedIssue.keywordList.map((keyword, index) => (
+                          <span
+                            key={`${selectedIssue.id}-detail-kw-${index}`}
+                            className="archive-detail-keyword"
+                          >
+                            #{keyword}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="archive-detail-divider" />
+
+                    <div className="archive-detail-actions">
+                      <button
+                        type="button"
+                        className="archive-detail-btn primary"
+                        onClick={() => {
+                          closeDetailModal();
+                          handleMoveDetail(selectedIssue);
+                        }}
+                      >
+                        본문 보기
+                      </button>
+
+                      <button
+                        type="button"
+                        className="archive-detail-btn"
+                        onClick={closeDetailModal}
+                      >
+                        닫기
+                      </button>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              <div className="issues-pagination">
+                <button
+                  type="button"
+                  className="issues-page-btn nav"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  이전
+                </button>
+
+                {visiblePages[0] > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      className={`issues-page-btn ${currentPage === 1 ? "active" : ""}`}
+                      onClick={() => setCurrentPage(1)}
+                    >
+                      1
+                    </button>
+                    {visiblePages[0] > 2 && (
+                      <span className="issues-page-ellipsis">...</span>
+                    )}
+                  </>
+                )}
+
+                {visiblePages.map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    className={`issues-page-btn ${currentPage === page ? "active" : ""}`}
+                    onClick={() => setCurrentPage(page)}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                {visiblePages[visiblePages.length - 1] < totalPages && (
+                  <>
+                    {visiblePages[visiblePages.length - 1] < totalPages - 1 && (
+                      <span className="issues-page-ellipsis">...</span>
+                    )}
+                    <button
+                      type="button"
+                      className={`issues-page-btn ${currentPage === totalPages ? "active" : ""}`}
+                      onClick={() => setCurrentPage(totalPages)}
+                    >
+                      {totalPages}
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  className="issues-page-btn nav"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  다음
+                </button>
               </div>
-            ))
+            </>
           )}
         </section>
 
         <aside className="issues-side">
-          <SideMenuCard collapsible showScrollTop />
+          <div className="issues-panel">
+            <div className="issues-panel-title">요약 스냅샷</div>
+            <div className="issues-summary-list">
+              <div className="issues-summary-item">
+                <div className="issues-summary-label">핵심 카테고리</div>
+                <div className="issues-summary-value">{summarySnapshot.keywords}</div>
+              </div>
+              <div className="issues-summary-item">
+                <div className="issues-summary-label">상태 요약</div>
+                <div className="issues-summary-value">{summarySnapshot.sentiment}</div>
+              </div>
+              <div className="issues-summary-item">
+                <div className="issues-summary-label">주요 언론사</div>
+                <div className="issues-summary-value">{summarySnapshot.sectors}</div>
+              </div>
+            </div>
+          </div>
 
-          <section className="issues-side-ad-slot" aria-label="스폰서 광고">
-            <article className="right-ad-card">
-              <div className="right-ad-tag">광고</div>
-              <div className="right-ad-title">이슈 브리핑 뉴스레터</div>
-              <p className="right-ad-copy">매일 아침 핵심 이슈를 3분 요약으로 받아보세요.</p>
-              <div className="right-ad-visual" aria-hidden="true" />
-            </article>
-          </section>
+          <SideMenuCard collapsible showScrollTop />
         </aside>
       </div>
 
       {issueModalOpen && (
-        <div className="issue-quick-modal-backdrop" role="presentation" onClick={closeIssueModal}>
-          <section
-            className="issue-quick-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="issue-create-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="issue-create-modal-title" className="issue-quick-modal-title">
-              신규 이슈 등록
-            </h3>
-            <p className="issue-quick-modal-message">핵심 항목을 입력하면 목록에 즉시 반영됩니다.</p>
+        <div className="issues-modal-backdrop" onClick={closeIssueModal}>
+          <div className="issues-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="issues-modal-title">신규 이슈 등록</div>
 
-            <form className="issue-quick-form" onSubmit={submitIssue}>
-              <label className="issue-quick-field" htmlFor="issue-title">
-                <span className="issue-quick-label">이슈 제목</span>
-                <input
-                  id="issue-title"
-                  className="issue-quick-input"
-                  value={issueForm.title}
-                  onChange={(event) => setIssueForm((prev) => ({ ...prev, title: event.target.value }))}
-                  placeholder="예: 공급망 병목 심화"
-                />
-              </label>
+            <form onSubmit={submitIssue} className="issues-form">
+              <input
+                className="issues-input"
+                type="text"
+                placeholder="이슈 제목"
+                value={issueForm.title}
+                onChange={(e) =>
+                  setIssueForm((prev) => ({ ...prev, title: e.target.value }))
+                }
+              />
 
-              <label className="issue-quick-field" htmlFor="issue-summary">
-                <span className="issue-quick-label">요약</span>
-                <textarea
-                  id="issue-summary"
-                  className="issue-quick-textarea"
-                  value={issueForm.summary}
-                  onChange={(event) => setIssueForm((prev) => ({ ...prev, summary: event.target.value }))}
-                  placeholder="핵심 배경과 현재 상황을 1~2문장으로 입력"
-                  rows={3}
-                />
-              </label>
+              <textarea
+                className="issues-textarea"
+                placeholder="이슈 요약"
+                value={issueForm.summary}
+                onChange={(e) =>
+                  setIssueForm((prev) => ({ ...prev, summary: e.target.value }))
+                }
+              />
 
-              <div className="issue-quick-grid">
-                <label className="issue-quick-field" htmlFor="issue-category">
-                  <span className="issue-quick-label">카테고리</span>
-                  <select
-                    id="issue-category"
-                    className="issue-quick-select"
-                    value={issueForm.category}
-                    onChange={(event) => setIssueForm((prev) => ({ ...prev, category: event.target.value }))}
-                  >
-                    {CATEGORY_OPTIONS.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="issues-form-row">
+                <select
+                  className="issues-select"
+                  value={issueForm.category}
+                  onChange={(e) =>
+                    setIssueForm((prev) => ({ ...prev, category: e.target.value }))
+                  }
+                >
+                  {CATEGORY_OPTIONS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
 
-                <label className="issue-quick-field" htmlFor="issue-status">
-                  <span className="issue-quick-label">상태</span>
-                  <select
-                    id="issue-status"
-                    className="issue-quick-select"
-                    value={issueForm.status}
-                    onChange={(event) => setIssueForm((prev) => ({ ...prev, status: event.target.value }))}
-                  >
-                    {STATUS_OPTIONS.map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <select
+                  className="issues-select"
+                  value={issueForm.status}
+                  onChange={(e) =>
+                    setIssueForm((prev) => ({ ...prev, status: e.target.value }))
+                  }
+                >
+                  {STATUS_OPTIONS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              {issueFormError && <div className="issue-quick-error">{issueFormError}</div>}
+              {issueFormError ? (
+                <div className="issues-form-error">{issueFormError}</div>
+              ) : null}
 
-              <div className="issue-quick-modal-actions">
-                <button type="button" className="issue-quick-modal-cancel" onClick={closeIssueModal}>
+              <div className="issues-modal-actions">
+                <button type="button" className="issues-btn secondary" onClick={closeIssueModal}>
                   취소
                 </button>
-                <button type="submit" className="issue-quick-modal-confirm">
+                <button type="submit" className="issues-btn primary">
                   등록
                 </button>
               </div>
             </form>
-          </section>
+          </div>
         </div>
       )}
 
       {reportModalOpen && (
-        <div className="issue-quick-modal-backdrop" role="presentation" onClick={closeReportModal}>
-          <section
-            className="issue-quick-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="issue-report-modal-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h3 id="issue-report-modal-title" className="issue-quick-modal-title">
-              요약 리포트 생성
-            </h3>
-            <p className="issue-quick-modal-message">이슈를 선택하면 AI 초안 리포트를 자동 생성합니다.</p>
+        <div className="issues-modal-backdrop" onClick={closeReportModal}>
+          <div className="issues-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="issues-modal-title">요약 리포트 생성</div>
 
-            <form className="issue-quick-form" onSubmit={submitReport}>
-              <label className="issue-quick-field" htmlFor="report-issue">
-                <span className="issue-quick-label">대상 이슈</span>
-                <select
-                  id="report-issue"
-                  className="issue-quick-select"
-                  value={reportForm.issueId}
-                  onChange={(event) => setReportForm((prev) => ({ ...prev, issueId: event.target.value }))}
-                >
-                  {issues.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.id} · {item.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <form onSubmit={submitReport} className="issues-form">
+              <select
+                className="issues-select"
+                value={reportForm.issueId}
+                onChange={(e) =>
+                  setReportForm((prev) => ({ ...prev, issueId: e.target.value }))
+                }
+              >
+                {issues.map((item) => (
+                  <option key={String(item.id)} value={String(item.id)}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
 
-              <label className="issue-quick-field" htmlFor="report-type">
-                <span className="issue-quick-label">리포트 유형</span>
-                <select
-                  id="report-type"
-                  className="issue-quick-select"
-                  value={reportForm.type}
-                  onChange={(event) => setReportForm((prev) => ({ ...prev, type: event.target.value }))}
-                >
-                  <option value="이슈 리포트">이슈 리포트</option>
-                  <option value="주간 브리핑">주간 브리핑</option>
-                </select>
-              </label>
+              <select
+                className="issues-select"
+                value={reportForm.type}
+                onChange={(e) =>
+                  setReportForm((prev) => ({ ...prev, type: e.target.value }))
+                }
+              >
+                <option value="이슈 리포트">이슈 리포트</option>
+                <option value="브리핑 노트">브리핑 노트</option>
+                <option value="상황 보고서">상황 보고서</option>
+              </select>
 
               {selectedReportIssue && (
-                <div className="issue-quick-helper">
-                  선택 이슈: {selectedReportIssue.id} / 우선순위 {selectedReportIssue.priority} / 심각도{" "}
-                  {selectedReportIssue.severity}
+                <div className="issues-report-preview">
+                  <div className="issues-report-preview-title">{selectedReportIssue.title}</div>
+                  <div className="issues-report-preview-summary">
+                    {selectedReportIssue.summary}
+                  </div>
                 </div>
               )}
 
-              {reportFormError && <div className="issue-quick-error">{reportFormError}</div>}
+              {reportFormError ? (
+                <div className="issues-form-error">{reportFormError}</div>
+              ) : null}
 
-              <div className="issue-quick-modal-actions">
-                <button type="button" className="issue-quick-modal-cancel" onClick={closeReportModal}>
+              <div className="issues-modal-actions">
+                <button
+                  type="button"
+                  className="issues-btn secondary"
+                  onClick={closeReportModal}
+                >
                   취소
                 </button>
-                <button type="submit" className="issue-quick-modal-confirm">
+                <button type="submit" className="issues-btn primary">
                   생성
                 </button>
               </div>
             </form>
-          </section>
+          </div>
         </div>
       )}
 
-      {quickToast && <div className="issue-quick-toast">{quickToast}</div>}
+      {quickToast ? <div className="issues-toast">{quickToast}</div> : null}
     </div>
   );
 }

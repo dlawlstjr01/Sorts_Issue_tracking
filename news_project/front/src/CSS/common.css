@@ -2721,6 +2721,123 @@ body {
   padding: 10px 14px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, 0.16);
 }
+
+.issues-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.issues-list-summary {
+  font-size: 14px;
+  color: #4b5563;
+}
+
+.issues-list-divider {
+  margin: 0 8px;
+  color: #9ca3af;
+}
+
+.issue-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.issue-keyword {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f3f7ff;
+  border: 1px solid #dbe8ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.issue-foot-left {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.issues-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.issues-page-btn {
+  min-width: 40px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid #dbe3f0;
+  background: #ffffff;
+  color: #2563eb;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.issues-page-btn:hover:not(:disabled) {
+  border-color: #bfd3ff;
+  background: #f8fbff;
+}
+
+.issues-page-btn.active {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+.issues-page-btn.nav {
+  min-width: 58px;
+}
+
+.issues-page-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.issues-page-ellipsis {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.issues-card-button {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .issue-card-foot {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .issue-foot-left {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
 /* ===== Archive Page ===== */
 .archive-page {
   max-width: 1200px;
@@ -3903,4 +4020,124 @@ body {
     right: 12px;
     bottom: 18px;
   }
+}
+
+.archive-detail-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 28, 45, 0.35);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  padding: 24px;
+}
+
+.archive-detail-modal {
+  width: min(680px, 100%);
+  background: #ffffff;
+  border: 1px solid #d9e4f2;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(33, 52, 90, 0.18);
+  padding: 18px 20px 16px;
+}
+
+.archive-detail-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.archive-detail-category {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #cfe0ff;
+  background: #f3f8ff;
+  color: #2f6fe4;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.archive-detail-date {
+  font-size: 14px;
+  color: #97a3b6;
+  font-weight: 600;
+}
+
+.archive-detail-title {
+  font-size: 20px;
+  line-height: 1.45;
+  font-weight: 800;
+  color: #1c2431;
+  margin-bottom: 14px;
+  word-break: keep-all;
+}
+
+.archive-detail-summary {
+  font-size: 16px;
+  line-height: 1.8;
+  color: #3f4b5f;
+  word-break: keep-all;
+  white-space: pre-line;
+}
+
+.archive-detail-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.archive-detail-keyword {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #f4f7fb;
+  border: 1px solid #d9e4f2;
+  color: #4b5a73;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.archive-detail-divider {
+  height: 1px;
+  background: #e4ebf5;
+  margin: 18px 0 14px;
+}
+
+.archive-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.archive-detail-btn {
+  min-width: 86px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid #d4dfef;
+  background: #ffffff;
+  color: #31435f;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.archive-detail-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(49, 67, 95, 0.08);
+}
+
+.archive-detail-btn.primary {
+  border-color: #c7d9ff;
+  background: #f4f8ff;
+  color: #2f6fe4;
 }

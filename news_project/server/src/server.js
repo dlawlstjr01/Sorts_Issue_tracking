@@ -15,6 +15,7 @@ const { startCrawler } = require("./services/crawlerService");
 const issueArchiveRoutes = require("./routes/issueArchiveRoutes");
 const { warmIssuesCache } = require("./services/trackingService");
 const searchRoutes = require("./routes/searchRoutes");
+const noticeRoutes = require("./routes/noticeRoutes");
 
 const ENABLE_CRAWLER =
   String(process.env.ENABLE_CRAWLER || "true").toLowerCase() === "true";
@@ -48,6 +49,7 @@ app.use("/tracking", trackingRoutes);
 app.use("/issue-archives", issueArchiveRoutes);
 app.use("/user-log", userLogRoutes);
 app.use("/search", searchRoutes);
+app.use("/notices", noticeRoutes);
 
 const PORT = process.env.PORT || 5000;
 

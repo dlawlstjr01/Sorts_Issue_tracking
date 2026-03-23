@@ -87,3 +87,27 @@ exports.dictionarySearch = async (req, res) => {
       .json({ message: err.message || "사전 검색 중 오류가 발생했습니다." });
   }
 };
+
+exports.getIssues = async (req, res) => {
+  try {
+    const rows = await newsService.getIssues();
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({
+      message: err.message || "이슈 목록 조회 실패",
+    });
+  }
+};
+
+exports.getArticle = async (req, res) => {
+  try {
+    const data = await newsService.getArticle(req.params.id);
+    return res.json(data);
+  } catch (err) {
+    console.error("[newsController.getArticle]", err);
+    return res.status(err.statusCode || 500).json({
+      message: err.message || "기사 조회 실패",
+    });
+  }
+};

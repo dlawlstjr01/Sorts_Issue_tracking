@@ -1,32 +1,24 @@
-const ISSUE_LIST = [];
+// import axios from "axios";
 
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// export const getIssues = async () => {
+//   const response = await axios.get("/news/issues", {
+//     withCredentials: true,
+//   });
 
-const priorityByCategory = (category) => {
-  if (category === "정책") return "높음";
-  if (category === "경제" || category === "규제") return "중간";
-  return "낮음";
-};
+//   const data = response?.data;
 
-const severityByStatus = (status) => {
-  if (status === "분석중") return "위험";
-  if (status === "모니터링") return "경고";
-  return "보통";
-};
+//   if (Array.isArray(data)) return data;
+//   if (Array.isArray(data?.items)) return data.items;
 
-const hydrateIssue = (issue) => ({
-  ...issue,
-  priority: priorityByCategory(issue.category),
-  severity: severityByStatus(issue.status),
-});
+//   return [];
+// };
 
-export async function getIssues() {
-  await delay(200);
-  return ISSUE_LIST.map(hydrateIssue);
-}
+// export const getIssueById = async (id) => {
+//   if (!id) return null;
 
-export async function getIssueById(id) {
-  await delay(200);
-  const found = ISSUE_LIST.find((issue) => issue.id === id);
-  return found ? hydrateIssue(found) : null;
-}
+//   const response = await axios.get(`/news/articles/${id}`, {
+//     withCredentials: true,
+//   });
+
+//   return response?.data || null;
+// };

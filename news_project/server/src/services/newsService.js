@@ -485,32 +485,28 @@ exports.listArticles = async ({
 };
 
 exports.getArticle = async (id) => {
-  const issueSummaryId = Number(id);
+  const articleId = Number(id);
 
-  if (!Number.isFinite(issueSummaryId)) {
+  if (!Number.isFinite(articleId)) {
     throw makeError("id가 올바르지 않습니다.", 400);
   }
 
   const [rows] = await db.query(
     `
     SELECT
-      a.id,
-      a.url,
-      a.title,
-      a.thumbnail,
-      a.content,
-      a.category,
-      a.published_at,
-      a.created_at,
-      i.id AS issue_summary_id,
-      i.article_id
-    FROM issue_summaries i
-    JOIN articles a
-      ON i.article_id = a.id
-    WHERE i.id = ?
+      id,
+      url,
+      title,
+      thumbnail,
+      content,
+      category,
+      published_at,
+      created_at
+    FROM articles
+    WHERE id = ?
     LIMIT 1
     `,
-    [issueSummaryId]
+    [articleId]
   );
 
   if (!rows.length) {
@@ -574,4 +570,84 @@ exports.listCategories = async () => {
   );
 
   return rows;
+};
+
+function formatIssueDate(raw) {
+  if (!raw) return "-";
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return String(raw).slice(0, 10);
+  }
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function priorityByCategory(category) {
+  const value = String(category || "").trim();
+
+  if (value === "정책") return "높음";
+  if (value === "경제" || value === "규제") return "중간";
+  return "낮음";
+}
+
+function severityByStatus(status) {
+  if (status === "분석중") return "위험";
+  if (status === "모니터링") return "경고";
+  return "보통";
+}
+
+exports.getIssues = async () => {
+  const [rows] = await db.query(
+    `
+    SELECT
+      i.id AS issue_summary_id,
+      i.article_id,
+      i.related_count,
+      i.short_summary,
+      i.ultra_short,
+      i.background,
+      i.keywords,
+      i.created_at AS summary_created_at,
+      a.title,
+      a.category,
+      a.published_at,
+      a.created_at AS article_created_at,
+      a.url
+    FROM issue_summaries i
+    JOIN articles a
+      ON i.article_id = a.id
+    ORDER BY i.created_at DESC, i.id DESC
+    LIMIT 100
+    `
+  );
+
+  return rows.map((row) => ({
+    id: row.issue_summary_id,
+    issue_summary_id: row.issue_summary_id,
+    issue_id: null,
+    article_id: row.article_id,
+    title: row.title || "제목 없음",
+    summary:
+      row.short_summary ||
+      row.ultra_short ||
+      row.background ||
+      "요약 내용이 없습니다.",
+    short_summary: row.short_summary || "",
+    ultra_short: row.ultra_short || "",
+    background: row.background || "",
+    keywords: row.keywords || "",
+    related_count: Number(row.related_count || 0),
+    category: row.category || "산업",
+    status: "요약완료",
+    updatedAt: formatIssueDate(
+      row.published_at || row.summary_created_at || row.article_created_at
+    ),
+    priority: priorityByCategory(row.category),
+    severity: severityByStatus("요약완료"),
+    press_name: resolvePressByUrl(row.url),
+  }));
 };

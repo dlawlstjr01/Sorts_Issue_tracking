@@ -130,7 +130,6 @@ async function getMyArchivedIssues(req) {
           s.related_count,
           s.keywords,
           s.background,
-          s.article_ids_json,
           s.created_at AS issue_created_at,
 
           a.id AS article_pk,

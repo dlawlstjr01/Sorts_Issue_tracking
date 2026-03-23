@@ -828,6 +828,21 @@ function LatestIssuesCarousel({ items, count, onItemClick, activeArticleId }) {
   );
 }
 
+function formatIssueCreatedAt(value) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+
+  return `${y}.${m}.${d} ${hh}:${mm}`;
+}
+
 export default function MainPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -954,7 +969,7 @@ export default function MainPage() {
     const bindScrollCue = (element, setState) => {
       if (!element) {
         setState({ showUp: false, showDown: false });
-        return () => {};
+        return () => { };
       }
 
       const update = () => {
@@ -1662,6 +1677,11 @@ export default function MainPage() {
                         <button className="mp-btn" type="button" onClick={() => openOriginal(article)}>
                           본문 보기
                         </button>
+
+                        <span className="issue-created-at">
+                          요약 생성일{" "}
+                          {formatIssueCreatedAt(article?.raw?.created_at || article?.createdAt)}
+                        </span>
                       </div>
                     </section>
 

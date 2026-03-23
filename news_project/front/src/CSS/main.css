@@ -910,6 +910,24 @@
 }
 
 .mp-floating-scroll .als-fab.dark:active { transform: translateY(0); }
+
+.issue-created-at {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 12px;
+  font-size: 13px;
+  color: #6b7280;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.mp-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 /* Hover / motion */
 @media (min-width: 821px) and (hover: hover) and (pointer: fine) {
 

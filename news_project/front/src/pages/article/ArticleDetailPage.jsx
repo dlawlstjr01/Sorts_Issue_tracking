@@ -11,8 +11,15 @@ import {
   getRememberedArticleDetail,
   rememberArticleDetail,
   toArticleDetailPayload,
+   
 } from "../../utils/articleDetail";
 import { withImageFallback } from "../../utils/imageUrl";
+import {
+  ARCHIVE_STORAGE_KEY,
+  getArchiveItemKey,
+  getArchiveKeySet,
+  toggleArchiveItem,
+} from "../../utils/archiveStorage";
 
 function formatPublishedDateTime(raw) {
   if (!raw) return "-";

@@ -23,6 +23,7 @@ Original file is located at
 # =========================================================
 
 import os, re, json, csv, math, time, hashlib, random, sys, subprocess, zipfile, html
+from difflib import SequenceMatcher
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
@@ -370,6 +371,12 @@ SUMMARY_COMPLETE_SOFT_MAX_CHARS = 112
 SUMMARY_COMPLETE_HARD_MAX_CHARS = 168
 SUMMARY_SHORT_MIN_CHARS = 14
 URGENT_TITLE_MAX_LINES = 2
+ISSUE_SUMMARY_MAX_SENTENCES_PER_ARTICLE = 6
+ISSUE_SUMMARY_MAX_LINES_PER_ARTICLE = 2
+ISSUE_SUMMARY_TITLE_SUPPORT_MIN = 2
+ISSUE_SUMMARY_LEAD_SUPPORT_MIN = 3
+ISSUE_SUMMARY_LINE_DUP_JACC = 0.62
+ISSUE_SUMMARY_LINE_DUP_OVERLAP = 0.82
 URGENT_TITLE_PREFIX_RE = re.compile(
     r"^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\s*[:\-]?\s*",
     re.IGNORECASE,
@@ -431,6 +438,15 @@ SUMMARY_PREFIX_NOISE_RE = re.compile(
     r"[가-힣A-Za-z]+=(?:AP|AFP|Reuters|로이터)\s*(?:뉴스1|뉴시스|연합뉴스)?\s*)",
     re.IGNORECASE,
 )
+SUMMARY_URGENT_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"\[(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\]\s*|"
+    r"(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\]\s*|"
+    r"\[(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\s*|"
+    r"(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\s*[:\-]?\s*"
+    r")",
+    re.IGNORECASE,
+)
 SUMMARY_CAPTION_PHRASES = (
     "발언을 듣고 있다",
     "진화 작업을 벌이고 있다",
@@ -439,6 +455,17 @@ SUMMARY_CAPTION_PHRASES = (
     "이동하고 있다",
     "질문에 답하고 있다",
     "브리핑을 하고 있다",
+    "참배하고 있다",
+    "묵념하고 있다",
+    "분향하고 있다",
+    "헌화하고 있다",
+)
+SUMMARY_CAPTION_LINE_RE = re.compile(
+    r"(?:"
+    r"(?:참배|묵념|분향|헌화|기념촬영|포즈|이동|환담|면담|예방|시찰|악수|브리핑)(?:을|를)?\s*하고 있다|"
+    r"발언을 듣고 있다|"
+    r"질문에 답하고 있다"
+    r")[\"'”’)\]]*$"
 )
 SUMMARY_OFFTOPIC_PHRASES = (
     "감사드립니다",
@@ -552,8 +579,9 @@ SUMMARY_SOURCE_TOKEN_RE = re.compile(
     r"[가-힣A-Za-z0-9]+(?:일보|신문|뉴스|경제|TV|방송|타임즈|타임스|데일리|투데이|저널|미디어|포스트|리포트|코리아|헤럴드|파이낸스))$",
     re.IGNORECASE,
 )
-SUMMARY_SOURCE_LINE_RE = re.compile(r"^(?:출처|제공|사진|자료사진|그래픽)\s*[:：]?\s*", re.IGNORECASE)
+SUMMARY_SOURCE_LINE_RE = re.compile(r"^(?:출처|제공|사진|자료사진|그래픽)\s*[:：=]?\s*", re.IGNORECASE)
 DISPLAY_MATCH_STOPWORDS = {
+    "속보", "단독", "긴급", "특보", "1보", "2보", "3보",
     "경찰", "검찰", "법원", "정부", "국회", "여야",
     "남성", "여성", "시민", "주민", "용의자", "피의자",
     "구속", "검거", "송치", "기소", "체포", "조사", "수사",
@@ -820,38 +848,15 @@ def _normalize_summary_candidate_text(text: str) -> str:
     s = clean_html_text(text)
     s = re.sub(r"^[\-\*\u2022\u25E6\u00B7]+\s*", "", s)
     s = SUMMARY_PREFIX_NOISE_RE.sub("", s).strip()
+    s = SUMMARY_URGENT_PREFIX_RE.sub("", s).strip()
     s = SUMMARY_REPORTER_TAIL_RE.sub("", s).strip()
     s = _strip_summary_source_tail(s)
-    s = re.sub(r"^(?:속보|단독)\s+", "", s).strip()
+    s = re.sub(r"\(\s*(?:사진|자료사진|그래픽)\s*\)", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"^(?:속보|단독|긴급|특보|1보|2보|3보|BREAKING)\s+", "", s, flags=re.IGNORECASE).strip()
     return re.sub(r"\s+", " ", s).strip(" -:;,/|")
 
 def _summary_probe_text(text: str) -> str:
     return _normalize_summary_candidate_text(text).strip(" \"'“”‘’.,!?()[]")
-
-def _is_source_like_token(token: str) -> bool:
-    t = re.sub(r"[^0-9A-Za-z가-힣]+", "", str(token or "").strip())
-    if not t:
-        return False
-    folded = t.replace(" ", "").lower()
-    if folded in SUMMARY_SOURCE_ONLY_EXACT:
-        return True
-    return bool(SUMMARY_SOURCE_TOKEN_RE.fullmatch(t))
-
-def _is_source_only_summary_line(text: str) -> bool:
-    probe = _summary_probe_text(text)
-    if not probe:
-        return True
-    if SUMMARY_SOURCE_LINE_RE.match(probe):
-        probe = SUMMARY_SOURCE_LINE_RE.sub("", probe).strip()
-        if not probe:
-            return True
-    collapsed = re.sub(r"\s+", "", probe).lower()
-    if collapsed in SUMMARY_SOURCE_ONLY_EXACT:
-        return True
-    toks = TOKEN_RE.findall(probe)
-    if not toks or len(toks) > 3:
-        return False
-    return all(_is_source_like_token(tok) for tok in toks)
 
 def _summary_content_tokens(text: str) -> List[str]:
     out: List[str] = []
@@ -891,17 +896,51 @@ def _is_source_only_summary_line(text: str) -> bool:
         return False
     return all(_is_source_like_token(tok) for tok in toks)
 
+def _looks_like_caption_summary_line(text: str) -> bool:
+    probe = _summary_probe_text(text)
+    if not probe:
+        return False
+    if any(phrase in probe for phrase in SUMMARY_CAPTION_PHRASES):
+        return True
+    return bool(SUMMARY_CAPTION_LINE_RE.search(probe))
+
+def _looks_like_contextless_summary_line(text: str) -> bool:
+    probe = _summary_probe_text(text)
+    if not probe:
+        return False
+
+    content_toks = set(_summary_content_tokens(probe))
+    if (
+        "이번이" in probe
+        and "번째" in probe
+        and len(content_toks) <= 5
+        and re.match(r"^(?:\d{1,2}일|올해|지난해|전날|이날|당시)", probe)
+    ):
+        return True
+
+    if (
+        re.match(r"^(?:이어|이후|또한|한편|그러나)\s+", probe)
+        and len(content_toks) <= 4
+    ):
+        return True
+
+    return False
+
 def _summary_line_usable(text: str, min_chars: int = SUMMARY_SHORT_MIN_CHARS) -> bool:
     s = _normalize_summary_candidate_text(text)
     if len(_summary_probe_text(s)) < int(min_chars):
         return False
     if "..." in s or "…" in s or "크게보기" in s:
         return False
-    if any(phrase in s for phrase in SUMMARY_CAPTION_PHRASES):
+    if SUMMARY_SOURCE_LINE_RE.match(s):
+        return False
+    if _looks_like_caption_summary_line(s):
         return False
     if any(phrase in s for phrase in SUMMARY_OFFTOPIC_PHRASES):
         return False
     if _is_source_only_summary_line(s):
+        return False
+    if _looks_like_contextless_summary_line(s):
         return False
     content_toks = _summary_content_tokens(s)
     if not content_toks:
@@ -912,6 +951,27 @@ def _summary_line_usable(text: str, min_chars: int = SUMMARY_SHORT_MIN_CHARS) ->
 
 def _summary_line_key(text: str) -> str:
     return re.sub(r"[^0-9A-Za-z가-힣]+", "", str(text or "").lower())
+
+def _summary_line_is_duplicate(candidate: str, seen_lines: List[str], seen_keys: List[str]) -> bool:
+    key = _summary_line_key(candidate)
+    if len(key) < int(SUMMARY_SHORT_MIN_CHARS):
+        return True
+
+    for prev_key, prev_line in zip(seen_keys, seen_lines):
+        if key == prev_key:
+            return True
+        if len(key) >= 18 and len(prev_key) >= 18 and (key in prev_key or prev_key in key):
+            return True
+
+        similar_fn = globals().get("_summary_lines_too_similar")
+        if callable(similar_fn):
+            try:
+                if bool(similar_fn(candidate, prev_line)):
+                    return True
+            except Exception:
+                pass
+
+    return False
 
 def _compact_summary_piece(text: str, max_chars: int) -> str:
     s = _normalize_summary_candidate_text(text)
@@ -949,9 +1009,11 @@ def _finalize_complete_sentence(text: str) -> str:
         return ""
     if "..." in s or "…" in s or "크게보기" in s:
         return ""
-    if any(phrase in s for phrase in SUMMARY_CAPTION_PHRASES):
+    if _looks_like_caption_summary_line(s):
         return ""
     if any(phrase in s for phrase in SUMMARY_OFFTOPIC_PHRASES):
+        return ""
+    if _looks_like_contextless_summary_line(s):
         return ""
     if re.search(r"[.!?。！？][\"'”’)\]]*$", s):
         return s
@@ -1020,6 +1082,7 @@ def complete_summary_lines(
         return []
 
     picked: List[str] = []
+    seen_lines: List[str] = []
     seen_keys: List[str] = []
 
     def _push(candidate: str) -> None:
@@ -1027,14 +1090,10 @@ def complete_summary_lines(
             return
         if not _summary_line_usable(candidate):
             return
-        key = _summary_line_key(candidate)
-        if len(key) < int(SUMMARY_SHORT_MIN_CHARS):
+        if _summary_line_is_duplicate(candidate, seen_lines, seen_keys):
             return
-        for prev in seen_keys:
-            if key == prev:
-                return
-            if len(key) >= 18 and len(prev) >= 18 and (key in prev or prev in key):
-                return
+        key = _summary_line_key(candidate)
+        seen_lines.append(candidate)
         seen_keys.append(key)
         picked.append("- " + candidate)
 
@@ -1083,6 +1142,7 @@ def compact_summary_lines(
         return []
 
     picked: List[str] = []
+    seen_lines: List[str] = []
     seen_keys: List[str] = []
 
     def _push(candidate: str) -> None:
@@ -1090,14 +1150,10 @@ def compact_summary_lines(
             return
         if not _summary_line_usable(candidate):
             return
-        key = _summary_line_key(candidate)
-        if len(key) < int(SUMMARY_SHORT_MIN_CHARS):
+        if _summary_line_is_duplicate(candidate, seen_lines, seen_keys):
             return
-        for prev in seen_keys:
-            if key == prev:
-                return
-            if len(key) >= 18 and len(prev) >= 18 and (key in prev or prev in key):
-                return
+        key = _summary_line_key(candidate)
+        seen_lines.append(candidate)
         seen_keys.append(key)
         picked.append("- " + candidate)
 
@@ -1729,6 +1785,224 @@ def refine_summary_lines_by_focus(
     out = post_clean_summary_lines([x[1] for x in picked])
     return out[: int(max_lines)]
 
+def _summary_token_overlap_stats(tokens_a: set, tokens_b: set) -> Tuple[int, float, float]:
+    if not tokens_a or not tokens_b:
+        return 0, 0.0, 0.0
+    shared = len(tokens_a & tokens_b)
+    if shared <= 0:
+        return 0, 0.0, 0.0
+    union = len(tokens_a | tokens_b)
+    jacc = float(shared / max(1, union))
+    overlap = float(shared / max(1, min(len(tokens_a), len(tokens_b))))
+    return shared, jacc, overlap
+
+def _summary_lines_too_similar(line_a: str, line_b: str) -> bool:
+    key_a = _summary_line_key(line_a)
+    key_b = _summary_line_key(line_b)
+    if not key_a or not key_b:
+        return False
+    if key_a == key_b:
+        return True
+    if len(key_a) >= 18 and len(key_b) >= 18 and (key_a in key_b or key_b in key_a):
+        return True
+
+    toks_a = set(_summary_content_tokens(line_a))
+    toks_b = set(_summary_content_tokens(line_b))
+    shared, jacc, overlap = _summary_token_overlap_stats(toks_a, toks_b)
+    if shared < 3:
+        return False
+    if jacc >= float(ISSUE_SUMMARY_LINE_DUP_JACC) or overlap >= float(ISSUE_SUMMARY_LINE_DUP_OVERLAP):
+        return True
+    if shared >= 5 and overlap >= 0.72:
+        return True
+    if shared >= 4 and SequenceMatcher(None, key_a, key_b).ratio() >= 0.72:
+        return True
+    return False
+
+def build_issue_diverse_content_lines(
+    representative_title: str,
+    articles: List[Dict[str, Any]],
+    keywords: List[str],
+    max_lines: int = SUMMARY_SHORT_MAX_LINES,
+    min_lines: int = SUMMARY_SHORT_MIN_LINES,
+) -> List[str]:
+    if not articles or int(max_lines) <= 0:
+        return []
+
+    rep_title = _clean_title_text(representative_title) or clean_html_text(representative_title)
+    rep_tokens = {tok for tok in _title_match_token_set(rep_title) if not is_noise_keyword(tok)}
+
+    kw_tokens: set = set()
+    for kw in (keywords or []):
+        for tok in _summary_content_tokens(str(kw)):
+            kw_tokens.add(tok)
+
+    article_infos: List[Dict[str, Any]] = []
+    for idx, article in enumerate(articles or []):
+        title = _clean_title_text(article.get("title", "") or "") or clean_html_text(article.get("title", "") or "")
+        content = sanitize_summary_source_text(article.get("content", "") or "", title=title)
+        sentences = [s for s in split_sentences_ko(content) if _summary_line_usable(s)]
+        title_tokens_set = {tok for tok in _title_match_token_set(title) if not is_noise_keyword(tok)}
+        lead_tokens: set = set()
+        for sent in sentences[:2]:
+            lead_tokens.update(_summary_content_tokens(sent))
+        article_infos.append({
+            "article_idx": int(idx),
+            "title": title,
+            "content": content,
+            "sentences": sentences,
+            "title_tokens": title_tokens_set,
+            "lead_tokens": lead_tokens,
+            "is_representative": bool(article.get("is_representative")),
+        })
+
+    candidates: List[Dict[str, Any]] = []
+    seen_candidate_keys: set = set()
+    for info in article_infos:
+        for sent_idx, sent in enumerate(info["sentences"][: int(ISSUE_SUMMARY_MAX_SENTENCES_PER_ARTICLE)]):
+            candidate = _complete_summary_piece(
+                sent,
+                soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+            )
+            if not candidate or not _summary_line_usable(candidate):
+                continue
+
+            key = _summary_line_key(candidate)
+            if not key or key in seen_candidate_keys:
+                continue
+
+            toks = set(_summary_content_tokens(candidate))
+            if not toks:
+                continue
+
+            support_count = 0
+            for other in article_infos:
+                if int(other["article_idx"]) == int(info["article_idx"]):
+                    continue
+                title_shared, _tj, _to = _summary_token_overlap_stats(toks, set(other["title_tokens"]))
+                lead_shared, _lj, _lo = _summary_token_overlap_stats(toks, set(other["lead_tokens"]))
+                if (
+                    title_shared >= int(ISSUE_SUMMARY_TITLE_SUPPORT_MIN)
+                    or lead_shared >= int(ISSUE_SUMMARY_LEAD_SUPPORT_MIN)
+                ):
+                    support_count += 1
+
+            shared_rep = len(toks & rep_tokens)
+            shared_kw = len(toks & kw_tokens)
+            own_title_overlap = len(toks & set(info["title_tokens"]))
+            position_bonus = max(0.0, 1.45 - (float(sent_idx) * 0.22))
+            length_bonus = min(len(candidate), int(SUMMARY_COMPLETE_SOFT_MAX_CHARS)) / 90.0
+            detail_bonus = 0.45 if re.search(r"\d", candidate) else 0.0
+            quote_bonus = 0.25 if "“" in candidate or '"' in candidate else 0.0
+            representative_bonus = 0.55 if bool(info["is_representative"]) else 0.0
+            score = float(
+                (support_count * 2.6)
+                + (shared_rep * 1.8)
+                + (shared_kw * 1.15)
+                + (own_title_overlap * 0.75)
+                + position_bonus
+                + length_bonus
+                + detail_bonus
+                + quote_bonus
+                + representative_bonus
+            )
+
+            candidates.append({
+                "line": candidate,
+                "tokens": toks,
+                "score": score,
+                "support_count": int(support_count),
+                "shared_rep": int(shared_rep),
+                "article_idx": int(info["article_idx"]),
+                "sent_idx": int(sent_idx),
+            })
+            seen_candidate_keys.add(key)
+
+    if not candidates:
+        return []
+
+    selected: List[Dict[str, Any]] = []
+    used_tokens: set = set()
+    article_line_counts: Dict[int, int] = {}
+    remaining = sorted(
+        candidates,
+        key=lambda x: (
+            -int(x["support_count"]),
+            -float(x["score"]),
+            int(x["article_idx"]),
+            int(x["sent_idx"]),
+        ),
+    )
+
+    target = max(1, int(max_lines))
+    required = max(1, int(min_lines))
+
+    while remaining and len(selected) < target:
+        best_idx = -1
+        best_rank: Optional[Tuple[float, int, int, float, int]] = None
+
+        for idx, cand in enumerate(remaining):
+            article_idx = int(cand["article_idx"])
+            if int(article_line_counts.get(article_idx, 0)) >= int(ISSUE_SUMMARY_MAX_LINES_PER_ARTICLE):
+                continue
+            if any(_summary_lines_too_similar(str(cand["line"]), str(prev["line"])) for prev in selected):
+                continue
+
+            new_token_count = len(set(cand["tokens"]) - used_tokens)
+            if selected:
+                if new_token_count <= 0 and int(cand["support_count"]) <= 0:
+                    continue
+                if (
+                    len(selected) >= required
+                    and new_token_count < 2
+                    and int(cand["support_count"]) <= 0
+                ):
+                    continue
+
+            dynamic_score = float(cand["score"])
+            dynamic_score += min(new_token_count, 6) * 0.55
+            if int(article_line_counts.get(article_idx, 0)) == 0:
+                dynamic_score += 0.9
+            if len(selected) < 2 and int(cand["support_count"]) > 0:
+                dynamic_score += 1.35
+            if len(selected) == 0 and int(cand["support_count"]) <= 0 and int(cand["shared_rep"]) == 0:
+                dynamic_score -= 1.2
+
+            rank = (
+                dynamic_score,
+                int(cand["support_count"]),
+                new_token_count,
+                -int(cand["sent_idx"]),
+                -int(article_line_counts.get(article_idx, 0)),
+            )
+            if best_rank is None or rank > best_rank:
+                best_rank = rank
+                best_idx = idx
+
+        if best_idx < 0:
+            break
+
+        chosen = remaining.pop(best_idx)
+        selected.append(chosen)
+        used_tokens.update(set(chosen["tokens"]))
+        article_idx = int(chosen["article_idx"])
+        article_line_counts[article_idx] = int(article_line_counts.get(article_idx, 0)) + 1
+
+    if len(selected) < required:
+        for cand in remaining:
+            if len(selected) >= required:
+                break
+            article_idx = int(cand["article_idx"])
+            if int(article_line_counts.get(article_idx, 0)) >= int(ISSUE_SUMMARY_MAX_LINES_PER_ARTICLE):
+                continue
+            if any(_summary_lines_too_similar(str(cand["line"]), str(prev["line"])) for prev in selected):
+                continue
+            selected.append(cand)
+            article_line_counts[article_idx] = int(article_line_counts.get(article_idx, 0)) + 1
+
+    return [str(item["line"]).strip() for item in selected[:target] if str(item.get("line", "")).strip()]
+
 def _truncate_with_ellipsis(s: str, max_chars: int) -> str:
     if max_chars <= 0:
         return ""
@@ -1742,6 +2016,9 @@ def _clean_title_text(s: str) -> str:
     t = html.unescape(str(s or ""))
     t = normalize_text(t)
     t = re.sub(r"\s+", " ", t).strip()
+    t = SUMMARY_URGENT_PREFIX_RE.sub("", t).strip()
+    t = URGENT_TITLE_PREFIX_RE.sub("", t).strip()
+    t = re.sub(r"\(\s*(?:사진|자료사진|그래픽)\s*\)", "", t, flags=re.IGNORECASE)
     t = re.sub(r"\s*[-|]\s*(뉴스웨이|연합뉴스|뉴시스|데일리안|머니투데이)\s*$", "", t, flags=re.IGNORECASE)
     # Drop trailing campaign/series tag blocks like: [관세 리셋 쇼크]
     t = re.sub(r"\s*\[[^\]]{1,24}\]\s*$", "", t)
@@ -1903,6 +2180,7 @@ def _normalize_complete_summary_output(lines_or_text: Any, max_lines: int) -> Li
             raw_items = [raw]
 
     picked: List[str] = []
+    seen_lines: List[str] = []
     seen: List[str] = []
     for raw in raw_items:
         text = clean_summary_text(raw)
@@ -1920,14 +2198,49 @@ def _normalize_complete_summary_output(lines_or_text: Any, max_lines: int) -> Li
                 continue
             if not _summary_line_usable(finalized):
                 continue
-            key = _summary_line_key(finalized)
-            if not key or key in seen:
+            if _summary_line_is_duplicate(finalized, seen_lines, seen):
                 continue
+            key = _summary_line_key(finalized)
+            seen_lines.append(finalized)
             seen.append(key)
             picked.append("- " + finalized)
             if len(picked) >= int(max_lines):
                 return picked[: int(max_lines)]
     return picked[: int(max_lines)]
+
+def _summary_lines_need_refresh(lines: List[str], min_lines: int) -> bool:
+    normalized = [str(line).lstrip("- ").strip() for line in (lines or []) if str(line).strip()]
+    if len(normalized) < int(min_lines):
+        return True
+
+    for line in normalized:
+        if not _summary_line_usable(line):
+            return True
+
+    for i, line_a in enumerate(normalized):
+        for line_b in normalized[i + 1:]:
+            if _summary_lines_too_similar(line_a, line_b):
+                return True
+
+    return False
+
+def _looks_like_title_echo_line(line: str, representative_title: str) -> bool:
+    cleaned_line = _clean_title_text(str(line).lstrip("- ").strip())
+    cleaned_title = _clean_title_text(representative_title)
+    if not cleaned_line or not cleaned_title:
+        return False
+    if cleaned_line == cleaned_title:
+        return True
+
+    line_tokens = _title_match_token_set(cleaned_line)
+    title_tokens = _title_match_token_set(cleaned_title)
+    if not line_tokens or not title_tokens:
+        return False
+
+    shared = len(line_tokens & title_tokens)
+    if shared < max(2, min(len(line_tokens), len(title_tokens)) - 1):
+        return False
+    return title_jaccard(cleaned_line, cleaned_title) >= 0.72
 
 def build_headline_summary_lines(
     representative_title: str,
@@ -2109,15 +2422,31 @@ def filter_issue_articles_for_display(
 
         keep = is_representative
         if not keep:
+            strong_title_match = title_sim >= 0.18
+            strong_focus_match = focus_overlap >= 2
+            strong_text_match = text_sim >= 0.12
             keep = (
-                score >= 1.05
-                or (title_sim >= 0.14 and text_sim >= 0.10)
-                or (focus_overlap >= 2 and text_sim >= 0.08)
+                score >= 1.15
+                or (strong_title_match and text_sim >= 0.08)
+                or (strong_focus_match and text_sim >= 0.06)
+                or (focus_overlap >= 1 and strong_text_match and title_sim >= 0.08)
             )
             if rep_tokens and article_tokens and focus_overlap == 0:
-                keep = keep and text_sim >= 0.18 and title_sim >= 0.12
+                keep = False
+            if (
+                len(rep_tokens) >= 3
+                and len(article_tokens) >= 3
+                and focus_overlap <= 1
+                and title_sim < 0.12
+                and text_sim < 0.18
+            ):
+                keep = False
+            if focus_overlap <= 1 and title_sim < 0.14 and text_sim < 0.15:
+                keep = False
+            if len(articles) <= 2 and focus_overlap <= 1 and score < 1.35:
+                keep = False
             if rep_bcat != "unknown" and bcat != "unknown" and rep_bcat != bcat:
-                keep = keep and score >= 1.35
+                keep = keep and score >= 1.35 and strong_focus_match and strong_text_match
 
         if not keep:
             continue
@@ -2142,6 +2471,17 @@ def filter_issue_articles_for_display(
 
     return kept[: int(max_articles)]
 
+def _short_summary_line_bounds(article_count: int, requested_lines: int) -> Tuple[int, int]:
+    article_count = max(1, int(article_count or 0))
+    requested = max(1, int(requested_lines or SUMMARY_SHORT_TARGET_LINES))
+    min_required = max(2, min(int(SUMMARY_SHORT_MIN_LINES), article_count + 1))
+    target_cap = max(
+        min_required,
+        min(int(SUMMARY_SHORT_MAX_LINES), max(3, article_count * 2)),
+    )
+    target = max(min_required, min(requested, target_cap))
+    return int(min_required), int(target)
+
 def build_issue_short_summary(
     representative_title: str,
     representative_content: str,
@@ -2150,12 +2490,31 @@ def build_issue_short_summary(
     max_lines: int = SUMMARY_SHORT_TARGET_LINES,
 ) -> str:
     requested_lines = int(max_lines or SUMMARY_SHORT_TARGET_LINES)
-    target_lines = max(requested_lines, int(SUMMARY_SHORT_MIN_LINES))
-    target_lines = min(target_lines, int(SUMMARY_SHORT_MAX_LINES))
+    representative_category = ""
+    for article in (articles or []):
+        if bool(article.get("is_representative")):
+            representative_category = str(article.get("category") or "")
+            break
+    if not representative_category and articles:
+        representative_category = str((articles[0] or {}).get("category") or "")
+
+    coherent_articles = filter_issue_articles_for_display(
+        representative_title=representative_title,
+        representative_content=representative_content,
+        representative_category=representative_category,
+        articles=articles or [],
+        min_articles=1,
+        max_articles=max(int(MAX_RELATED_ARTICLES), int(requested_lines) + 3),
+    )
+    summary_source_articles = coherent_articles or (articles or [])
+    min_required_lines, target_lines = _short_summary_line_bounds(
+        len(summary_source_articles),
+        requested_lines,
+    )
     picked_articles = pick_issue_articles_for_summary(
         representative_title=representative_title,
         representative_content=representative_content,
-        articles=articles,
+        articles=summary_source_articles,
         max_articles=max(7, int(target_lines) + 3),
     )
 
@@ -2199,21 +2558,37 @@ def build_issue_short_summary(
         )
 
     content_budget = max(2, int(target_lines) - len(headline_lines))
-    content_min_lines = max(3, min(int(SUMMARY_SHORT_MIN_LINES), content_budget))
+    content_min_lines = max(2, min(int(min_required_lines), content_budget))
     content_candidate_budget = max(int(target_lines) * 3, int(content_budget) + 4)
     content_candidate_budget = min(content_candidate_budget, 16)
-    content_lines = extractive_news_style_summary(
-        source_texts if source_texts else title_sentence_fallbacks,
-        max_lines=content_candidate_budget,
-        min_lines=content_min_lines,
-    )
-    content_lines = refine_summary_lines_by_focus(
-        content_lines,
+
+    content_lines = build_issue_diverse_content_lines(
         representative_title=representative_title,
+        articles=picked_articles,
         keywords=keywords,
         max_lines=content_budget,
         min_lines=content_min_lines,
     )
+
+    fallback_content_lines = extractive_news_style_summary(
+        source_texts if source_texts else title_sentence_fallbacks,
+        max_lines=content_candidate_budget,
+        min_lines=content_min_lines,
+    )
+    fallback_content_lines = refine_summary_lines_by_focus(
+        fallback_content_lines,
+        representative_title=representative_title,
+        keywords=keywords,
+        max_lines=max(content_budget + 2, content_min_lines),
+        min_lines=content_min_lines,
+    )
+
+    if fallback_content_lines:
+        content_lines = _normalize_complete_summary_output(
+            list(content_lines or []) + list(fallback_content_lines or []),
+            max_lines=max(content_budget + 2, content_min_lines),
+        )
+
     lines = complete_summary_lines(
         content_lines,
         max_lines=target_lines,
@@ -2221,7 +2596,7 @@ def build_issue_short_summary(
         hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
     )
 
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and stored_short_summary:
+    if len(lines) < int(min_required_lines) and stored_short_summary:
         lines = complete_summary_lines(
             lines + complete_summary_lines(
                 stored_short_summary,
@@ -2233,11 +2608,11 @@ def build_issue_short_summary(
             soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
             hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
         )
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and source_texts:
+    if len(lines) < int(min_required_lines) and source_texts:
         lines = complete_summary_lines(
             lines + complete_summary_lines(
                 source_texts,
-                max_lines=max(int(target_lines) + 2, int(SUMMARY_SHORT_MIN_LINES)),
+                max_lines=max(int(target_lines) + 2, int(min_required_lines)),
                 soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
                 hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
             ),
@@ -2245,14 +2620,14 @@ def build_issue_short_summary(
             soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
             hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
         )
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and title_sentence_fallbacks:
+    if len(lines) < int(min_required_lines) and title_sentence_fallbacks:
         lines = complete_summary_lines(
             lines + title_sentence_fallbacks,
             max_lines=target_lines,
             soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
             hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
         )
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and representative_title:
+    if len(lines) < int(min_required_lines) and representative_title:
         rep_sentence = _title_to_complete_sentence(representative_title)
         if rep_sentence:
             lines = complete_summary_lines(
@@ -2262,14 +2637,28 @@ def build_issue_short_summary(
                 hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
             )
 
-    preferred_opening_lines = priority_title_lines
+    preferred_opening_lines: List[str] = []
+    if len(lines) < int(min_required_lines):
+        opening_seen_lines = [str(line).lstrip("- ").strip() for line in (lines or []) if str(line).strip()]
+        opening_seen_keys = [_summary_line_key(line) for line in opening_seen_lines]
+        for raw_line in (priority_title_lines or []):
+            line = str(raw_line).lstrip("- ").strip()
+            if not line:
+                continue
+            if not _summary_line_usable(line):
+                continue
+            if _summary_line_is_duplicate(line, opening_seen_lines, opening_seen_keys):
+                continue
+            preferred_opening_lines.append(line)
+            opening_seen_lines.append(line)
+            opening_seen_keys.append(_summary_line_key(line))
     lines = _normalize_complete_summary_output(preferred_opening_lines + lines, max_lines=target_lines)
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and title_sentence_fallbacks:
+    if len(lines) < int(min_required_lines) and title_sentence_fallbacks:
         lines = _normalize_complete_summary_output(
             preferred_opening_lines + lines + title_sentence_fallbacks,
             max_lines=target_lines,
         )
-    if len(lines) < int(SUMMARY_SHORT_MIN_LINES) and representative_title:
+    if len(lines) < int(min_required_lines) and representative_title:
         rep_sentence = _title_to_complete_sentence(representative_title)
         if rep_sentence:
             lines = _normalize_complete_summary_output(
@@ -4295,44 +4684,38 @@ def get_issues(
             rows = cur.fetchall()
             print("[/issues] rows =", len(rows))
 
-        items = []
-
-        for r in rows:
-            issue_summary_id = int(r.get("issue_summary_id") or 0)
-            representative_title = clean_html_text(r.get("title") or "")
-            representative_content = sanitize_summary_source_text(
-                r.get("content") or "",
-                title=representative_title,
-            )
-            representative_category = str(r.get("category") or "")
-
-            related_articles = []
-            if issue_summary_id > 0:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT
-                          m.article_id,
-                          m.sort_order,
-                          m.is_representative,
-                          a.title,
-                          a.url,
-                          a.thumbnail,
-                          a.content,
-                          a.category,
-                          a.published_at
-                        FROM issue_summary_articles m
-                        JOIN articles a
-                          ON a.id = m.article_id
-                        WHERE m.issue_summary_id = %s
-                        ORDER BY m.sort_order ASC, a.published_at DESC, a.id DESC
-                        """,
-                        (issue_summary_id,),
-                    )
-                    related_rows = cur.fetchall()
-
-                related_articles = [
-                    {
+            issue_summary_ids = [
+                int(r.get("issue_summary_id") or 0)
+                for r in rows
+                if int(r.get("issue_summary_id") or 0) > 0
+            ]
+            related_articles_map: Dict[int, List[Dict[str, Any]]] = {}
+            if issue_summary_ids:
+                placeholders = ",".join(["%s"] * len(issue_summary_ids))
+                cur.execute(
+                    f"""
+                    SELECT
+                      m.issue_summary_id,
+                      m.article_id,
+                      m.sort_order,
+                      m.is_representative,
+                      a.title,
+                      a.url,
+                      a.thumbnail,
+                      a.content,
+                      a.category,
+                      a.published_at
+                    FROM issue_summary_articles m
+                    JOIN articles a
+                      ON a.id = m.article_id
+                    WHERE m.issue_summary_id IN ({placeholders})
+                    ORDER BY m.issue_summary_id ASC, m.sort_order ASC, a.published_at DESC, a.id DESC
+                    """,
+                    issue_summary_ids,
+                )
+                for x in cur.fetchall():
+                    issue_summary_id = int(x.get("issue_summary_id") or 0)
+                    related_articles_map.setdefault(issue_summary_id, []).append({
                         "id": int(x.get("article_id") or 0),
                         "article_id": int(x.get("article_id") or 0),
                         "title": clean_html_text(x.get("title") or ""),
@@ -4346,9 +4729,20 @@ def get_issues(
                         "published_at": str(x.get("published_at") or ""),
                         "sort_order": int(x.get("sort_order") or 0),
                         "is_representative": bool(int(x.get("is_representative") or 0)),
-                    }
-                    for x in related_rows
-                ]
+                    })
+
+        items = []
+
+        for r in rows:
+            issue_summary_id = int(r.get("issue_summary_id") or 0)
+            representative_title = clean_html_text(r.get("title") or "")
+            representative_content = sanitize_summary_source_text(
+                r.get("content") or "",
+                title=representative_title,
+            )
+            representative_category = str(r.get("category") or "")
+
+            related_articles = related_articles_map.get(issue_summary_id, [])
 
             display_articles = filter_issue_articles_for_display(
                 representative_title=representative_title,
@@ -4379,24 +4773,104 @@ def get_issues(
                 )
                 continue
 
-            summary_articles = display_articles or [
-                {
-                    "title": representative_title,
-                    "content": representative_content,
-                    "is_representative": True,
-                }
-            ]
-            response_short_summary = build_issue_short_summary(
-                representative_title=representative_title,
-                representative_content=representative_content,
-                articles=summary_articles,
-                stored_short_summary=str(r.get("short_summary") or ""),
-                max_lines=SUMMARY_SHORT_TARGET_LINES,
+            min_required_lines, target_lines = _short_summary_line_bounds(
+                len(display_articles),
+                SUMMARY_SHORT_TARGET_LINES,
             )
+            stored_short_summary = str(r.get("short_summary") or "").strip()
+            normalized_stored_lines = complete_summary_lines(
+                stored_short_summary,
+                max_lines=target_lines,
+                soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+            )
+            response_short_summary = "\n".join(
+                normalized_stored_lines
+            ).strip()
+
+            should_refresh_summary = (
+                not response_short_summary
+                or _summary_lines_need_refresh(normalized_stored_lines, min_required_lines)
+            )
+            if (
+                not should_refresh_summary
+                and len(normalized_stored_lines) > 1
+                and any(
+                    _looks_like_title_echo_line(line, representative_title)
+                    for line in normalized_stored_lines
+                )
+            ):
+                should_refresh_summary = True
+
+            if should_refresh_summary:
+                summary_articles = display_articles or [
+                    {
+                        "title": representative_title,
+                        "content": representative_content,
+                        "is_representative": True,
+                        "category": representative_category,
+                    }
+                ]
+                response_short_summary = build_issue_short_summary(
+                    representative_title=representative_title,
+                    representative_content=representative_content,
+                    articles=summary_articles,
+                    stored_short_summary=stored_short_summary,
+                    max_lines=target_lines,
+                )
+            elif response_short_summary:
+                response_short_summary = "\n".join(
+                    complete_summary_lines(
+                        response_short_summary,
+                        max_lines=target_lines,
+                        soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                        hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+                    )
+                ).strip()
+
+            if not response_short_summary:
+                response_short_summary = "\n".join(
+                    complete_summary_lines(
+                        stored_short_summary,
+                        max_lines=target_lines,
+                        soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                        hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+                    )
+                ).strip()
             response_ultra_short = (
                 str(response_short_summary).split("\n", 1)[0].lstrip("- ").strip()
                 or _compact_title_summary(representative_title, max_chars=64)
             )
+
+            if issue_summary_id > 0:
+                stored_ultra_short = str(r.get("ultra_short") or "").strip()
+                if (
+                    response_short_summary
+                    and (
+                        str(response_short_summary).strip() != stored_short_summary
+                        or str(response_ultra_short).strip() != stored_ultra_short
+                    )
+                ):
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                """
+                                UPDATE issue_summaries
+                                SET short_summary = %s,
+                                    ultra_short = %s
+                                WHERE id = %s
+                                """,
+                                (
+                                    str(response_short_summary).strip(),
+                                    str(response_ultra_short).strip(),
+                                    issue_summary_id,
+                                ),
+                            )
+                    except Exception as e:
+                        print(
+                            f"[/issues] summary cache update failed issue_summary_id={issue_summary_id} "
+                            f"error={repr(e)}"
+                        )
 
             items.append({
                 "id": issue_summary_id,

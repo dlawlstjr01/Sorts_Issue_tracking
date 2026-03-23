@@ -9,6 +9,7 @@ const tabs = [
   { key: "saved", label: "저장한 기사" },
   { key: "recent", label: "최근 본 기사" },
 ];
+const PAGINATION_GROUP_SIZE = 10;
 
 function normalizeCategory(raw) {
   const v = String(raw || "").toLowerCase();
@@ -325,6 +326,18 @@ export default function ArchivePage() {
 
   const filtered = filteredResult.items;
   const totalPages = Math.max(1, Math.ceil(filteredResult.total / pageSize));
+  const visiblePages = useMemo(() => {
+    const pages = [];
+    const groupStart =
+      Math.floor((Math.max(1, page) - 1) / PAGINATION_GROUP_SIZE) * PAGINATION_GROUP_SIZE + 1;
+    const groupEnd = Math.min(totalPages, groupStart + PAGINATION_GROUP_SIZE - 1);
+
+    for (let i = groupStart; i <= groupEnd; i += 1) {
+      pages.push(i);
+    }
+
+    return pages;
+  }, [page, totalPages]);
   const visibleSelectableKeys = useMemo(
     () =>
       filtered
@@ -371,6 +384,10 @@ export default function ArchivePage() {
 
   const closeArticleDetail = () => {
     setSelectedArticleDetail(null);
+  };
+
+  const handlePageChange = (targetPage) => {
+    setPage(Math.max(1, Math.min(totalPages, targetPage)));
   };
 
   const openItem = (item) => {
@@ -814,12 +831,58 @@ export default function ArchivePage() {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 16 }}>
-                <button type="button" className="mp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>
-                  이전
+              <div className="als-pagination" aria-label={`현재 ${page}페이지, 전체 ${totalPages}페이지`}>
+                <button
+                  type="button"
+                  className="als-page-btn"
+                  onClick={() => handlePageChange(page - PAGINATION_GROUP_SIZE)}
+                  disabled={loading || page <= 1}
+                  aria-label="10페이지 이전"
+                >
+                  ◀◀
                 </button>
-                <button type="button" className="mp-btn" disabled={loading || page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                  다음
+
+                <button
+                  type="button"
+                  className="als-page-btn"
+                  onClick={() => handlePageChange(page - 1)}
+                  disabled={loading || page <= 1}
+                  aria-label="이전 페이지"
+                >
+                  ◀
+                </button>
+
+                {visiblePages.map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    className={`als-page-btn ${num === page ? "active" : ""}`}
+                    onClick={() => handlePageChange(num)}
+                    disabled={loading}
+                    aria-current={num === page ? "page" : undefined}
+                  >
+                    {num}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  className="als-page-btn"
+                  onClick={() => handlePageChange(page + 1)}
+                  disabled={loading || page >= totalPages}
+                  aria-label="다음 페이지"
+                >
+                  ▶
+                </button>
+
+                <button
+                  type="button"
+                  className="als-page-btn"
+                  onClick={() => handlePageChange(page + PAGINATION_GROUP_SIZE)}
+                  disabled={loading || page >= totalPages}
+                  aria-label="10페이지 다음"
+                >
+                  ▶▶
                 </button>
               </div>
             </div>

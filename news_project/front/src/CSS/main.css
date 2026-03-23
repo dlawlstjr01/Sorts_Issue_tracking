@@ -254,8 +254,7 @@
 }
 
 .mp-right .mp-panel {
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .mp-left .mp-panel {
@@ -321,6 +320,10 @@
   letter-spacing: -0.01em;
   line-height: 1.35;
   text-shadow: none;
+}
+
+.mp-article-shell {
+  position: relative;
 }
 
 /* CENTER */
@@ -526,12 +529,89 @@
 .mp-related-list {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   gap: 8px;
   padding: 2px 8px 2px 2px;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+}
+
+.mp-related-region {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.mp-scroll-cue {
+  position: absolute;
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid rgba(110, 145, 192, 0.54);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(246, 250, 255, 0.96) 0%, rgba(227, 238, 251, 0.94) 100%);
+  color: #1d4676;
+  box-shadow:
+    0 10px 24px rgba(25, 45, 75, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  transform: translateX(-50%);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.mp-scroll-cue:hover {
+  border-color: rgba(73, 119, 185, 0.68);
+  background: linear-gradient(180deg, rgba(236, 245, 255, 0.98) 0%, rgba(215, 230, 248, 0.98) 100%);
+  color: #143c69;
+  box-shadow:
+    0 12px 26px rgba(25, 45, 75, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.mp-scroll-cue:active {
+  transform: translateX(-50%) scale(0.98);
+}
+
+.mp-scroll-cue svg {
+  flex: 0 0 auto;
+}
+
+.mp-scroll-cue-top {
+  top: 10px;
+}
+
+.mp-scroll-cue-bottom {
+  bottom: 10px;
+}
+
+.mp-scroll-cue--article.mp-scroll-cue-top {
+  top: 64px;
+}
+
+.mp-scroll-cue--article.mp-scroll-cue-bottom {
+  bottom: 14px;
+}
+
+.mp-scroll-cue--related.mp-scroll-cue-top {
+  top: 10px;
+}
+
+.mp-scroll-cue--related.mp-scroll-cue-bottom {
+  bottom: 10px;
 }
 
 .mp-related-item:hover {
@@ -1005,6 +1085,13 @@
 
   .mp-section-title::after {
     width: 50%;
+  }
+
+  .mp-scroll-cue {
+    min-height: 30px;
+    padding: 7px 10px;
+    gap: 6px;
+    font-size: 11px;
   }
 }
 

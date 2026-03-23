@@ -704,6 +704,40 @@ function RelatedList({ items, fallbackText, onClick, metaType = "관련" }) {
   ));
 }
 
+function ScrollMoreCue({ showUp, showDown, onUp, onDown, areaLabel = "목록", variant = "" }) {
+  return (
+    <>
+      {showUp ? (
+        <button
+          type="button"
+          className={`mp-scroll-cue mp-scroll-cue-top ${variant}`.trim()}
+          aria-label={`${areaLabel} 위로 더 보기`}
+          onClick={onUp}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="m12 7 6.2 6.2-1.4 1.4L12 9.8l-4.8 4.8-1.4-1.4L12 7Z" fill="currentColor" />
+          </svg>
+          <span>위에 더 있어요</span>
+        </button>
+      ) : null}
+
+      {showDown ? (
+        <button
+          type="button"
+          className={`mp-scroll-cue mp-scroll-cue-bottom ${variant}`.trim()}
+          aria-label={`${areaLabel} 아래로 더 보기`}
+          onClick={onDown}
+        >
+          <span>아래에 더 있어요</span>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="m12 17-6.2-6.2 1.4-1.4L12 14.2l4.8-4.8 1.4 1.4L12 17Z" fill="currentColor" />
+          </svg>
+        </button>
+      ) : null}
+    </>
+  );
+}
+
 function ShareModal({ open, onClose, data, onKakao, onEmail, onCopy }) {
   if (!open) return null;
 
@@ -802,6 +836,9 @@ export default function MainPage() {
   const allowPersistRef = useRef(false);
   const restoredRef = useRef(false);
   const centerScrollRef = useRef(null);
+  const articleListRef = useRef(null);
+  const recoListRef = useRef(null);
+  const contrastListRef = useRef(null);
   const sectionRefs = useRef({});
 
   const [userId, setUserId] = useState(null);
@@ -822,6 +859,9 @@ export default function MainPage() {
   const [archiveKeys, setArchiveKeys] = useState(new Set());
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [glossaryList, setGlossaryList] = useState([]);
+  const [articleListScrollCue, setArticleListScrollCue] = useState({ showUp: false, showDown: false });
+  const [recoListScrollCue, setRecoListScrollCue] = useState({ showUp: false, showDown: false });
+  const [contrastListScrollCue, setContrastListScrollCue] = useState({ showUp: false, showDown: false });
 
   const displayedArticles = useMemo(() => {
     const filtered =
@@ -885,6 +925,12 @@ export default function MainPage() {
     return map;
   }, [latestIssues, articles]);
 
+  const scrollScrollableArea = (ref, delta) => {
+    const element = ref.current;
+    if (!element) return;
+    element.scrollBy({ top: delta, behavior: "smooth" });
+  };
+
   const scrollToTop = () => {
     const container = centerScrollRef.current;
     if (!container) return;
@@ -903,6 +949,61 @@ export default function MainPage() {
       );
     }
   };
+
+  useEffect(() => {
+    const bindScrollCue = (element, setState) => {
+      if (!element) {
+        setState({ showUp: false, showDown: false });
+        return () => {};
+      }
+
+      const update = () => {
+        const { scrollTop, scrollHeight, clientHeight } = element;
+        const maxScroll = Math.max(0, scrollHeight - clientHeight);
+        const nextState = {
+          showUp: maxScroll > 12 && scrollTop > 10,
+          showDown: maxScroll > 12 && scrollTop < maxScroll - 10,
+        };
+
+        setState((prev) =>
+          prev.showUp === nextState.showUp && prev.showDown === nextState.showDown ? prev : nextState
+        );
+      };
+
+      const rafId = requestAnimationFrame(update);
+      element.addEventListener("scroll", update);
+      window.addEventListener("resize", update);
+
+      return () => {
+        cancelAnimationFrame(rafId);
+        element.removeEventListener("scroll", update);
+        window.removeEventListener("resize", update);
+      };
+    };
+
+    const cleanupArticle = bindScrollCue(articleListRef.current, setArticleListScrollCue);
+    const cleanupReco = bindScrollCue(recoListRef.current, setRecoListScrollCue);
+    const cleanupContrast = bindScrollCue(contrastListRef.current, setContrastListScrollCue);
+
+    return () => {
+      cleanupArticle();
+      cleanupReco();
+      cleanupContrast();
+    };
+  }, [
+    displayedArticles.length,
+    articleListMode,
+    selectedCategory,
+    recoItems.length,
+    latestIssues.length,
+    articles.length,
+    selectedId,
+    activeIssueArticleId,
+    recoLoading,
+    recoReady,
+    userId,
+    loading,
+  ]);
 
   const persistCurrentState = () => {
     if (!allowPersistRef.current) return;
@@ -1403,7 +1504,7 @@ export default function MainPage() {
                 </div>
               </div>
 
-              <div className="mp-article-list">
+              <div className="mp-article-list" ref={articleListRef}>
                 {displayedArticles.map((a) => {
                   const listKey = safeString(a.representativeArticleId || a.articleId || a.id);
                   const matchedIssue = latestIssueByArticleId.get(listKey) || null;
@@ -1426,6 +1527,15 @@ export default function MainPage() {
                   );
                 })}
               </div>
+
+              <ScrollMoreCue
+                showUp={articleListScrollCue.showUp}
+                showDown={articleListScrollCue.showDown}
+                onUp={() => scrollScrollableArea(articleListRef, -180)}
+                onDown={() => scrollScrollableArea(articleListRef, 180)}
+                areaLabel="기사 목록"
+                variant="mp-scroll-cue--article"
+              />
 
               {error ? (
                 <div style={{ padding: "0 12px 12px", color: "#ff6b6b", fontSize: 13 }}>{error}</div>
@@ -1591,39 +1701,61 @@ export default function MainPage() {
         <aside className="mp-right">
           <div className="mp-panel">
             <div className="mp-panel-title">추천 기사</div>
-            <div className="mp-related-list">
-              {!userId ? (
-                <div style={{ padding: 10, opacity: 0.7 }}>로그인하면 개인화 추천(자주 본 뉴스)이 표시됩니다.</div>
-              ) : recoLoading && !recoReady ? (
-                <div style={{ padding: 10, opacity: 0.7 }}>추천 기사 불러오는 중...</div>
-              ) : recoDisplayItems.length > 0 ? (
-                <RelatedList
-                  items={recoDisplayItems}
-                  fallbackText="추천 데이터가 없습니다."
-                  onClick={openOriginal}
-                  metaType="관련"
-                />
-              ) : relatedRecoItems.length > 0 ? (
-                <RelatedList
-                  items={relatedRecoItems}
-                  fallbackText="추천 데이터가 없습니다."
-                  onClick={openOriginal}
-                  metaType="관련"
-                />
-              ) : (
-                <div style={{ padding: 10, opacity: 0.7 }}>추천 데이터가 없습니다.</div>
-              )}
+            <div className="mp-related-region">
+              <div className="mp-related-list" ref={recoListRef}>
+                {!userId ? (
+                  <div style={{ padding: 10, opacity: 0.7 }}>로그인하면 개인화 추천(자주 본 뉴스)이 표시됩니다.</div>
+                ) : recoLoading && !recoReady ? (
+                  <div style={{ padding: 10, opacity: 0.7 }}>추천 기사 불러오는 중...</div>
+                ) : recoDisplayItems.length > 0 ? (
+                  <RelatedList
+                    items={recoDisplayItems}
+                    fallbackText="추천 데이터가 없습니다."
+                    onClick={openOriginal}
+                    metaType="관련"
+                  />
+                ) : relatedRecoItems.length > 0 ? (
+                  <RelatedList
+                    items={relatedRecoItems}
+                    fallbackText="추천 데이터가 없습니다."
+                    onClick={openOriginal}
+                    metaType="관련"
+                  />
+                ) : (
+                  <div style={{ padding: 10, opacity: 0.7 }}>추천 데이터가 없습니다.</div>
+                )}
+              </div>
+
+              <ScrollMoreCue
+                showUp={recoListScrollCue.showUp}
+                showDown={recoListScrollCue.showDown}
+                onUp={() => scrollScrollableArea(recoListRef, -180)}
+                onDown={() => scrollScrollableArea(recoListRef, 180)}
+                areaLabel="추천 기사"
+                variant="mp-scroll-cue--related"
+              />
             </div>
 
             <div className="mp-divider" />
 
             <div className="mp-panel-title">반대 관점 기사</div>
-            <div className="mp-related-list">
-              <RelatedList
-                items={contrastDisplayItems}
-                fallbackText="반대 관점 기사가 없습니다."
-                onClick={openOriginal}
-                metaType="대조"
+            <div className="mp-related-region">
+              <div className="mp-related-list" ref={contrastListRef}>
+                <RelatedList
+                  items={contrastDisplayItems}
+                  fallbackText="반대 관점 기사가 없습니다."
+                  onClick={openOriginal}
+                  metaType="대조"
+                />
+              </div>
+
+              <ScrollMoreCue
+                showUp={contrastListScrollCue.showUp}
+                showDown={contrastListScrollCue.showDown}
+                onUp={() => scrollScrollableArea(contrastListRef, -180)}
+                onDown={() => scrollScrollableArea(contrastListRef, 180)}
+                areaLabel="반대 관점 기사"
+                variant="mp-scroll-cue--related"
               />
             </div>
           </div>

@@ -1494,6 +1494,18 @@ body {
   background: #ffffff;
 }
 
+.support-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 44px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3 5.25L7 9.25L11 5.25' stroke='%234C6587' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: calc(100% - 16px) 50%;
+  background-size: 14px 14px;
+}
+
 .support-input {
   height: 44px;
 }
@@ -1545,13 +1557,70 @@ body {
   flex-direction: column;
 }
 
+.support-table-entry {
+  display: flex;
+  flex-direction: column;
+}
+
 .support-table-row {
+  width: 100%;
+  border: 0;
+  background: #ffffff;
   border-top: 1px solid #eef2f7;
   color: #374151;
+  text-align: left;
+}
+
+.support-table-row.expandable {
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.support-table-row.expandable:hover {
+  background: #f8fbff;
+}
+
+.support-table-row.expandable:disabled {
+  cursor: default;
+}
+
+.support-table-row.open {
+  background: linear-gradient(180deg, #f8fbff 0%, #f2f7ff 100%);
+}
+
+.support-table-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
 }
 
 .support-table-title {
   font-weight: 600;
+  color: #0f2748;
+}
+
+.support-table-detail-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2563eb;
+  transition: color 0.18s ease, transform 0.18s ease;
+}
+
+.support-table-detail-link.open svg {
+  transform: rotate(180deg);
+}
+
+.support-table-detail-link svg {
+  transition: transform 0.18s ease;
+}
+
+.support-table-detail-link.pending {
+  color: #94a3b8;
 }
 
 .support-table-date {
@@ -1585,6 +1654,86 @@ body {
   background: #eff7ff;
   color: #1d4ed8;
   border: 1px solid #cfe4ff;
+}
+
+.support-inquiry-card {
+  margin: 0 16px 16px;
+  padding: 18px;
+  border: 1px solid #dbe7f5;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f9fbff 0%, #f2f7ff 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 22px rgba(37, 99, 235, 0.08);
+  animation: supportInquiryReveal 0.22s ease;
+}
+
+.support-inquiry-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.support-inquiry-card-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.32);
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.support-inquiry-card-date {
+  font-size: 13px;
+  color: #7b8aa3;
+}
+
+.support-inquiry-card-block {
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(212, 224, 239, 0.82);
+}
+
+.support-inquiry-card-block + .support-inquiry-card-block {
+  margin-top: 10px;
+}
+
+.support-inquiry-card-block.answer {
+  background: linear-gradient(180deg, rgba(237, 245, 255, 0.96) 0%, rgba(229, 240, 255, 0.92) 100%);
+  border-color: rgba(166, 197, 239, 0.72);
+}
+
+.support-inquiry-card-label {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #163c6b;
+}
+
+.support-inquiry-card-text {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #334155;
+  white-space: pre-line;
+}
+
+@keyframes supportInquiryReveal {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ===== Reports Page ===== */
@@ -2608,6 +2757,44 @@ body {
 
 .archive-inline-ad .right-ad-card2 {
   min-height: 320px;
+}
+
+.archive-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.archive-page-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 92px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid #d9e4f3;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  color: #15345a;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.archive-page-current {
+  color: #1d4ed8;
+}
+
+.archive-page-divider {
+  color: #8aa0bf;
+}
+
+.archive-page-total {
+  color: #4b6487;
 }
 /* 실시간 이슈 카드 키보드 포커스 표시 */
 /* 상세 없는 카드는 3번 요구사항대로 비활성 + 안내 상태로 고정 */

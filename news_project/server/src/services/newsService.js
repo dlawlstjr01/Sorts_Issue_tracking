@@ -485,14 +485,15 @@ exports.listArticles = async ({
 };
 
 exports.getArticle = async (id) => {
-  const articleId = Number(id);
-  if (!Number.isFinite(articleId)) {
+  const issueSummaryId = Number(id);
+
+  if (!Number.isFinite(issueSummaryId)) {
     throw makeError("id가 올바르지 않습니다.", 400);
   }
 
   const [rows] = await db.query(
     `
-    SELECT 
+    SELECT
       a.id,
       a.url,
       a.title,
@@ -501,17 +502,20 @@ exports.getArticle = async (id) => {
       a.category,
       a.published_at,
       a.created_at,
-      i.id AS issue_summary_id
-    FROM articles a
-    LEFT JOIN issue_summaries i
+      i.id AS issue_summary_id,
+      i.article_id
+    FROM issue_summaries i
+    JOIN articles a
       ON i.article_id = a.id
-    WHERE a.id = ?
+    WHERE i.id = ?
     LIMIT 1
     `,
-    [articleId]
+    [issueSummaryId]
   );
 
-  if (!rows.length) throw makeError("기사를 찾을 수 없습니다.", 404);
+  if (!rows.length) {
+    throw makeError("기사를 찾을 수 없습니다.", 404);
+  }
 
   const article = rows[0];
 

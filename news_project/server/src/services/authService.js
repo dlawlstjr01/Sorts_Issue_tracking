@@ -185,7 +185,7 @@ exports.login = async ({ login_id, password }) => {
 
 // JWT 검증
 exports.verifyToken = (token) => {
-  if (!token) throw makeError("토큰이 없습니다.", 401);
+  if (!token) throw makeError("로그인이 필요합니다.", 401);
   return jwt.verify(token, process.env.JWT_SECRET);
 };
 

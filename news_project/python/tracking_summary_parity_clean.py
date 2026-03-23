@@ -4622,10 +4622,23 @@ def health():
 def get_issues(
     category: Optional[str] = None,
     article_id: Optional[int] = None,
-    limit: int = 6
+    limit: int = 6,
+    include_related: int = 1,
+    include_article_content: int = 1,
+    refresh_summary: int = 1,
 ):
     limit = max(1, min(int(limit or 6), 50))
-    fetch_limit = min(max(int(limit) * 10, int(limit)), 300)
+    include_related_articles = bool(int(include_related or 0))
+    include_article_content = bool(int(include_article_content or 0))
+    refresh_summary_enabled = bool(int(refresh_summary or 0))
+
+    fetch_multiplier = 10
+    if (not include_related_articles) and (not refresh_summary_enabled):
+        fetch_multiplier = 3
+    elif not refresh_summary_enabled:
+        fetch_multiplier = 4
+
+    fetch_limit = min(max(int(limit) * int(fetch_multiplier), int(limit)), 300)
 
     conn = get_conn()
     try:
@@ -4690,7 +4703,7 @@ def get_issues(
                 if int(r.get("issue_summary_id") or 0) > 0
             ]
             related_articles_map: Dict[int, List[Dict[str, Any]]] = {}
-            if issue_summary_ids:
+            if include_related_articles and issue_summary_ids:
                 placeholders = ",".join(["%s"] * len(issue_summary_ids))
                 cur.execute(
                     f"""
@@ -4736,45 +4749,56 @@ def get_issues(
         for r in rows:
             issue_summary_id = int(r.get("issue_summary_id") or 0)
             representative_title = clean_html_text(r.get("title") or "")
-            representative_content = sanitize_summary_source_text(
-                r.get("content") or "",
-                title=representative_title,
-            )
             representative_category = str(r.get("category") or "")
 
-            related_articles = related_articles_map.get(issue_summary_id, [])
-
-            display_articles = filter_issue_articles_for_display(
-                representative_title=representative_title,
-                representative_content=representative_content,
-                representative_category=representative_category,
-                articles=related_articles or [
-                    {
-                        "id": int(r.get("article_id") or 0),
-                        "article_id": int(r.get("article_id") or 0),
-                        "title": representative_title,
-                        "url": r.get("url") or "",
-                        "thumbnail": r.get("thumbnail") or "",
-                        "content": representative_content,
-                        "category": representative_category,
-                        "published_at": str(r.get("published_at") or ""),
-                        "sort_order": 0,
-                        "is_representative": True,
-                    }
-                ],
-                min_articles=1 if article_id is not None else 2,
-                max_articles=MAX_RELATED_ARTICLES,
-            )
-
-            if not display_articles:
-                print(
-                    f"[/issues] skipped incoherent issue_summary_id={issue_summary_id} "
-                    f"article_id={int(r.get('article_id') or 0)}"
+            representative_content = ""
+            if include_article_content or include_related_articles or refresh_summary_enabled:
+                representative_content = sanitize_summary_source_text(
+                    r.get("content") or "",
+                    title=representative_title,
                 )
-                continue
 
+            related_articles = related_articles_map.get(issue_summary_id, []) if include_related_articles else []
+
+            if include_related_articles:
+                display_articles = filter_issue_articles_for_display(
+                    representative_title=representative_title,
+                    representative_content=representative_content,
+                    representative_category=representative_category,
+                    articles=related_articles or [
+                        {
+                            "id": int(r.get("article_id") or 0),
+                            "article_id": int(r.get("article_id") or 0),
+                            "title": representative_title,
+                            "url": r.get("url") or "",
+                            "thumbnail": r.get("thumbnail") or "",
+                            "content": representative_content,
+                            "category": representative_category,
+                            "published_at": str(r.get("published_at") or ""),
+                            "sort_order": 0,
+                            "is_representative": True,
+                        }
+                    ],
+                    min_articles=1 if article_id is not None else 2,
+                    max_articles=MAX_RELATED_ARTICLES,
+                )
+
+                if not display_articles:
+                    print(
+                        f"[/issues] skipped incoherent issue_summary_id={issue_summary_id} "
+                        f"article_id={int(r.get('article_id') or 0)}"
+                    )
+                    continue
+            else:
+                display_articles = []
+
+            issue_article_count = (
+                len(display_articles)
+                if display_articles
+                else max(1, int(r.get("related_count") or 1))
+            )
             min_required_lines, target_lines = _short_summary_line_bounds(
-                len(display_articles),
+                issue_article_count,
                 SUMMARY_SHORT_TARGET_LINES,
             )
             stored_short_summary = str(r.get("short_summary") or "").strip()
@@ -4784,40 +4808,48 @@ def get_issues(
                 soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
                 hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
             )
-            response_short_summary = "\n".join(
-                normalized_stored_lines
-            ).strip()
+            response_short_summary = "\n".join(normalized_stored_lines).strip()
 
-            should_refresh_summary = (
-                not response_short_summary
-                or _summary_lines_need_refresh(normalized_stored_lines, min_required_lines)
-            )
-            if (
-                not should_refresh_summary
-                and len(normalized_stored_lines) > 1
-                and any(
-                    _looks_like_title_echo_line(line, representative_title)
-                    for line in normalized_stored_lines
+            if refresh_summary_enabled:
+                should_refresh_summary = (
+                    not response_short_summary
+                    or _summary_lines_need_refresh(normalized_stored_lines, min_required_lines)
                 )
-            ):
-                should_refresh_summary = True
+                if (
+                    not should_refresh_summary
+                    and len(normalized_stored_lines) > 1
+                    and any(
+                        _looks_like_title_echo_line(line, representative_title)
+                        for line in normalized_stored_lines
+                    )
+                ):
+                    should_refresh_summary = True
 
-            if should_refresh_summary:
-                summary_articles = display_articles or [
-                    {
-                        "title": representative_title,
-                        "content": representative_content,
-                        "is_representative": True,
-                        "category": representative_category,
-                    }
-                ]
-                response_short_summary = build_issue_short_summary(
-                    representative_title=representative_title,
-                    representative_content=representative_content,
-                    articles=summary_articles,
-                    stored_short_summary=stored_short_summary,
-                    max_lines=target_lines,
-                )
+                if should_refresh_summary:
+                    summary_articles = display_articles or [
+                        {
+                            "title": representative_title,
+                            "content": representative_content,
+                            "is_representative": True,
+                            "category": representative_category,
+                        }
+                    ]
+                    response_short_summary = build_issue_short_summary(
+                        representative_title=representative_title,
+                        representative_content=representative_content,
+                        articles=summary_articles,
+                        stored_short_summary=stored_short_summary,
+                        max_lines=target_lines,
+                    )
+                elif response_short_summary:
+                    response_short_summary = "\n".join(
+                        complete_summary_lines(
+                            response_short_summary,
+                            max_lines=target_lines,
+                            soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
+                            hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
+                        )
+                    ).strip()
             elif response_short_summary:
                 response_short_summary = "\n".join(
                     complete_summary_lines(
@@ -4829,20 +4861,22 @@ def get_issues(
                 ).strip()
 
             if not response_short_summary:
+                title_fallback = _title_to_complete_sentence(representative_title) or representative_title
                 response_short_summary = "\n".join(
                     complete_summary_lines(
-                        stored_short_summary,
+                        title_fallback,
                         max_lines=target_lines,
                         soft_max_chars=SUMMARY_COMPLETE_SOFT_MAX_CHARS,
                         hard_max_chars=SUMMARY_COMPLETE_HARD_MAX_CHARS,
                     )
                 ).strip()
+
             response_ultra_short = (
                 str(response_short_summary).split("\n", 1)[0].lstrip("- ").strip()
                 or _compact_title_summary(representative_title, max_chars=64)
             )
 
-            if issue_summary_id > 0:
+            if refresh_summary_enabled and issue_summary_id > 0:
                 stored_ultra_short = str(r.get("ultra_short") or "").strip()
                 if (
                     response_short_summary
@@ -4872,6 +4906,15 @@ def get_issues(
                             f"error={repr(e)}"
                         )
 
+            response_related_articles = list(display_articles)
+            response_content = representative_content
+            if not include_article_content:
+                response_content = ""
+                response_related_articles = [
+                    {**article, "content": ""}
+                    for article in response_related_articles
+                ]
+
             items.append({
                 "id": issue_summary_id,
                 "issue_summary_id": issue_summary_id,
@@ -4880,14 +4923,18 @@ def get_issues(
                 "title": representative_title,  # 대표 기사 제목
                 "url": r.get("url") or "",
                 "thumbnail": r.get("thumbnail") or "",          # 대표 기사 썸네일
-                "content": representative_content,  # 대표 기사 본문
+                "content": response_content,  # 대표 기사 본문
                 "summary": response_ultra_short,
                 "short_summary": response_short_summary,  # 이슈 전체 요약
                 "ultra_short": response_ultra_short,
                 "background": clean_html_text(r.get("background") or ""),
-                "related_count": int(len(display_articles) or 1),
-                "related_articles": display_articles,
-                "article_ids": [x["article_id"] for x in display_articles],
+                "related_count": int(r.get("related_count") or len(display_articles) or 1),
+                "related_articles": response_related_articles if include_related_articles else [],
+                "article_ids": (
+                    [x["article_id"] for x in response_related_articles]
+                    if include_related_articles
+                    else [int(r.get("article_id") or 0)]
+                ),
                 "keywords": r.get("keywords"),
                 "created_at": str(r.get("created_at") or ""),
                 "published_at": str(r.get("published_at") or ""),

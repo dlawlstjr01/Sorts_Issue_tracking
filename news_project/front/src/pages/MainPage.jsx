@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import "../CSS/main.css";
@@ -90,8 +90,8 @@ const THUMB = {
 };
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
-const MAIN_PAGE_ISSUE_LIMIT = 24;
-const MAIN_PAGE_ISSUE_FETCH_LIMIT = Math.min(MAIN_PAGE_ISSUE_LIMIT + 12, 40);
+const MAIN_PAGE_ISSUE_LIMIT = 12;
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = MAIN_PAGE_ISSUE_LIMIT;
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
 const MAIN_PAGE_DATA_CACHE_KEY = "mainPageIssueData:v1";
@@ -1247,7 +1247,12 @@ export default function MainPage() {
         }
 
         const res = await axios.get("/tracking/issues", {
-          params: { limit: MAIN_PAGE_ISSUE_FETCH_LIMIT, include_article_content: 0 },
+          params: {
+            limit: MAIN_PAGE_ISSUE_FETCH_LIMIT,
+            include_related: 1,
+            include_article_content: 0,
+            refresh_summary: 0,
+          },
         });
 
         const items = res.data?.items || res.data?.issues || res.data?.data || [];
@@ -1258,8 +1263,10 @@ export default function MainPage() {
 
         if (cancelled) return;
 
-        setLatestIssues(nextLatestIssues);
-        setArticles(nextArticles);
+        startTransition(() => {
+          setLatestIssues(nextLatestIssues);
+          setArticles(nextArticles);
+        });
         setError("");
         saveMainPageDataCache({
           latestIssues: nextLatestIssues,

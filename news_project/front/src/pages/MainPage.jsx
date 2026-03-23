@@ -346,6 +346,51 @@ function loadMainPageState() {
   }
 }
 
+function getStartOfLocalDay(value = Date.now()) {
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function getStartOfLocalWeek(value = Date.now()) {
+  const date = new Date(getStartOfLocalDay(value));
+  const day = date.getDay();
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  date.setDate(date.getDate() - diffToMonday);
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
+}
+
+function getIssueWindowFlags(value, nowTs = Date.now()) {
+  const ts = Number(value) || 0;
+  if (!Number.isFinite(ts) || ts <= 0) {
+    return { isDaily: false, isWeekly: false, isActive: false };
+  }
+
+  const startOfToday = getStartOfLocalDay(nowTs);
+  const startOfWeekly = getStartOfLocalWeek(nowTs);
+  const isDaily = ts >= startOfToday;
+  const isWeekly = ts >= startOfWeekly && ts < startOfToday;
+  return { isDaily, isWeekly, isActive: isDaily || isWeekly };
+}
+
+function pruneMainPageWindowData(nextState, nowTs = Date.now()) {
+  const latestIssues = Array.isArray(nextState?.latestIssues) ? nextState.latestIssues : [];
+  const articles = Array.isArray(nextState?.articles) ? nextState.articles : [];
+
+  const filteredLatestIssues = latestIssues.filter((issue) =>
+    getIssueWindowFlags(issue?.createdAt, nowTs).isActive
+  );
+  const filteredArticles = articles.filter((article) =>
+    getIssueWindowFlags(article?.createdAt, nowTs).isActive
+  );
+
+  return {
+    latestIssues: filteredLatestIssues,
+    articles: filteredArticles,
+  };
+}
+
 function loadMainPageDataCache() {
   if (typeof window === "undefined") return null;
 
@@ -357,10 +402,11 @@ function loadMainPageDataCache() {
     const latestIssues = Array.isArray(parsed?.latestIssues) ? parsed.latestIssues : [];
     const articles = Array.isArray(parsed?.articles) ? parsed.articles : [];
     const ts = Number(parsed?.ts) || 0;
+    const pruned = pruneMainPageWindowData({ latestIssues, articles }, Date.now());
 
-    if (!latestIssues.length || !articles.length || !ts) return null;
+    if (!pruned.latestIssues.length || !pruned.articles.length || !ts) return null;
 
-    return { latestIssues, articles, ts };
+    return { latestIssues: pruned.latestIssues, articles: pruned.articles, ts };
   } catch (e) {
     console.error("failed to load main page data cache:", e);
     return null;
@@ -371,11 +417,12 @@ function saveMainPageDataCache(nextState) {
   if (typeof window === "undefined") return;
 
   try {
+    const pruned = pruneMainPageWindowData(nextState, Date.now());
     sessionStorage.setItem(
       MAIN_PAGE_DATA_CACHE_KEY,
       JSON.stringify({
-        latestIssues: Array.isArray(nextState?.latestIssues) ? nextState.latestIssues : [],
-        articles: Array.isArray(nextState?.articles) ? nextState.articles : [],
+        latestIssues: pruned.latestIssues,
+        articles: pruned.articles,
         ts: Date.now(),
       })
     );
@@ -657,6 +704,7 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const representative = getRepresentativeArticle(issueSummary);
   const category = getIssueCategory(issueSummary, representative) || "society";
+  const issueTime = getIssueSortTime(issueSummary) || (issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now());
   const preferredTitle = pickPreferredIssueTitle(
     representative?.title || issueSummary.title || "",
     related.map((article) => article?.title || "")
@@ -675,7 +723,7 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
     related_articles: related,
     shortSummary: issueSummary.short_summary || "",
     ultraShort: issueSummary.ultra_short || "",
-    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
+    createdAt: issueTime,
     representativeUrl: representative?.url || issueSummary.url || "",
     representativeThumbnail: representative?.thumbnail || "",
     representativeContent: representative?.content || "",
@@ -687,6 +735,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
   const representative = getRepresentativeArticle(issueSummary);
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const category = getIssueCategory(issueSummary, representative) || "society";
+  const issueTime = getIssueSortTime(issueSummary) || (issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now());
   const representativeArticleId = safeString(
     issueSummary.article_id || representative?.id || representative?.article_id || ""
   );
@@ -705,7 +754,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     title: preferredTitle || "(이슈 제목 없음)",
     thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || "", getFallbackThumb(category)),
     summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
-    createdAt: issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now(),
+    createdAt: issueTime,
     raw: {
       ...issueSummary,
       issueSummaryId: safeString(issueSummary.id || ""),
@@ -992,8 +1041,6 @@ export default function MainPage() {
   const articleListRef = useRef(null);
   const recoListRef = useRef(null);
   const contrastListRef = useRef(null);
-  const sectionRefs = useRef({});
-
   const [userId, setUserId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState(initialSavedStateRef.current?.selectedCategory || "all");
   const [articleListMode, setArticleListMode] = useState(initialSavedStateRef.current?.articleListMode || "daily");
@@ -1017,7 +1064,7 @@ export default function MainPage() {
   const [recoListScrollCue, setRecoListScrollCue] = useState({ showUp: false, showDown: false });
   const [contrastListScrollCue, setContrastListScrollCue] = useState({ showUp: false, showDown: false });
 
-  const displayedArticles = useMemo(() => {
+  const articleBuckets = useMemo(() => {
     const filtered =
       selectedCategory === "all"
         ? articles
@@ -1027,17 +1074,23 @@ export default function MainPage() {
 
     const sorted = [...filtered].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
-    const baseList =
-      articleListMode !== "weekly"
-        ? sorted
-        : (() => {
-          const sevenDaysAgo = Date.now() - 1000 * 60 * 60 * 24 * 7;
-          const weekly = sorted.filter((a) => (a.createdAt || 0) >= sevenDaysAgo);
-          return weekly.length ? weekly : sorted;
-        })();
+    const daily = sorted.filter((article) => getIssueWindowFlags(article?.createdAt).isDaily);
+    const weekly = sorted.filter((article) => getIssueWindowFlags(article?.createdAt).isWeekly);
 
-    return dedupeDisplayArticles(baseList);
-  }, [articles, selectedCategory, articleListMode]);
+    return {
+      daily: dedupeDisplayArticles(daily),
+      weekly: dedupeDisplayArticles(weekly),
+    };
+  }, [articles, selectedCategory]);
+
+  const displayedArticles = useMemo(
+    () => (articleListMode === "weekly" ? articleBuckets.weekly : articleBuckets.daily),
+    [articleBuckets.daily, articleBuckets.weekly, articleListMode]
+  );
+  const emptyArticleMessage =
+    articleListMode === "weekly"
+      ? "최근 7일 이슈가 없습니다."
+      : "오늘 등록된 이슈가 없습니다.";
 
   const latestIssueByArticleId = useMemo(
     () => new Map(latestIssues.map((issue) => [safeString(issue.articleId || issue.representativeArticleId || issue.id), issue])),
@@ -1093,15 +1146,6 @@ export default function MainPage() {
       top: 0,
       behavior: "smooth",
     });
-
-    const firstArticle = displayedArticles[0];
-    if (firstArticle) {
-      const firstId = safeString(firstArticle.representativeArticleId || firstArticle.articleId || firstArticle.id);
-      setSelectedId(firstId);
-      setActiveIssueArticleId(
-        safeString(latestIssueByArticleId.get(firstId)?.articleId || firstId)
-      );
-    }
   };
 
   useEffect(() => {
@@ -1260,18 +1304,19 @@ export default function MainPage() {
         const deduped = dedupeIssueSummaries(grouped, MAIN_PAGE_ISSUE_LIMIT);
         const nextLatestIssues = deduped.map(mapIssueSummaryToLatestUI);
         const nextArticles = deduped.map(mapIssueSummaryToMainArticle);
+        const prunedWindowData = pruneMainPageWindowData({
+          latestIssues: nextLatestIssues,
+          articles: nextArticles,
+        });
 
         if (cancelled) return;
 
         startTransition(() => {
-          setLatestIssues(nextLatestIssues);
-          setArticles(nextArticles);
+          setLatestIssues(prunedWindowData.latestIssues);
+          setArticles(prunedWindowData.articles);
         });
         setError("");
-        saveMainPageDataCache({
-          latestIssues: nextLatestIssues,
-          articles: nextArticles,
-        });
+        saveMainPageDataCache(prunedWindowData);
       } catch (e) {
         console.error("latest issues load failed:", e);
         if (cancelled) return;
@@ -1383,14 +1428,30 @@ export default function MainPage() {
     if (loading || !articles.length || restoredRef.current) return;
 
     const saved = initialSavedStateRef.current;
-    const hasSelectedInCurrentList = displayedArticles.some(
+    const savedMode = safeString(saved?.articleListMode || articleListMode);
+    const nextMode =
+      savedMode === "weekly"
+        ? articleBuckets.weekly.length > 0
+          ? "weekly"
+          : articleBuckets.daily.length > 0
+            ? "daily"
+            : "weekly"
+        : articleBuckets.daily.length > 0
+          ? "daily"
+          : articleBuckets.weekly.length > 0
+            ? "weekly"
+            : "daily";
+
+    const visibleArticles = nextMode === "weekly" ? articleBuckets.weekly : articleBuckets.daily;
+    const hasSelectedInCurrentList = visibleArticles.some(
       (a) =>
         safeString(a.representativeArticleId || a.articleId || a.id) === safeString(saved?.selectedId)
     );
     const nextSelectedId = hasSelectedInCurrentList
       ? safeString(saved?.selectedId)
-      : safeString(displayedArticles[0]?.representativeArticleId || displayedArticles[0]?.articleId || displayedArticles[0]?.id);
+      : safeString(visibleArticles[0]?.representativeArticleId || visibleArticles[0]?.articleId || visibleArticles[0]?.id);
 
+    setArticleListMode(nextMode);
     setSelectedId(nextSelectedId || null);
 
     const matchedIssue = latestIssueByArticleId.get(nextSelectedId);
@@ -1408,18 +1469,12 @@ export default function MainPage() {
     requestAnimationFrame(() => {
       const container = centerScrollRef.current;
       if (!container) return;
-
-      const targetEl = sectionRefs.current[nextSelectedId];
-      if (targetEl) {
-        targetEl.scrollIntoView({ behavior: "auto", block: "start" });
-      } else {
-        container.scrollTop = 0;
-      }
+      container.scrollTop = 0;
     });
 
     restoredRef.current = true;
     allowPersistRef.current = true;
-  }, [loading, articles, displayedArticles, latestIssueByArticleId, issueGroupByArticleId]);
+  }, [loading, articles, articleBuckets.daily, articleBuckets.weekly, articleListMode, latestIssueByArticleId, issueGroupByArticleId]);
 
   useEffect(() => {
     const container = centerScrollRef.current;
@@ -1467,13 +1522,21 @@ export default function MainPage() {
   }, []);
 
   const selectedArticle = useMemo(
-    () =>
-      displayedArticles.find(
-        (a) => safeString(a.representativeArticleId || a.articleId || a.id) === safeString(selectedId)
-      ) ||
-      displayedArticles[0] ||
-      null,
-    [displayedArticles, selectedId]
+    () => {
+      const selectedKey = safeString(selectedId);
+      if (selectedKey) {
+        return (
+          articles.find(
+            (a) => safeString(a.representativeArticleId || a.articleId || a.id) === selectedKey
+          ) ||
+          displayedArticles[0] ||
+          null
+        );
+      }
+
+      return displayedArticles[0] || null;
+    },
+    [articles, displayedArticles, selectedId]
   );
 
   const selectedIssue = useMemo(
@@ -1550,9 +1613,7 @@ export default function MainPage() {
 
     setSelectedId(nextId);
     setActiveIssueArticleId(safeString(latestIssueByArticleId.get(nextId)?.articleId || nextId));
-
-    const targetEl = sectionRefs.current[nextId];
-    if (targetEl) targetEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    centerScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const openOriginal = (article) => {
@@ -1720,27 +1781,31 @@ export default function MainPage() {
               </div>
 
               <div className="mp-article-list" ref={articleListRef}>
-                {displayedArticles.map((a) => {
-                  const listKey = safeString(a.representativeArticleId || a.articleId || a.id);
-                  const matchedIssue = latestIssueByArticleId.get(listKey) || null;
+                {displayedArticles.length === 0 ? (
+                  <div style={{ padding: 14, opacity: 0.68, fontSize: 13 }}>{emptyArticleMessage}</div>
+                ) : (
+                  displayedArticles.map((a) => {
+                    const listKey = safeString(a.representativeArticleId || a.articleId || a.id);
+                    const matchedIssue = latestIssueByArticleId.get(listKey) || null;
 
-                  return (
-                    <button
-                      key={listKey}
-                      type="button"
-                      className={`mp-article-item ${listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
-                        ? "active"
-                        : ""
-                        }`}
-                      onClick={() => selectIssueInCenter(a)}
-                    >
-                      <div className="mp-article-item-top">
-                        <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
-                      </div>
-                      <div className="mp-article-item-title">{matchedIssue?.title || a.title}</div>
-                    </button>
-                  );
-                })}
+                    return (
+                      <button
+                        key={listKey}
+                        type="button"
+                        className={`mp-article-item ${listKey === safeString(selectedArticle?.representativeArticleId || selectedArticle?.articleId || selectedArticle?.id)
+                          ? "active"
+                          : ""
+                          }`}
+                        onClick={() => selectIssueInCenter(a)}
+                      >
+                        <div className="mp-article-item-top">
+                          <span className="mp-article-item-cat">{getCategoryLabel(a.category)}</span>
+                        </div>
+                        <div className="mp-article-item-title">{matchedIssue?.title || a.title}</div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
 
               <ScrollMoreCue
@@ -1760,47 +1825,29 @@ export default function MainPage() {
         </aside>
 
         <main className="mp-center">
-          {!displayedArticles.length ? (
-            <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : "표시할 이슈가 없습니다."}</div>
+          {!selectedArticle ? (
+            <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : emptyArticleMessage}</div>
           ) : (
             <div className="mp-center-scroll" ref={centerScrollRef} onScroll={persistCurrentState}>
-              {displayedArticles.map((article) => {
+              {(() => {
+                const article = selectedArticle;
                 const articleId = safeString(article.representativeArticleId || article.articleId || article.id);
-                const isSelected = articleId === safeString(selectedId);
-                const currentIssue = latestIssueByArticleId.get(articleId) || null;
-                const currentIssueGroup = issueGroupByArticleId.get(articleId) || [];
+                const currentIssue = selectedIssue;
+                const currentIssueGroup = selectedIssueGroup;
                 const currentSummaryLines = summaryLinesByArticleId.get(articleId) || [];
                 const currentGlossary = deferredGlossaryList;
-
-                const activeGroupArticle =
-                  currentIssueGroup.find(
-                    (item) => safeString(item.articleId || item.id) === safeString(activeIssueArticleId)
-                  ) || null;
-
-                const currentTitle = isSelected
-                  ? pickPreferredIssueTitle(
-                    activeGroupArticle?.title || currentIssue?.title || article.title,
-                    currentIssueGroup.map((item) => item?.title || "")
-                  )
-                  : pickPreferredIssueTitle(
-                    currentIssue?.title || article.title,
-                    currentIssueGroup.map((item) => item?.title || "")
-                  );
-
+                const activeGroupArticle = activeIssueArticle;
+                const currentTitle = pickPreferredIssueTitle(
+                  activeGroupArticle?.title || currentIssue?.title || article.title,
+                  currentIssueGroup.map((item) => item?.title || "")
+                );
                 const currentThumb = resolveThumbnailUrl(
                   currentIssue?.representativeThumbnail || article.thumbnailUrl || "",
                   getFallbackThumb(currentIssue?.category || article.category || "society")
                 );
 
                 return (
-                  <section
-                    key={articleId}
-                    ref={(el) => {
-                      sectionRefs.current[articleId] = el;
-                    }}
-                    className={`mp-center-inner ${isSelected ? "active" : ""}`}
-                    onMouseEnter={() => setSelectedId(articleId)}
-                  >
+                  <section key={articleId} className="mp-center-inner active">
                     <div className="mp-head">
                       <h1 className="mp-title">{currentTitle}</h1>
                       <Badge type={article.badge} />
@@ -1908,7 +1955,7 @@ export default function MainPage() {
                     />
                   </section>
                 );
-              })}
+              })()}
             </div>
           )}
         </main>

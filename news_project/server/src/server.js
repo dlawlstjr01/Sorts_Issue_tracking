@@ -16,6 +16,7 @@ const issueArchiveRoutes = require("./routes/issueArchiveRoutes");
 const { warmIssuesCache } = require("./services/trackingService");
 const searchRoutes = require("./routes/searchRoutes");
 const noticeRoutes = require("./routes/noticeRoutes");
+const db = require("./config/DB");
 
 const ENABLE_CRAWLER =
   String(process.env.ENABLE_CRAWLER || "true").toLowerCase() === "true";
@@ -32,13 +33,14 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use(passport.initialize());
+
 if (ENABLE_CRAWLER) {
   startCrawler();
 } else {
   console.log("[crawler] disabled by ENABLE_CRAWLER=false");
 }
+
 initPassport();
-//  /auth/login, /auth/me, /auth/logout
 
 app.use("/auth", authRoutes);
 app.use("/news", newsRoutes);
@@ -53,7 +55,7 @@ app.use("/notices", noticeRoutes);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT}`);
 
   setTimeout(() => {
@@ -63,6 +65,7 @@ app.listen(PORT, "0.0.0.0", () => {
       include_article_content: 0,
       refresh_summary: 0,
     });
+
     void warmIssuesCache({
       limit: 20,
       include_related: 0,
@@ -70,4 +73,43 @@ app.listen(PORT, "0.0.0.0", () => {
       refresh_summary: 0,
     });
   }, 1500);
+});
+
+let isShuttingDown = false;
+
+async function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`\n[${signal}] 서버 종료 시작...`);
+
+  server.close(async (err) => {
+    if (err) {
+      console.error("HTTP 서버 종료 중 오류:", err);
+    } else {
+      console.log("HTTP 서버 종료 완료");
+    }
+
+    try {
+      await db.end();
+      console.log("DB 커넥션 풀 종료 완료");
+      process.exit(0);
+    } catch (dbErr) {
+      console.error("DB 커넥션 풀 종료 실패:", dbErr);
+      process.exit(1);
+    }
+  });
+
+  setTimeout(() => {
+    console.error("종료 지연으로 강제 종료합니다.");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGINT", () => {
+  void gracefulShutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void gracefulShutdown("SIGTERM");
 });

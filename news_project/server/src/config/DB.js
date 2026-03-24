@@ -12,4 +12,15 @@ const db = mysql.createPool({
   charset: "utf8mb4",
 });
 
+exports.getNews = async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM articles");
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "에러" });
+  }
+};
+
+
 module.exports = db;

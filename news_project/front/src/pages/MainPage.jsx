@@ -1622,6 +1622,71 @@ export default function MainPage() {
     [contrastArticles]
   );
 
+  const wheelLockRef = useRef(false);
+
+  const moveCenterIssueByStep = (step) => {
+    const list = displayedArticles;
+    if (!Array.isArray(list) || list.length <= 1) return;
+
+    const currentKey = safeString(
+      selectedArticle?.representativeArticleId ||
+      selectedArticle?.articleId ||
+      selectedArticle?.id
+    );
+
+    const currentIndex = list.findIndex(
+      (item) =>
+        safeString(item.representativeArticleId || item.articleId || item.id) === currentKey
+    );
+
+    if (currentIndex < 0) return;
+
+    const nextIndex = currentIndex + step;
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+
+    const nextArticle = list[nextIndex];
+    const nextId = safeString(
+      nextArticle?.representativeArticleId ||
+      nextArticle?.articleId ||
+      nextArticle?.id
+    );
+
+    if (!nextId) return;
+
+    setSelectedId(nextId);
+
+    const matchedIssue = latestIssueByArticleId.get(nextId);
+    setActiveIssueArticleId(
+      safeString(matchedIssue?.articleId || nextId)
+    );
+
+    requestAnimationFrame(() => {
+      const container = centerScrollRef.current;
+      if (container) container.scrollTop = 0;
+    });
+  };
+
+  const handleCenterWheel = (e) => {
+    if (wheelLockRef.current) return;
+
+    const deltaY = e.deltaY;
+    if (Math.abs(deltaY) < 20) return;
+
+    e.preventDefault();
+
+    wheelLockRef.current = true;
+
+    if (deltaY > 0) {
+      moveCenterIssueByStep(1);   // 아래로 휠 = 다음 요약기사
+    } else {
+      moveCenterIssueByStep(-1);  // 위로 휠 = 이전 요약기사
+    }
+
+    window.setTimeout(() => {
+      wheelLockRef.current = false;
+    }, 350);
+  };
+
   const selectIssueInCenter = (article) => {
     const nextId = safeString(article?.representativeArticleId || article?.articleId || article?.id);
     if (!nextId) return;
@@ -1843,7 +1908,12 @@ export default function MainPage() {
           {!selectedArticle ? (
             <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : emptyArticleMessage}</div>
           ) : (
-            <div className="mp-center-scroll" ref={centerScrollRef} onScroll={persistCurrentState}>
+            <div
+              className="mp-center-scroll"
+              ref={centerScrollRef}
+              onScroll={persistCurrentState}
+              onWheel={handleCenterWheel}
+            >
               {(() => {
                 const article = selectedArticle;
                 const articleId = safeString(article.representativeArticleId || article.articleId || article.id);

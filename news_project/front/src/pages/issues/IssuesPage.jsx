@@ -207,8 +207,6 @@ export default function IssuesPage() {
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState("전체");
-  const [query, setQuery] = useState("");
   const [quickToast, setQuickToast] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIssue, setSelectedIssue] = useState(null);

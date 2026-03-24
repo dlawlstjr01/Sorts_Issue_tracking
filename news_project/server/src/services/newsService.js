@@ -317,6 +317,45 @@ function appendKeywordWhere(where, params, rawKeyword) {
   params.push(`%${keyword}%`, `%${keyword}%`);
 }
 
+function buildDedupedArticlesFromSql(whereSql) {
+  return `
+    FROM (
+      SELECT
+        id,
+        url,
+        title,
+        thumbnail,
+        content,
+        category,
+        published_at,
+        created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE
+              WHEN NULLIF(TRIM(COALESCE(url, '')), '') IS NOT NULL
+                THEN CONCAT('url:', LOWER(TRIM(url)))
+              WHEN NULLIF(TRIM(COALESCE(title, '')), '') IS NOT NULL
+                OR COALESCE(published_at, created_at) IS NOT NULL
+                THEN CONCAT(
+                  'title:',
+                  LOWER(TRIM(COALESCE(title, ''))),
+                  '|published:',
+                  COALESCE(
+                    DATE_FORMAT(COALESCE(published_at, created_at), '%Y-%m-%d %H:%i:%s'),
+                    ''
+                  )
+                )
+              ELSE CONCAT('id:', CAST(id AS CHAR))
+            END
+          ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+        ) AS dedup_rank
+      FROM articles
+      ${whereSql}
+    ) deduped_articles
+    WHERE dedup_rank = 1
+  `;
+}
+
 exports.listArticles = async ({
   page,
   size,
@@ -374,6 +413,7 @@ exports.listArticles = async ({
   if (cached) return cached;
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const dedupedFromSql = buildDedupedArticlesFromSql(whereSql);
 
   const rowsPromise =
     offset >= cappedTotalLimit
@@ -381,8 +421,7 @@ exports.listArticles = async ({
       : db.query(
         `
           SELECT id, url, title, thumbnail, content, category, published_at, created_at
-          FROM articles
-          ${whereSql}
+          ${dedupedFromSql}
           ORDER BY COALESCE(published_at, created_at) DESC, id DESC
           LIMIT ? OFFSET ?
           `,
@@ -393,8 +432,7 @@ exports.listArticles = async ({
     ? db.query(
       `
         SELECT COUNT(*) AS cnt
-        FROM articles
-        ${whereSql}
+        ${dedupedFromSql}
         `,
       params
     )
@@ -425,12 +463,12 @@ exports.listArticles = async ({
     const pressWhereSql = whereForPressList.length
       ? `WHERE ${whereForPressList.join(" AND ")}`
       : "";
+    const dedupedPressFromSql = buildDedupedArticlesFromSql(pressWhereSql);
 
     pressesPromise = db.query(
       `
       SELECT url
-      FROM articles
-      ${pressWhereSql}
+      ${dedupedPressFromSql}
       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
       LIMIT 5000
       `,

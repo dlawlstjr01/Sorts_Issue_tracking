@@ -692,7 +692,7 @@
 
 .als-news-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1347,4 +1347,71 @@
 .glossary-tooltip-meaning {
   display: block;
   margin-top: 0;
+}
+
+/* Typography tune-up */
+.als-step-title {
+  font-size: 22px;
+}
+
+.als-search-input input {
+  font-size: 25px;
+}
+
+.als-help-btn,
+.als-help-popover-title,
+.als-news-visible,
+.als-news-total,
+.als-news-cat,
+.als-news-date,
+.article-detail-press,
+.article-detail-date,
+.article-detail-reading-pill,
+.article-detail-summary-label,
+.article-detail-content-subtle,
+.article-detail-source-row,
+.article-detail-open-source,
+.article-detail-search-label,
+.article-detail-search-btn,
+.article-detail-search-count {
+  font-size: 14px;
+}
+
+.als-help-list,
+.als-news-item-title,
+.article-detail-empty-desc,
+.article-detail-empty-content {
+  font-size: 16px;
+}
+
+.als-news-title-main {
+  font-size: 21px;
+}
+
+.article-detail-empty-title {
+  font-size: 22px;
+}
+
+.article-detail-title {
+  font-size: clamp(32px, 3vw, 40px);
+}
+
+.article-detail-summary-text {
+  font-size: 17px;
+}
+
+.article-detail-content-title {
+  font-size: 19px;
+}
+
+.article-detail-source-title {
+  font-size: 16px;
+}
+
+.article-detail-content p {
+  font-size: 18px;
+}
+
+.article-detail-content p:first-child {
+  font-size: 19px;
 }

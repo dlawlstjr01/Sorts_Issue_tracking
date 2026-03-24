@@ -91,11 +91,11 @@ const THUMB = {
 
 const SUMMARY_FALLBACK = "요약 정보가 없습니다.";
 const MAIN_PAGE_ISSUE_LIMIT = 12;
-const MAIN_PAGE_ISSUE_FETCH_LIMIT = MAIN_PAGE_ISSUE_LIMIT;
+const MAIN_PAGE_ISSUE_FETCH_LIMIT = 20;
 const RECO_FETCH_LIMIT = 10;
 const MAIN_PAGE_STATE_KEY = "mainPageViewState";
-const MAIN_PAGE_DATA_CACHE_KEY = "mainPageIssueData:v1";
-const MAIN_PAGE_DATA_CACHE_TTL = 1000 * 60 * 3;
+const MAIN_PAGE_DATA_CACHE_KEY = "mainPageIssueData:v2";
+const MAIN_PAGE_DATA_CACHE_TTL = 1000 * 60 * 15;
 const URGENT_TITLE_PREFIX_RE = /^\s*(?:\[[^\]]{0,8}\]\s*)?(?:속보|단독|긴급|특보|1보|2보|3보|breaking)\s*[:\-]?\s*/i;
 const ISSUE_TITLE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
 const SUMMARY_LINE_TOKEN_RE = /[가-힣A-Za-z0-9\u4E00-\u9FFF]+/g;
@@ -725,8 +725,8 @@ function mapIssueSummaryToLatestUI(issueSummary = {}) {
     ultraShort: issueSummary.ultra_short || "",
     createdAt: issueTime,
     representativeUrl: representative?.url || issueSummary.url || "",
-    representativeThumbnail: representative?.thumbnail || "",
-    representativeContent: representative?.content || "",
+    representativeThumbnail: representative?.thumbnail || issueSummary.thumbnail || "",
+    representativeContent: representative?.content || issueSummary.content || "",
     raw: issueSummary,
   };
 }
@@ -752,16 +752,16 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     category,
     badge: `묶음 ${Number(issueSummary.related_count || related.length || 0)}`,
     title: preferredTitle || "(이슈 제목 없음)",
-    thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || "", getFallbackThumb(category)),
+    thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || issueSummary.thumbnail || "", getFallbackThumb(category)),
     summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
     createdAt: issueTime,
     raw: {
       ...issueSummary,
       issueSummaryId: safeString(issueSummary.id || ""),
       title: preferredTitle || "(이슈 제목 없음)",
-      thumbnail: representative?.thumbnail || "",
+      thumbnail: representative?.thumbnail || issueSummary.thumbnail || "",
       url: representative?.url || issueSummary.url || "",
-      content: representative?.content || "",
+      content: representative?.content || issueSummary.content || "",
     },
   };
 }
@@ -1053,6 +1053,7 @@ export default function MainPage() {
   const allowPersistRef = useRef(false);
   const restoredRef = useRef(false);
   const centerScrollRef = useRef(null);
+  const centerScrollAnimRef = useRef({ frameId: null, targetTop: 0 });
   const articleListRef = useRef(null);
   const recoListRef = useRef(null);
   const contrastListRef = useRef(null);
@@ -1153,14 +1154,114 @@ export default function MainPage() {
     element.scrollBy({ top: delta, behavior: "smooth" });
   };
 
-  const scrollToTop = () => {
-    const container = centerScrollRef.current;
-    if (!container) return;
+  const smoothScrollCenterTo = (nextTop, duration = 280) => {
+    const element = centerScrollRef.current;
+    if (!element) return;
 
-    container.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+    const maxTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    const targetTop = Math.max(0, Math.min(nextTop, maxTop));
+    const startTop = element.scrollTop;
+    const distance = targetTop - startTop;
+    if (Math.abs(distance) < 1) {
+      element.scrollTop = targetTop;
+      return;
+    }
+
+    const state = centerScrollAnimRef.current;
+    if (state.frameId) cancelAnimationFrame(state.frameId);
+    state.targetTop = targetTop;
+
+    const startAt = performance.now();
+    const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+    const step = (now) => {
+      const progress = Math.min(1, (now - startAt) / duration);
+      const eased = easeOutCubic(progress);
+      element.scrollTop = startTop + distance * eased;
+
+      if (progress < 1) {
+        state.frameId = requestAnimationFrame(step);
+      } else {
+        state.frameId = null;
+        element.scrollTop = targetTop;
+      }
+    };
+
+    state.frameId = requestAnimationFrame(step);
+  };
+
+  const smoothScrollCenterBy = (delta) => {
+    const element = centerScrollRef.current;
+    if (!element) return;
+
+    const baseTop = centerScrollAnimRef.current.frameId
+      ? centerScrollAnimRef.current.targetTop
+      : element.scrollTop;
+
+    smoothScrollCenterTo(baseTop + delta);
+  };
+
+  const scrollToTop = () => {
+    const element = centerScrollRef.current;
+    if (element && element.scrollHeight > element.clientHeight + 4) {
+      smoothScrollCenterTo(0, 320);
+      return;
+    }
+
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleCenterWheel = (event) => {
+    const element = centerScrollRef.current;
+    if (!element) return;
+
+    const maxScroll = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (maxScroll <= 0) return;
+
+    event.preventDefault();
+    const direction = event.deltaY >= 0 ? 1 : -1;
+    const amount = Math.min(360, Math.max(96, Math.abs(event.deltaY) * 1.15));
+    smoothScrollCenterBy(direction * amount);
+  };
+
+  const handleCenterKeyDown = (event) => {
+    const element = centerScrollRef.current;
+    if (!element) return;
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+
+    let delta = 0;
+    let handled = true;
+
+    switch (event.key) {
+      case "ArrowDown":
+        delta = 140;
+        break;
+      case "ArrowUp":
+        delta = -140;
+        break;
+      case "PageDown":
+        delta = Math.floor(element.clientHeight * 0.9);
+        break;
+      case "PageUp":
+        delta = -Math.floor(element.clientHeight * 0.9);
+        break;
+      case "Home":
+        smoothScrollCenterTo(0, 320);
+        break;
+      case "End":
+        smoothScrollCenterTo(element.scrollHeight, 320);
+        break;
+      default:
+        handled = false;
+    }
+
+    if (!handled) return;
+    event.preventDefault();
+
+    if (delta !== 0) {
+      smoothScrollCenterBy(delta);
+    }
   };
 
   useEffect(() => {
@@ -1225,7 +1326,6 @@ export default function MainPage() {
       articleListMode,
       selectedId,
       activeIssueArticleId,
-      centerScrollTop: centerScrollRef.current?.scrollTop || 0,
     });
   };
 
@@ -1244,7 +1344,7 @@ export default function MainPage() {
 
     const taskId = scheduleIdleTask(() => {
       void run();
-    }, 600);
+    }, 1200);
 
     return () => {
       cancelled = true;
@@ -1285,8 +1385,7 @@ export default function MainPage() {
     setNoticeModal({ open: false, message: "" });
 
     requestAnimationFrame(() => {
-      const container = centerScrollRef.current;
-      if (container) container.scrollTop = 0;
+      if (typeof window !== "undefined") window.scrollTo(0, 0);
     });
 
     navigate("/?view=main", { replace: true, state: null });
@@ -1308,7 +1407,7 @@ export default function MainPage() {
         const res = await axios.get("/tracking/issues", {
           params: {
             limit: MAIN_PAGE_ISSUE_FETCH_LIMIT,
-            include_related: 1,
+            include_related: 0,
             include_article_content: 0,
             refresh_summary: 0,
           },
@@ -1366,6 +1465,79 @@ export default function MainPage() {
       cancelIdleTask(taskId);
     };
   }, []);
+
+  useEffect(() => {
+    const selectedKey = safeString(selectedId).trim();
+    if (!selectedKey) return;
+
+    const currentIssue = latestIssueByArticleId.get(selectedKey);
+    const hasRelatedArticles =
+      Array.isArray(currentIssue?.related_articles) && currentIssue.related_articles.length > 0;
+    if (hasRelatedArticles) return;
+
+    let cancelled = false;
+
+    const loadIssueDetail = async () => {
+      try {
+        const res = await axios.get("/tracking/issues", {
+          params: {
+            article_id: selectedKey,
+            limit: 1,
+            include_related: 1,
+            include_article_content: 0,
+            refresh_summary: 0,
+          },
+        });
+
+        const items = res.data?.items || res.data?.issues || res.data?.data || [];
+        const detailRaw =
+          items.find(
+            (item) =>
+              safeString(item?.article_id || item?.articleId || item?.id).trim() === selectedKey
+          ) || items[0];
+
+        if (cancelled || !detailRaw) return;
+
+        const mappedIssue = mapIssueSummaryToLatestUI(detailRaw);
+        const mappedArticle = mapIssueSummaryToMainArticle(detailRaw);
+
+        startTransition(() => {
+          setLatestIssues((prev) =>
+            prev.map((issue) =>
+              safeString(issue.articleId || issue.representativeArticleId || issue.id).trim() === selectedKey
+                ? mappedIssue
+                : issue
+            )
+          );
+          setArticles((prev) =>
+            prev.map((article) =>
+              safeString(article.representativeArticleId || article.articleId || article.id).trim() === selectedKey
+                ? {
+                    ...article,
+                    ...mappedArticle,
+                    raw: {
+                      ...(article.raw || {}),
+                      ...(mappedArticle.raw || {}),
+                    },
+                  }
+                : article
+            )
+          );
+        });
+      } catch (e) {
+        console.error("selected issue detail load failed:", e);
+      }
+    };
+
+    const taskId = scheduleIdleTask(() => {
+      void loadIssueDetail();
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      cancelIdleTask(taskId);
+    };
+  }, [selectedId, latestIssueByArticleId]);
 
   useEffect(() => {
     if (!userId) {
@@ -1482,9 +1654,7 @@ export default function MainPage() {
     );
 
     requestAnimationFrame(() => {
-      const container = centerScrollRef.current;
-      if (!container) return;
-      container.scrollTop = 0;
+      if (typeof window !== "undefined") window.scrollTo(0, 0);
     });
 
     restoredRef.current = true;
@@ -1492,20 +1662,22 @@ export default function MainPage() {
   }, [loading, articles, articleBuckets.daily, articleBuckets.weekly, articleListMode, latestIssueByArticleId, issueGroupByArticleId]);
 
   useEffect(() => {
-    const container = centerScrollRef.current;
-    if (!container) return;
-
     const handleScroll = () => {
-      setShowScrollTop(container.scrollTop > 120);
+      const windowScrolled = (typeof window !== "undefined" ? window.scrollY : 0) > 180;
+      const centerScrolled = (centerScrollRef.current?.scrollTop || 0) > 120;
+      setShowScrollTop(windowScrolled || centerScrolled);
     };
 
     handleScroll();
-    container.addEventListener("scroll", handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    const centerEl = centerScrollRef.current;
+    centerEl?.addEventListener("scroll", handleScroll, { passive: true });
 
     return () => {
-      container.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("scroll", handleScroll);
+      centerEl?.removeEventListener("scroll", handleScroll);
     };
-  }, [loading, displayedArticles.length]);
+  }, [selectedId, loading]);
 
   useEffect(() => {
     if (!restoredRef.current) return;
@@ -1528,7 +1700,7 @@ export default function MainPage() {
 
     const taskId = scheduleIdleTask(() => {
       void loadGlossary();
-    }, 1200);
+    }, 2500);
 
     return () => {
       cancelled = true;
@@ -1628,7 +1800,9 @@ export default function MainPage() {
 
     setSelectedId(nextId);
     setActiveIssueArticleId(safeString(latestIssueByArticleId.get(nextId)?.articleId || nextId));
-    centerScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   const openOriginal = (article) => {
@@ -1843,7 +2017,17 @@ export default function MainPage() {
           {!selectedArticle ? (
             <div style={{ padding: 20, opacity: 0.8 }}>{loading ? "불러오는 중..." : emptyArticleMessage}</div>
           ) : (
-            <div className="mp-center-scroll" ref={centerScrollRef} onScroll={persistCurrentState}>
+            <div
+              className="mp-center-scroll"
+              ref={centerScrollRef}
+              tabIndex={0}
+              role="region"
+              aria-label="이슈 상세 영역"
+              onWheel={handleCenterWheel}
+              onKeyDown={handleCenterKeyDown}
+              onMouseEnter={() => centerScrollRef.current?.focus({ preventScroll: true })}
+              onClick={() => centerScrollRef.current?.focus({ preventScroll: true })}
+            >
               {(() => {
                 const article = selectedArticle;
                 const articleId = safeString(article.representativeArticleId || article.articleId || article.id);
@@ -1882,18 +2066,7 @@ export default function MainPage() {
                     <section className="mp-summary">
                       <div className="mp-section-title">요약</div>
 
-                      <div
-                        className="mp-summary-lines mp-summary-scroll"
-                        onWheel={(e) => {
-                          const el = e.currentTarget;
-                          const { scrollTop, scrollHeight, clientHeight } = el;
-                          const delta = e.deltaY;
-                          const atTop = scrollTop <= 0;
-                          const atBottom = scrollTop + clientHeight >= scrollHeight - 1;
-
-                          if ((delta < 0 && !atTop) || (delta > 0 && !atBottom)) e.stopPropagation();
-                        }}
-                      >
+                      <div className="mp-summary-lines mp-summary-scroll">
                         {currentSummaryLines.length ? (
                           currentSummaryLines.map((line, index) => {
                             const isBullet = safeString(line).trim().startsWith("- ");

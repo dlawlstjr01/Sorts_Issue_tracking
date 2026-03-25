@@ -134,7 +134,6 @@ async function getMyArchivedIssues(req) {
 
           a.id AS article_pk,
           a.title,
-          a.content,
           a.url,
           a.thumbnail,
           a.category,

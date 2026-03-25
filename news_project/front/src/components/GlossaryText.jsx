@@ -1,4 +1,5 @@
 import React, { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -150,9 +151,10 @@ function GlossaryText({ text = "", glossary = [] }) {
   };
 
   const closeTooltip = () => {
-    setHoveredItem(null);
+    setTimeout(() => {
+      setHoveredItem(null);
+    }, 60);
   };
-
   useEffect(() => {
     if (!hoveredItem || !tooltipRef.current) return;
 
@@ -224,26 +226,29 @@ function GlossaryText({ text = "", glossary = [] }) {
         })}
       </span>
 
-      {hoveredItem && (
-        <div
-          ref={tooltipRef}
-          className="glossary-tooltip glossary-tooltip-fixed"
-          style={{
-            position: "fixed",
-            top: `${tooltipStyle.top}px`,
-            left: `${tooltipStyle.left}px`,
-            visibility: tooltipStyle.visibility,
-            zIndex: 99999,
-          }}
-        >
-          <strong className="glossary-tooltip-alias">
-            {hoveredItem.alias || hoveredItem.value}
-          </strong>
-          <span className="glossary-tooltip-meaning">
-            {hoveredItem.meaning}
-          </span>
-        </div>
-      )}
+      {hoveredItem &&
+        createPortal(
+          <div
+            ref={tooltipRef}
+            className="glossary-tooltip glossary-tooltip-fixed"
+            style={{
+              position: "fixed",
+              top: `${tooltipStyle.top}px`,
+              left: `${tooltipStyle.left}px`,
+              visibility: tooltipStyle.visibility,
+              zIndex: 999999,
+              pointerEvents: "none",
+            }}
+          >
+            <strong className="glossary-tooltip-alias">
+              {hoveredItem.alias || hoveredItem.value}
+            </strong>
+            <span className="glossary-tooltip-meaning">
+              {hoveredItem.meaning}
+            </span>
+          </div>,
+          document.body
+        )}
     </>
   );
 }

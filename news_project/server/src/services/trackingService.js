@@ -1,14 +1,18 @@
 const axios = require("axios");
 
-const BASE_URL = process.env.TRACKING_BASE_URL || "http://tracking:8002";
+const RAW_BASE_URL = process.env.TRACKING_BASE_URL || "http://tracking:8002";
+const BASE_URL = String(RAW_BASE_URL).replace(/\/+$/, "");
+
 const ISSUES_CACHE_TTL_MS = Math.max(
   1000,
   Number(process.env.TRACKING_ISSUES_CACHE_TTL_MS || 30000)
 );
+
 const ISSUES_CACHE_MAX_ENTRIES = Math.max(
   10,
   Number(process.env.TRACKING_ISSUES_CACHE_MAX_ENTRIES || 40)
 );
+
 const issuesCache = new Map();
 const inFlightIssues = new Map();
 let warnedFallback = false;
@@ -18,20 +22,23 @@ function buildBaseCandidates(rawBase) {
   const seen = new Set();
 
   const push = (url) => {
-    if (!url || seen.has(url)) return;
-    seen.add(url);
-    candidates.push(url);
+    if (!url) return;
+    const normalized = String(url).replace(/\/+$/, "");
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    candidates.push(normalized);
   };
 
   push(rawBase);
 
   try {
     const parsed = new URL(rawBase);
+
     const replaceHost = (hostname, port = parsed.port) => {
       const next = new URL(rawBase);
       next.hostname = hostname;
       if (port) next.port = String(port);
-      return next.toString().replace(/\/$/, "");
+      return next.toString().replace(/\/+$/, "");
     };
 
     if (parsed.hostname === "tracking") {
@@ -48,8 +55,8 @@ function buildBaseCandidates(rawBase) {
       push(replaceHost("localhost", parsed.port || "8002"));
       push(replaceHost("tracking", parsed.port || "8002"));
     }
-  } catch (_) {
-    // Keep only the original URL if it is not a valid absolute URL.
+  } catch (error) {
+    console.warn("[tracking] invalid TRACKING_BASE_URL:", rawBase);
   }
 
   return candidates;
@@ -94,15 +101,83 @@ function writeIssuesCache(cacheKey, data) {
   }
 }
 
+function normalizeIssuesResponse(data) {
+  if (Array.isArray(data)) {
+    return {
+      items: data,
+      issues: data,
+      data,
+    };
+  }
+
+  if (data && typeof data === "object") {
+    const items = Array.isArray(data.items)
+      ? data.items
+      : Array.isArray(data.issues)
+      ? data.issues
+      : Array.isArray(data.data)
+      ? data.data
+      : [];
+
+    return {
+      ...data,
+      items,
+      issues: Array.isArray(data.issues) ? data.issues : items,
+      data: Array.isArray(data.data) ? data.data : items,
+    };
+  }
+
+  return {
+    items: [],
+    issues: [],
+    data: [],
+  };
+}
+
+function buildAxiosErrorMessage(err, base) {
+  const status = err?.response?.status;
+  const statusText = err?.response?.statusText;
+  const responseData = err?.response?.data;
+  const code = err?.code;
+  const message = err?.message;
+
+  return {
+    base,
+    status: status || null,
+    statusText: statusText || "",
+    code: code || "",
+    message: message || "unknown axios error",
+    responseData: responseData || null,
+  };
+}
+
 async function requestIssues(params = {}) {
   const bases = buildBaseCandidates(BASE_URL);
-  let lastError = null;
+  const errors = [];
 
   for (const base of bases) {
+    const requestUrl = `${base}/issues`;
+
     try {
-      const res = await axios.get(`${base}/issues`, {
+      console.log("[tracking] request start:", {
+        url: requestUrl,
+        params,
+      });
+
+      const res = await axios.get(requestUrl, {
         params,
         timeout: 30000,
+      });
+
+      console.log("[tracking] request success:", {
+        url: requestUrl,
+        status: res.status,
+        itemCount:
+          (Array.isArray(res.data?.items) && res.data.items.length) ||
+          (Array.isArray(res.data?.issues) && res.data.issues.length) ||
+          (Array.isArray(res.data?.data) && res.data.data.length) ||
+          (Array.isArray(res.data) && res.data.length) ||
+          0,
       });
 
       if (base !== BASE_URL && !warnedFallback) {
@@ -110,13 +185,22 @@ async function requestIssues(params = {}) {
         console.warn(`[tracking] fallback base URL used: ${base}`);
       }
 
-      return res.data;
+      return normalizeIssuesResponse(res.data);
     } catch (err) {
-      lastError = err;
+      const errorInfo = buildAxiosErrorMessage(err, base);
+      errors.push(errorInfo);
+
+      console.error("[tracking] request failed:", {
+        url: requestUrl,
+        params,
+        ...errorInfo,
+      });
     }
   }
 
-  throw lastError || new Error("tracking issues fetch failed");
+  const finalError = new Error("tracking issues fetch failed");
+  finalError.details = errors;
+  throw finalError;
 }
 
 async function getIssues({
@@ -128,22 +212,40 @@ async function getIssues({
   refresh_summary,
 } = {}) {
   const params = {};
-  if (category) params.category = category;
-  if (limit) params.limit = limit;
-  if (article_id) params.article_id = article_id;
-  if (include_related !== undefined) params.include_related = include_related;
-  if (include_article_content !== undefined) {
-    params.include_article_content = include_article_content;
+
+  if (category !== undefined && category !== null && category !== "") {
+    params.category = category;
   }
-  if (refresh_summary !== undefined) params.refresh_summary = refresh_summary;
+
+  if (limit !== undefined && limit !== null && limit !== "") {
+    params.limit = Number(limit);
+  }
+
+  if (article_id !== undefined && article_id !== null && article_id !== "") {
+    params.article_id = article_id;
+  }
+
+  if (include_related !== undefined) {
+    params.include_related = Number(include_related);
+  }
+
+  if (include_article_content !== undefined) {
+    params.include_article_content = Number(include_article_content);
+  }
+
+  if (refresh_summary !== undefined) {
+    params.refresh_summary = Number(refresh_summary);
+  }
 
   const cacheKey = buildIssuesCacheKey(params);
   const cached = readIssuesCache(cacheKey);
   if (cached) {
+    console.log("[tracking] cache hit:", { params });
     return cached;
   }
 
   if (inFlightIssues.has(cacheKey)) {
+    console.log("[tracking] in-flight reuse:", { params });
     return inFlightIssues.get(cacheKey);
   }
 
@@ -170,7 +272,10 @@ async function warmIssuesCache(overrides = {}) {
       ...overrides,
     });
   } catch (error) {
-    console.warn("[tracking] warmIssuesCache failed:", error?.message || error);
+    console.warn("[tracking] warmIssuesCache failed:", {
+      message: error?.message || "unknown error",
+      details: error?.details || null,
+    });
   }
 }
 

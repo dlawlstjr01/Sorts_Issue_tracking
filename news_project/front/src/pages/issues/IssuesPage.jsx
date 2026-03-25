@@ -3,17 +3,57 @@ import { useNavigate } from "react-router-dom";
 import { getIssues } from "../../api/newsApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
-const FILTERS = ["전체", "정책", "산업", "경제", "규제"];
-const CATEGORY_OPTIONS = FILTERS.filter((item) => item !== "전체");
+const CATEGORY_OPTIONS = ["정치", "사회", "경제", "국제", "IT/과학", "문화", "스포츠"];
 const STATUS_OPTIONS = ["모니터링", "분석중", "요약완료"];
+const PAGE_SIZE = 10;
 
 const CUSTOM_ISSUES_KEY = "customIssues";
 const GENERATED_REPORTS_KEY = "generatedReports";
-const PAGE_SIZE = 10;
+
+function safeText(value, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function parseDateValue(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatDisplayDate(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "-";
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw.length >= 10 ? raw.slice(0, 10) : raw;
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeCategory(value) {
+  return safeText(value, "사회");
+}
+
+function normalizeStatus(value) {
+  const raw = safeText(value);
+  if (STATUS_OPTIONS.includes(raw)) return raw;
+  if (raw.includes("분석")) return "분석중";
+  if (raw.includes("모니터")) return "모니터링";
+  if (raw.includes("완료") || raw.includes("요약")) return "요약완료";
+  return "요약완료";
+}
 
 function priorityByCategory(category) {
-  if (category === "정책") return "높음";
-  if (category === "경제" || category === "규제") return "중간";
+  if (category === "정치") return "높음";
+  if (category === "경제" || category === "국제") return "중간";
   return "낮음";
 }
 
@@ -21,6 +61,22 @@ function severityByStatus(status) {
   if (status === "분석중") return "위험";
   if (status === "모니터링") return "경고";
   return "보통";
+}
+
+function normalizePriority(value, category) {
+  const raw = safeText(value);
+  if (raw.includes("높")) return "높음";
+  if (raw.includes("중")) return "중간";
+  if (raw.includes("낮")) return "낮음";
+  return priorityByCategory(category);
+}
+
+function normalizeSeverity(value, status) {
+  const raw = safeText(value);
+  if (raw.includes("위")) return "위험";
+  if (raw.includes("경")) return "경고";
+  if (raw.includes("보")) return "보통";
+  return severityByStatus(status);
 }
 
 function readLocalArray(key) {
@@ -46,16 +102,52 @@ function nextIssueId(issues) {
   return `ISS-${String(max + 1).padStart(3, "0")}`;
 }
 
+function parseKeywords(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => safeText(item)).filter(Boolean);
+  }
+
+  const raw = safeText(value);
+  if (!raw) return [];
+
+  if (raw.startsWith("[") && raw.endsWith("]")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => safeText(item)).filter(Boolean);
+      }
+    } catch {
+      // Fall through to comma-split parsing.
+    }
+  }
+
+  return raw
+    .split(",")
+    .map((item) => safeText(item))
+    .filter(Boolean);
+}
+
+function compactSummary(value) {
+  const normalized = safeText(value)
+    .replace(/\r/g, "")
+    .replace(/^\s*-\s*/gm, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return normalized || "요약 내용이 없습니다.";
+}
+
 function buildIssueDetail(summary, category, keywords = []) {
   return {
-    why: `${category} 관련 이슈가 새롭게 등록되어 배경 맥락을 수집 중입니다.`,
+    why: `${category} 관련 이슈가 등록되어 배경과 맥락을 중심으로 추적 중입니다.`,
     now: summary,
-    next: "후속 데이터와 기사 근거를 연결해 상세 분석을 보강할 예정입니다.",
+    next: "관련 기사와 변화 흐름을 계속 반영해 후속 내용을 업데이트할 예정입니다.",
     summary,
-    highlights: ["초기 이슈 등록", "담당자 검토 필요", "근거 기사 연결 예정"],
-    timeline: [{ time: "지금", event: "사용자 이슈 등록", source: "수동 입력" }],
-    evidence: [{ sum: "등록된 요약 기반", ev: summary, source: "사용자 입력" }],
-    keywords: Array.isArray(keywords) ? keywords : [category, "신규 이슈"],
+    highlights: ["핵심 내용 파악", "연관 기사 추적", "후속 변화 모니터링"],
+    timeline: [{ time: "지금", event: "이슈 등록 및 추적 시작", source: "이슈 추적" }],
+    evidence: [{ sum: "초기 요약 기반", ev: summary, source: "대표 기사 요약" }],
+    keywords: Array.isArray(keywords) && keywords.length ? keywords : [category, "핵심 이슈"],
   };
 }
 
@@ -64,8 +156,9 @@ function buildGeneratedReport(issue, type) {
   const reportId = `REP-${String(generatedAt).slice(-6)}`;
 
   const highlights = [
-    `이슈 ${issue.id} 핵심: ${issue.title}`,
-    `현재 상태: ${issue.status}, 우선순위: ${issue.priority}`,
+    `이슈 ID: ${issue.displayId || issue.id}`,
+    `현재 상태: ${issue.status}`,
+    `우선순위: ${issue.priority}`,
     `카테고리: ${issue.category}`,
     issue.related_count ? `연관 기사 수: ${issue.related_count}` : null,
   ].filter(Boolean);
@@ -78,12 +171,12 @@ function buildGeneratedReport(issue, type) {
     issueSummaryId: issue.issue_summary_id || null,
     articleId: issue.article_id || null,
     title: `[${type}] ${issue.title}`,
-    summary: issue.summary,
+    summary: issue.detailSummary || issue.summary,
     body: [
-      `${issue.title} 관련 핵심 내용을 정리한 ${type} 초안입니다.`,
+      `${issue.title} 이슈를 기준으로 작성한 ${type} 초안입니다.`,
       "",
-      "1. 핵심 요약",
-      issue.summary || "요약 데이터가 없습니다.",
+      "1. 이슈 요약",
+      issue.detailSummary || issue.summary || "요약 내용이 없습니다.",
       "",
       issue.background ? `배경: ${issue.background}` : "",
       issue.keywords ? `키워드: ${issue.keywords}` : "",
@@ -103,87 +196,81 @@ function buildGeneratedReport(issue, type) {
   };
 }
 
-function parseKeywords(value) {
-  if (Array.isArray(value)) return value.filter(Boolean);
-  if (!value) return [];
-  return String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function normalizeBackendIssue(item) {
-  const category = item?.category || "산업";
-  const status = item?.status || "요약완료";
-  const summary =
-    item?.summary ||
-    item?.short_summary ||
-    item?.ultra_short ||
-    item?.background ||
-    "요약 내용이 없습니다.";
-  const keywords = parseKeywords(item?.keywords);
+  const category = normalizeCategory(item?.category);
+  const status = normalizeStatus(item?.status);
+  const detailSummary = safeText(
+    item?.short_summary || item?.summary || item?.ultra_short || item?.background,
+    "요약 내용이 없습니다."
+  );
+  const keywordList = parseKeywords(item?.keywords);
+  const rawDate =
+    item?.published_at || item?.created_at || item?.createdAt || item?.updatedAt || "";
+  const issueId = item?.issue_summary_id ?? item?.id ?? Date.now();
 
   return {
-    id: item?.issue_summary_id || item?.id,
-    issue_summary_id: item?.issue_summary_id || item?.id || null,
+    id: issueId,
+    displayId: item?.issue_summary_id ? `ISSUE-${item.issue_summary_id}` : String(issueId),
+    issue_summary_id: item?.issue_summary_id ?? item?.id ?? null,
     article_id: item?.article_id ?? null,
-    title: item?.title || "제목 없음",
-    summary,
-    short_summary: item?.short_summary || "",
-    ultra_short: item?.ultra_short || "",
-    background: item?.background || "",
-    keywords: item?.keywords || "",
-    keywordList: keywords,
+    title: safeText(item?.title, "제목 없음"),
+    summary: compactSummary(detailSummary),
+    detailSummary,
+    short_summary: safeText(item?.short_summary),
+    ultra_short: safeText(item?.ultra_short),
+    background: safeText(item?.background),
+    keywords: safeText(item?.keywords),
+    keywordList,
     related_count: Number(item?.related_count || 0),
     category,
     status,
-    updatedAt: item?.updatedAt || "-",
-    priority: item?.priority || priorityByCategory(category),
-    severity: item?.severity || severityByStatus(status),
-    press_name: item?.press_name || "언론사 미상",
-    detail: item?.detail || buildIssueDetail(summary, category, keywords),
+    updatedAt: formatDisplayDate(rawDate),
+    sortTs: parseDateValue(rawDate),
+    priority: normalizePriority(item?.priority, category),
+    severity: normalizeSeverity(item?.severity, status),
+    press_name: safeText(item?.press_name, "언론사 미상"),
+    detail: item?.detail || buildIssueDetail(detailSummary, category, keywordList),
     isCustom: false,
   };
 }
 
 function normalizeCustomIssue(item) {
-  const category = item?.category || "산업";
-  const status = item?.status || "모니터링";
-  const summary = item?.summary || "요약 내용이 없습니다.";
+  const category = normalizeCategory(item?.category);
+  const status = normalizeStatus(item?.status);
+  const detailSummary = safeText(item?.summary, "요약 내용이 없습니다.");
+  const rawDate = item?.updatedAt || item?.created_at || item?.createdAt || "";
 
   return {
-    id: item?.id,
+    id: safeText(item?.id, nextIssueId([])),
+    displayId: safeText(item?.id, "ISS-001"),
     issue_summary_id: item?.issue_summary_id || null,
     article_id: item?.article_id || null,
-    title: item?.title || "제목 없음",
-    summary,
-    short_summary: summary,
+    title: safeText(item?.title, "제목 없음"),
+    summary: compactSummary(detailSummary),
+    detailSummary,
+    short_summary: detailSummary,
     ultra_short: "",
-    background: "",
-    keywords: item?.keywords || "",
+    background: safeText(item?.background),
+    keywords: safeText(item?.keywords),
     keywordList: parseKeywords(item?.keywords),
     related_count: Number(item?.related_count || 0),
     category,
     status,
-    updatedAt: item?.updatedAt || "오늘",
-    priority: item?.priority || priorityByCategory(category),
-    severity: item?.severity || severityByStatus(status),
-    press_name: item?.press_name || "직접 등록",
+    updatedAt: formatDisplayDate(rawDate || new Date().toISOString()),
+    sortTs: parseDateValue(rawDate || new Date().toISOString()),
+    priority: normalizePriority(item?.priority, category),
+    severity: normalizeSeverity(item?.severity, status),
+    press_name: safeText(item?.press_name, "직접 등록"),
     detail:
       item?.detail ||
-      buildIssueDetail(summary, category, parseKeywords(item?.keywords)),
+      buildIssueDetail(detailSummary, category, parseKeywords(item?.keywords)),
     isCustom: true,
   };
 }
 
-function getCategoryCount(items, category) {
-  if (category === "전체") return items.length;
-  return items.filter((item) => item.category === category).length;
-}
-
 function getVisiblePages(currentPage, totalPages, maxVisible = 5) {
   if (totalPages <= maxVisible) {
-    return Array.from({ length: totalPages }, (_, i) => i + 1);
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
   }
 
   const half = Math.floor(maxVisible / 2);
@@ -195,7 +282,25 @@ function getVisiblePages(currentPage, totalPages, maxVisible = 5) {
     start = end - maxVisible + 1;
   }
 
-  return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+function priorityClass(priority) {
+  if (priority === "높음") return "high";
+  if (priority === "중간") return "mid";
+  return "low";
+}
+
+function severityClass(severity) {
+  if (severity === "위험") return "danger";
+  if (severity === "경고") return "warn";
+  return "normal";
+}
+
+function statusClass(status) {
+  if (status === "모니터링") return "monitor";
+  if (status === "분석중") return "analysis";
+  return "done";
 }
 
 export default function IssuesPage() {
@@ -203,7 +308,6 @@ export default function IssuesPage() {
 
   const [query, setQuery] = useState("");
   const [searchInput, setSearchInput] = useState("");
-  const [filter, setFilter] = useState("전체");
   const [issues, setIssues] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -237,20 +341,21 @@ export default function IssuesPage() {
         setError("");
 
         const seed = await getIssues();
-        const backendIssues = Array.isArray(seed)
-          ? seed.map(normalizeBackendIssue)
-          : [];
-
+        const backendIssues = Array.isArray(seed) ? seed.map(normalizeBackendIssue) : [];
         const customIssues = readLocalArray(CUSTOM_ISSUES_KEY).map(normalizeCustomIssue);
 
         if (mounted) {
           setIssues([...customIssues, ...backendIssues]);
         }
-      } catch (err) {
-        console.error("이슈 데이터 조회 실패:", err);
-        if (mounted) setError("이슈 데이터를 불러오지 못했습니다.");
+      } catch (fetchError) {
+        console.error("이슈 데이터 조회 실패:", fetchError);
+        if (mounted) {
+          setError("이슈 데이터를 불러오지 못했습니다.");
+        }
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     };
 
@@ -261,41 +366,40 @@ export default function IssuesPage() {
     };
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  const filteredIssues = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
 
     return [...issues]
       .filter((issue) => {
-        const categoryMatch = filter === "전체" || issue.category === filter;
-        const textMatch =
-          !q ||
-          String(issue.title || "").toLowerCase().includes(q) ||
-          String(issue.summary || "").toLowerCase().includes(q) ||
-          String(issue.id || "").toLowerCase().includes(q) ||
-          String(issue.article_id || "").toLowerCase().includes(q) ||
-          String(issue.press_name || "").toLowerCase().includes(q) ||
-          String(issue.keywords || "").toLowerCase().includes(q);
+        if (!keyword) return true;
 
-        return categoryMatch && textMatch;
+        return [
+          issue.title,
+          issue.summary,
+          issue.detailSummary,
+          issue.displayId,
+          issue.press_name,
+          issue.keywords,
+          issue.category,
+        ].some((field) => String(field || "").toLowerCase().includes(keyword));
       })
       .sort((a, b) => {
-        const aCount = Number(a?.related_count || 0);
-        const bCount = Number(b?.related_count || 0);
+        const countGap = Number(b?.related_count || 0) - Number(a?.related_count || 0);
+        if (countGap !== 0) return countGap;
 
-        // 연관기사 수 많은 순 정렬
-        if (bCount !== aCount) return bCount - aCount;
+        const timeGap = Number(b?.sortTs || 0) - Number(a?.sortTs || 0);
+        if (timeGap !== 0) return timeGap;
 
-        // 같으면 최신 이슈가 위로 오도록 보조 정렬
-        return String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""));
+        return String(b?.displayId || "").localeCompare(String(a?.displayId || ""));
       });
-  }, [issues, query, filter]);
+  }, [issues, query]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredIssues.length / PAGE_SIZE));
 
   const pagedIssues = useMemo(() => {
     const startIndex = (currentPage - 1) * PAGE_SIZE;
-    return filtered.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [filtered, currentPage]);
+    return filteredIssues.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [filteredIssues, currentPage]);
 
   const visiblePages = useMemo(
     () => getVisiblePages(currentPage, totalPages, 5),
@@ -304,41 +408,48 @@ export default function IssuesPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, filter]);
+  }, [query]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
-  const submitSearch = (event) => {
-    event?.preventDefault?.();
-    setQuery(searchInput.trim());
-  };
+
+  useEffect(() => {
+    if (!quickToast) return undefined;
+    const timer = window.setTimeout(() => setQuickToast(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [quickToast]);
+
+  useEffect(() => {
+    if (!issueModalOpen && !reportModalOpen) return undefined;
+
+    const handleEscape = (event) => {
+      if (event.key !== "Escape") return;
+      if (issueModalOpen) {
+        setIssueModalOpen(false);
+        setIssueFormError("");
+      }
+      if (reportModalOpen) {
+        setReportModalOpen(false);
+        setReportFormError("");
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [issueModalOpen, reportModalOpen]);
 
   const selectedReportIssue = useMemo(
     () => issues.find((item) => String(item.id) === String(reportForm.issueId)) || null,
     [issues, reportForm.issueId]
   );
 
-  const summarySnapshot = useMemo(() => {
-    if (!issues.length) {
-      return {
-        keywords: "데이터 없음",
-        sentiment: "데이터 없음",
-        sectors: "데이터 없음",
-      };
-    }
-
-    const categories = [...new Set(issues.map((item) => item.category).filter(Boolean))];
-    const presses = [...new Set(issues.map((item) => item.press_name).filter(Boolean))];
-
-    return {
-      keywords: categories.slice(0, 3).join(" · ") || "데이터 없음",
-      sentiment: "요약완료 중심",
-      sectors: presses.slice(0, 3).join(" · ") || "데이터 없음",
-    };
-  }, [issues]);
+  const submitSearch = (event) => {
+    event?.preventDefault?.();
+    setQuery(searchInput.trim());
+  };
 
   const closeIssueModal = () => {
     setIssueModalOpen(false);
@@ -350,74 +461,35 @@ export default function IssuesPage() {
     setReportFormError("");
   };
 
-  const openIssueModal = () => {
-    setIssueForm({
-      title: "",
-      summary: "",
-      category: CATEGORY_OPTIONS[0],
-      status: STATUS_OPTIONS[0],
-    });
-    setIssueFormError("");
-    setIssueModalOpen(true);
-  };
-
-  const openReportModal = () => {
-    if (issues.length === 0) {
-      setQuickToast("생성할 이슈가 없어 먼저 이슈를 등록해 주세요.");
-      return;
-    }
-
-    setReportForm({
-      issueId: String(issues[0].id),
-      type: "이슈 리포트",
-    });
-    setReportFormError("");
-    setReportModalOpen(true);
-  };
-
   const submitIssue = (event) => {
     event.preventDefault();
 
-    const title = issueForm.title.trim();
-    const summary = issueForm.summary.trim();
+    const title = safeText(issueForm.title);
+    const summary = safeText(issueForm.summary);
 
     if (!title || !summary) {
       setIssueFormError("제목과 요약은 반드시 입력해 주세요.");
       return;
     }
 
-    const newIssue = {
+    const nowIso = new Date().toISOString();
+    const newIssue = normalizeCustomIssue({
       id: nextIssueId(issues),
-      issue_summary_id: null,
-      article_id: null,
       title,
       summary,
-      short_summary: summary,
-      ultra_short: "",
-      background: "",
-      keywords: "",
-      keywordList: [],
-      related_count: 0,
       category: issueForm.category,
       status: issueForm.status,
-      updatedAt: "오늘",
-      priority: priorityByCategory(issueForm.category),
-      severity: severityByStatus(issueForm.status),
+      updatedAt: nowIso,
       press_name: "직접 등록",
-      detail: buildIssueDetail(summary, issueForm.category, []),
-      isCustom: true,
-    };
+    });
 
     setIssues((prev) => [newIssue, ...prev]);
+    writeLocalArray(CUSTOM_ISSUES_KEY, [newIssue, ...readLocalArray(CUSTOM_ISSUES_KEY)]);
 
-    const savedCustom = readLocalArray(CUSTOM_ISSUES_KEY);
-    writeLocalArray(CUSTOM_ISSUES_KEY, [newIssue, ...savedCustom]);
-
-    setFilter("전체");
     setQuery("");
     setSearchInput("");
     closeIssueModal();
-    setQuickToast(`${newIssue.id} 이슈가 등록되었습니다.`);
+    setQuickToast(`${newIssue.displayId} 이슈가 등록되었습니다.`);
   };
 
   const submitReport = (event) => {
@@ -435,11 +507,13 @@ export default function IssuesPage() {
     }
 
     const generated = buildGeneratedReport(issue, reportForm.type);
-    const savedReports = readLocalArray(GENERATED_REPORTS_KEY);
-    writeLocalArray(GENERATED_REPORTS_KEY, [generated, ...savedReports]);
+    writeLocalArray(GENERATED_REPORTS_KEY, [
+      generated,
+      ...readLocalArray(GENERATED_REPORTS_KEY),
+    ]);
 
     closeReportModal();
-    setQuickToast(`${generated.id} 리포트 초안을 생성했습니다.`);
+    setQuickToast(`${generated.id} 리포트 초안이 생성되었습니다.`);
     navigate(`/?view=reports&generated=${encodeURIComponent(generated.id)}`);
   };
 
@@ -454,41 +528,24 @@ export default function IssuesPage() {
     navigate(`/?view=article&id=${articleId}`);
   };
 
-  useEffect(() => {
-    if (!issueModalOpen && !reportModalOpen) return undefined;
-
-    const handleEscape = (event) => {
-      if (event.key !== "Escape") return;
-      if (issueModalOpen) closeIssueModal();
-      if (reportModalOpen) closeReportModal();
-    };
-
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [issueModalOpen, reportModalOpen]);
-
-  useEffect(() => {
-    if (!quickToast) return undefined;
-    const timer = window.setTimeout(() => setQuickToast(""), 2200);
-    return () => window.clearTimeout(timer);
-  }, [quickToast]);
-
   const openDetailModal = (issue) => {
     setSelectedIssue(issue);
     setDetailModalOpen(true);
   };
 
   const closeDetailModal = () => {
-    setDetailModalOpen(false);
     setSelectedIssue(null);
+    setDetailModalOpen(false);
   };
 
   return (
     <div className="page issues-page">
       <div className="issues-hero">
-        <div>
+        <div className="issues-hero-copy">
           <div className="pageTitle">이슈 추적</div>
-          <div className="pageDesc">핵심 이슈를 빠르게 추적하고 우선순위를 정리합니다.</div>
+          <div className="pageDesc">
+            핵심 이슈를 빠르게 추적하고 우선순위를 정리합니다.
+          </div>
         </div>
 
         <div className="issues-stats issues-stats-single">
@@ -518,17 +575,17 @@ export default function IssuesPage() {
         <section className="issues-list">
           <div className="issues-list-head">
             <div className="issues-list-summary">
-              전체 <strong>{filtered.length}</strong>건
+              전체 <strong>{filteredIssues.length}</strong>건
               <span className="issues-list-divider">|</span>
               페이지 <strong>{currentPage}</strong> / {totalPages}
             </div>
           </div>
 
           {loading ? (
-            <div className="issues-empty">불러오는 중...</div>
+            <div className="issues-empty">불러오는 중입니다...</div>
           ) : error ? (
             <div className="issues-empty">{error}</div>
-          ) : filtered.length === 0 ? (
+          ) : filteredIssues.length === 0 ? (
             <div className="issues-empty">조건에 맞는 이슈가 없습니다.</div>
           ) : (
             <>
@@ -537,51 +594,25 @@ export default function IssuesPage() {
                   key={`${issue.id}-${issue.issue_summary_id || "custom"}`}
                   className="issue-card"
                 >
-                  <button
-                    type="button"
+                  <div
+                    role="button"
+                    tabIndex={0}
                     className="issues-card-button"
                     onClick={() => openDetailModal(issue)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openDetailModal(issue);
+                      }
+                    }}
                   >
                     <div className="issue-card-top">
                       <div className="issue-badges">
-                        <span className="issue-id">
-                          {issue.issue_summary_id ? `ISSUE-${issue.issue_summary_id}` : issue.id}
-                        </span>
-
-                        <span
-                          className={`issue-pill issue-status ${issue.status === "모니터링"
-                            ? "monitor"
-                            : issue.status === "분석중"
-                              ? "analysis"
-                              : "done"
-                            }`}
-                        >
+                        <span className="issue-id">{issue.displayId}</span>
+                        <span className={`issue-pill issue-status ${statusClass(issue.status)}`}>
                           {issue.status}
                         </span>
-
                         <span className="issue-category">{issue.category}</span>
-
-                        <span
-                          className={`issue-priority ${issue.priority === "높음"
-                            ? "high"
-                            : issue.priority === "중간"
-                              ? "mid"
-                              : "low"
-                            }`}
-                        >
-                          우선순위 {issue.priority}
-                        </span>
-
-                        <span
-                          className={`issue-severity ${issue.severity === "위험"
-                            ? "danger"
-                            : issue.severity === "경고"
-                              ? "warn"
-                              : "normal"
-                            }`}
-                        >
-                          위험도 {issue.severity}
-                        </span>
                       </div>
 
                       <div className="issue-date">{issue.updatedAt}</div>
@@ -590,7 +621,7 @@ export default function IssuesPage() {
                     <div className="issue-title">{issue.title}</div>
                     <div className="issue-summary">{issue.summary}</div>
 
-                    {!!issue.keywordList?.length && (
+                    {!!issue.keywordList.length && (
                       <div className="issue-keywords">
                         {issue.keywordList.slice(0, 5).map((keyword, index) => (
                           <span key={`${issue.id}-kw-${index}`} className="issue-keyword">
@@ -603,85 +634,25 @@ export default function IssuesPage() {
                     <div className="issue-card-foot">
                       <div className="issue-foot-left">
                         <span>언론사: {issue.press_name}</span>
-                        {issue.related_count > 0 && <span>연관 기사 수: {issue.related_count}</span>}
+                        {issue.related_count > 0 && (
+                          <span>연관 기사 수: {issue.related_count}</span>
+                        )}
                       </div>
 
                       <button
                         type="button"
                         className="issue-action"
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={(event) => {
+                          event.stopPropagation();
                           openDetailModal(issue);
                         }}
                       >
                         상세 보기
                       </button>
                     </div>
-                  </button>
+                  </div>
                 </article>
               ))}
-
-              {detailModalOpen && selectedIssue && (
-                <div className="archive-detail-backdrop" onClick={closeDetailModal}>
-                  <div
-                    className="archive-detail-modal"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="archive-detail-top">
-                      <span className="archive-detail-category">
-                        {selectedIssue.category || "기타"}
-                      </span>
-                      <span className="archive-detail-date">
-                        {selectedIssue.updatedAt || "-"}
-                      </span>
-                    </div>
-
-                    <div className="archive-detail-title">
-                      {selectedIssue.title}
-                    </div>
-
-                    <div className="archive-detail-summary">
-                      {selectedIssue.summary}
-                    </div>
-
-                    {!!selectedIssue.keywordList?.length && (
-                      <div className="archive-detail-keywords">
-                        {selectedIssue.keywordList.map((keyword, index) => (
-                          <span
-                            key={`${selectedIssue.id}-detail-kw-${index}`}
-                            className="archive-detail-keyword"
-                          >
-                            #{keyword}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="archive-detail-divider" />
-
-                    <div className="archive-detail-actions">
-                      <button
-                        type="button"
-                        className="archive-detail-btn primary"
-                        onClick={() => {
-                          closeDetailModal();
-                          handleMoveDetail(selectedIssue);
-                        }}
-                      >
-                        본문 보기
-                      </button>
-
-                      <button
-                        type="button"
-                        className="archive-detail-btn"
-                        onClick={closeDetailModal}
-                      >
-                        닫기
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               <div className="issues-pagination">
                 <button
@@ -748,31 +719,80 @@ export default function IssuesPage() {
         </section>
 
         <aside className="issues-side">
-          <div className="issues-panel">
-            <div className="issues-panel-title">요약 스냅샷</div>
-            <div className="issues-summary-list">
-              <div className="issues-summary-item">
-                <div className="issues-summary-label">핵심 카테고리</div>
-                <div className="issues-summary-value">{summarySnapshot.keywords}</div>
-              </div>
-              <div className="issues-summary-item">
-                <div className="issues-summary-label">상태 요약</div>
-                <div className="issues-summary-value">{summarySnapshot.sentiment}</div>
-              </div>
-              <div className="issues-summary-item">
-                <div className="issues-summary-label">주요 언론사</div>
-                <div className="issues-summary-value">{summarySnapshot.sectors}</div>
-              </div>
-            </div>
-          </div>
+          <aside className="issues-side-ad-slot" aria-label="스폰서 광고">
+            <section className="right-ad-card2">
+              <div className="right-ad-tag">광고</div>
+              <div className="right-ad-title">프리미엄 이슈 브리핑</div>
+              <p className="right-ad-copy">
+                핵심 이슈 알림과 상세 분석 리포트를 빠르게 확인해보세요.
+              </p>
+              <div className="right-ad-visual right-ad-visual-alt" aria-hidden="true" />
+            </section>
+          </aside>
 
           <SideMenuCard collapsible showScrollTop />
         </aside>
       </div>
 
+      {detailModalOpen && selectedIssue && (
+        <div className="archive-detail-backdrop" onClick={closeDetailModal}>
+          <div className="archive-detail-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="archive-detail-top">
+              <span className="archive-detail-category">
+                {selectedIssue.category || "기타"}
+              </span>
+              <span className="archive-detail-date">
+                {selectedIssue.updatedAt || "-"}
+              </span>
+            </div>
+
+            <div className="archive-detail-title">{selectedIssue.title}</div>
+            <div className="archive-detail-summary">
+              {selectedIssue.detailSummary || selectedIssue.summary}
+            </div>
+
+            {!!selectedIssue.keywordList.length && (
+              <div className="archive-detail-keywords">
+                {selectedIssue.keywordList.map((keyword, index) => (
+                  <span
+                    key={`${selectedIssue.id}-detail-kw-${index}`}
+                    className="archive-detail-keyword"
+                  >
+                    #{keyword}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="archive-detail-divider" />
+
+            <div className="archive-detail-actions">
+              <button
+                type="button"
+                className="archive-detail-btn primary"
+                onClick={() => {
+                  closeDetailModal();
+                  handleMoveDetail(selectedIssue);
+                }}
+              >
+                본문 보기
+              </button>
+
+              <button
+                type="button"
+                className="archive-detail-btn"
+                onClick={closeDetailModal}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {issueModalOpen && (
         <div className="issues-modal-backdrop" onClick={closeIssueModal}>
-          <div className="issues-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="issues-modal" onClick={(event) => event.stopPropagation()}>
             <div className="issues-modal-title">신규 이슈 등록</div>
 
             <form onSubmit={submitIssue} className="issues-form">
@@ -781,8 +801,8 @@ export default function IssuesPage() {
                 type="text"
                 placeholder="이슈 제목"
                 value={issueForm.title}
-                onChange={(e) =>
-                  setIssueForm((prev) => ({ ...prev, title: e.target.value }))
+                onChange={(event) =>
+                  setIssueForm((prev) => ({ ...prev, title: event.target.value }))
                 }
               />
 
@@ -790,8 +810,8 @@ export default function IssuesPage() {
                 className="issues-textarea"
                 placeholder="이슈 요약"
                 value={issueForm.summary}
-                onChange={(e) =>
-                  setIssueForm((prev) => ({ ...prev, summary: e.target.value }))
+                onChange={(event) =>
+                  setIssueForm((prev) => ({ ...prev, summary: event.target.value }))
                 }
               />
 
@@ -799,8 +819,8 @@ export default function IssuesPage() {
                 <select
                   className="issues-select"
                   value={issueForm.category}
-                  onChange={(e) =>
-                    setIssueForm((prev) => ({ ...prev, category: e.target.value }))
+                  onChange={(event) =>
+                    setIssueForm((prev) => ({ ...prev, category: event.target.value }))
                   }
                 >
                   {CATEGORY_OPTIONS.map((item) => (
@@ -813,8 +833,8 @@ export default function IssuesPage() {
                 <select
                   className="issues-select"
                   value={issueForm.status}
-                  onChange={(e) =>
-                    setIssueForm((prev) => ({ ...prev, status: e.target.value }))
+                  onChange={(event) =>
+                    setIssueForm((prev) => ({ ...prev, status: event.target.value }))
                   }
                 >
                   {STATUS_OPTIONS.map((item) => (
@@ -830,7 +850,11 @@ export default function IssuesPage() {
               ) : null}
 
               <div className="issues-modal-actions">
-                <button type="button" className="issues-btn secondary" onClick={closeIssueModal}>
+                <button
+                  type="button"
+                  className="issues-btn secondary"
+                  onClick={closeIssueModal}
+                >
                   취소
                 </button>
                 <button type="submit" className="issues-btn primary">
@@ -844,15 +868,15 @@ export default function IssuesPage() {
 
       {reportModalOpen && (
         <div className="issues-modal-backdrop" onClick={closeReportModal}>
-          <div className="issues-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="issues-modal" onClick={(event) => event.stopPropagation()}>
             <div className="issues-modal-title">요약 리포트 생성</div>
 
             <form onSubmit={submitReport} className="issues-form">
               <select
                 className="issues-select"
                 value={reportForm.issueId}
-                onChange={(e) =>
-                  setReportForm((prev) => ({ ...prev, issueId: e.target.value }))
+                onChange={(event) =>
+                  setReportForm((prev) => ({ ...prev, issueId: event.target.value }))
                 }
               >
                 {issues.map((item) => (
@@ -865,8 +889,8 @@ export default function IssuesPage() {
               <select
                 className="issues-select"
                 value={reportForm.type}
-                onChange={(e) =>
-                  setReportForm((prev) => ({ ...prev, type: e.target.value }))
+                onChange={(event) =>
+                  setReportForm((prev) => ({ ...prev, type: event.target.value }))
                 }
               >
                 <option value="이슈 리포트">이슈 리포트</option>
@@ -876,9 +900,11 @@ export default function IssuesPage() {
 
               {selectedReportIssue && (
                 <div className="issues-report-preview">
-                  <div className="issues-report-preview-title">{selectedReportIssue.title}</div>
+                  <div className="issues-report-preview-title">
+                    {selectedReportIssue.title}
+                  </div>
                   <div className="issues-report-preview-summary">
-                    {selectedReportIssue.summary}
+                    {selectedReportIssue.detailSummary || selectedReportIssue.summary}
                   </div>
                 </div>
               )}

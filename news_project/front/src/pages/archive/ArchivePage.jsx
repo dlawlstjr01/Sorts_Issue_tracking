@@ -816,7 +816,7 @@ export default function ArchivePage() {
 
   return (
     <div className="page archive-page">
-      <div className="login-head">
+      <div className="login-head archive-hero">
         <div className="pageTitle">아카이브</div>
         <div className="pageDesc">저장한 기사 / 최근 본 기사</div>
       </div>

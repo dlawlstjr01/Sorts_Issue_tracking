@@ -879,8 +879,8 @@ body {
   right: 0;
   top: 0;
   border: 1px solid #e5e7eb;
-  background: #eef4ff;
-  color: #111827;
+  background: #2b4cff;
+  color: #ffffff;
   padding: 10px 14px;
   border-radius: 12px;
   font-size: 15px;
@@ -2229,6 +2229,32 @@ body {
   background: #f9fafb;
 }
 
+.issues-stat.issues-stat-hot {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.issues-stat.issues-stat-hot .issues-stat-label {
+  color: #b91c1c;
+}
+
+.issues-stat.issues-stat-hot .issues-stat-value {
+  color: #991b1b;
+}
+
+.issues-stat.issues-stat-warm {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.issues-stat.issues-stat-warm .issues-stat-label {
+  color: #c2410c;
+}
+
+.issues-stat.issues-stat-warm .issues-stat-value {
+  color: #9a3412;
+}
+
 .issues-stat-label {
   font-size: 13px;
   color: #6b7280;
@@ -2257,7 +2283,7 @@ body {
 .issues-search {
   width: 100%;
   min-width: 220px;
-  max-width: 780px;
+  max-width: 910px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -2311,6 +2337,24 @@ body {
 .issues-search-btn:active {
   transform: translateY(0);
   box-shadow: 0 4px 10px rgba(31, 77, 255, 0.12);
+}
+
+.issues-save-keyword-btn {
+  min-width: 120px;
+}
+
+.issues-save-keyword-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.issues-keyword-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5f82;
 }
 
 .issues-filters {
@@ -2372,10 +2416,30 @@ body {
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
+.issue-card.issue-card-hot {
+  border-color: #ef4444;
+  box-shadow: 0 14px 30px rgba(239, 68, 68, 0.14);
+}
+
+.issue-card.issue-card-warm {
+  border-color: #f59e0b;
+  box-shadow: 0 14px 30px rgba(245, 158, 11, 0.14);
+}
+
 .issue-card:hover {
   transform: translateY(-2px);
   border-color: #bfd3ee;
   box-shadow: 0 20px 36px rgba(18, 38, 63, 0.09);
+}
+
+.issue-card.issue-card-hot:hover {
+  border-color: #dc2626;
+  box-shadow: 0 20px 36px rgba(220, 38, 38, 0.2);
+}
+
+.issue-card.issue-card-warm:hover {
+  border-color: #d97706;
+  box-shadow: 0 20px 36px rgba(217, 119, 6, 0.2);
 }
 
 .issue-card-top {
@@ -2493,7 +2557,6 @@ body {
 }
 
 .issue-title {
-  max-width: 42ch;
   font-size: 18px;
   font-weight: 800;
   line-height: 1.45;
@@ -2563,6 +2626,7 @@ body {
   width: 100%;
   min-height: 220px;
   margin-left: 0;
+  margin-top: 55px;
 }
 
 .issues-side .issue-side-card {
@@ -2968,6 +3032,20 @@ body {
 /* ===== Archive Page ===== */
 .archive-page {
   max-width: 1200px;
+}
+
+.archive-page .archive-hero {
+  margin-bottom: 14px;
+  padding: 24px;
+  border: 1px solid rgba(96, 165, 250, 0.34);
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(18, 38, 63, 0.06);
+  text-align: left;
+}
+
+.archive-page .archive-hero .pageDesc {
+  margin-bottom: 0;
 }
 
 .archive-layout {
@@ -3746,6 +3824,21 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .issues-search {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .issues-input {
+    flex-basis: 100%;
+  }
+
+  .issues-search-btn,
+  .issues-save-keyword-btn {
+    flex: 1 1 calc(50% - 5px);
+    min-width: 0;
+  }
+
   .issue-quick-grid {
     grid-template-columns: 1fr;
   }
@@ -3766,6 +3859,14 @@ body {
   .issue-quick-toast {
     width: calc(100vw - 24px);
     text-align: center;
+  }
+
+  .my-keyword-item {
+    flex-wrap: wrap;
+  }
+
+  .my-keyword-delete {
+    width: 100%;
   }
 .archive-item-foot {
     flex-direction: column;
@@ -3812,6 +3913,67 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.my-keyword-desc {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.my-keyword-empty {
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.my-keyword-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.my-keyword-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #dbeafe;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #f8fbff;
+}
+
+.my-keyword-text {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #1e293b;
+  word-break: break-all;
+}
+
+.my-keyword-delete {
+  height: 34px;
+  min-width: 74px;
+  padding: 0 12px;
+  font-size: 13px;
+  flex: 0 0 auto;
+  border-color: #f2b4bb;
+  background: #fff5f6;
+  color: #d11a2a;
+}
+
+.my-keyword-delete:hover {
+  border-color: #d11a2a;
+  background: #ffecef;
+  box-shadow: 0 8px 16px rgba(209, 26, 42, 0.16);
 }
 
 .my-field-head {
@@ -4166,6 +4328,20 @@ body {
   box-shadow: 0 10px 20px rgba(37, 99, 235, 0.12);
 }
 
+/* MyPage keyword delete button override */
+.login-btn.ghost.my-keyword-delete {
+  border-color: #f2b4bb;
+  background: #fff5f6;
+  color: #d11a2a;
+}
+
+.login-btn.ghost.my-keyword-delete:hover {
+  border-color: #d11a2a;
+  background: #ffecef;
+  color: #d11a2a;
+  box-shadow: 0 8px 16px rgba(209, 26, 42, 0.16);
+}
+
 /* ===== Shared Main/Archive Buttons ===== */
 .mp-btn {
   appearance: none;
@@ -4207,6 +4383,18 @@ body {
 
 .mp-btn.primary:hover {
   background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+  color: #fff;
+}
+
+.mp-btn.primary.danger {
+  border-color: #d11a2a;
+  background: linear-gradient(135deg, #d11a2a 0%, #e11d2f 100%);
+  color: #fff;
+}
+
+.mp-btn.primary.danger:hover {
+  border-color: #b91524;
+  background: linear-gradient(135deg, #b91524 0%, #d11a2a 100%);
   color: #fff;
 }
 

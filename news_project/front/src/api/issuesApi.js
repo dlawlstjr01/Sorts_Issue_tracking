@@ -22,3 +22,57 @@ export const getIssueById = async (id) => {
 
   return response?.data || null;
 };
+
+export const fetchIssueKeywords = async () => {
+  const response = await axios.get("/tracking/keywords", {
+    withCredentials: true,
+  });
+
+  return Array.isArray(response?.data?.items) ? response.data.items : [];
+};
+
+export const saveIssueKeyword = async (keyword) => {
+  const response = await axios.post(
+    "/tracking/keywords",
+    { keyword },
+    { withCredentials: true }
+  );
+
+  return Array.isArray(response?.data?.items) ? response.data.items : [];
+};
+
+export const deleteIssueKeyword = async (keywordId) => {
+  await axios.delete(`/tracking/keywords/${encodeURIComponent(keywordId)}`, {
+    withCredentials: true,
+  });
+};
+
+export const fetchKeywordAlerts = async (limit = 120) => {
+  const response = await axios.get("/tracking/keyword-alerts", {
+    params: { limit },
+    withCredentials: true,
+  });
+
+  const data = response?.data || {};
+  return {
+    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    items: Array.isArray(data.items) ? data.items : [],
+    unreadCount: Number(data.unreadCount || 0),
+  };
+};
+
+export const markKeywordAlertRead = async ({ keywordId, issueSummaryId }) => {
+  await axios.post(
+    "/tracking/keyword-alerts/read",
+    { keywordId, issueSummaryId },
+    { withCredentials: true }
+  );
+};
+
+export const markAllKeywordAlertsRead = async () => {
+  await axios.post(
+    "/tracking/keyword-alerts/read-all",
+    {},
+    { withCredentials: true }
+  );
+};

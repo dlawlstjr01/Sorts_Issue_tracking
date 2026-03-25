@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getIssues } from "../../api/newsApi";
+import { fetchIssueKeywords, saveIssueKeyword } from "../../api/issuesApi";
 import SideMenuCard from "../../components/SideMenuCard";
 
 const CATEGORY_OPTIONS = ["정치", "사회", "경제", "국제", "IT/과학", "문화", "스포츠"];
@@ -268,6 +269,20 @@ function normalizeCustomIssue(item) {
   };
 }
 
+function getIssueHeatTier(relatedCount) {
+  const count = Number(relatedCount || 0);
+  if (count >= 8 && count <= 10) return "hot";
+  if (count >= 4 && count <= 7) return "warm";
+  return "normal";
+}
+
+function getIssueCardHeatClass(relatedCount) {
+  const tier = getIssueHeatTier(relatedCount);
+  if (tier === "hot") return "issue-card-hot";
+  if (tier === "warm") return "issue-card-warm";
+  return "";
+}
+
 function getVisiblePages(currentPage, totalPages, maxVisible = 5) {
   if (totalPages <= maxVisible) {
     return Array.from({ length: totalPages }, (_, index) => index + 1);
@@ -312,6 +327,9 @@ export default function IssuesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [quickToast, setQuickToast] = useState("");
+  const [savedKeywordItems, setSavedKeywordItems] = useState([]);
+  const [keywordLoading, setKeywordLoading] = useState(false);
+  const [keywordSaving, setKeywordSaving] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -366,6 +384,34 @@ export default function IssuesPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSavedKeywords = async () => {
+      try {
+        setKeywordLoading(true);
+        const items = await fetchIssueKeywords();
+        if (!mounted) return;
+        setSavedKeywordItems(Array.isArray(items) ? items : []);
+      } catch (keywordError) {
+        if (!mounted) return;
+        if (Number(keywordError?.response?.status) === 401) {
+          setSavedKeywordItems([]);
+          return;
+        }
+        console.error("issue keyword load failed:", keywordError);
+      } finally {
+        if (mounted) setKeywordLoading(false);
+      }
+    };
+
+    loadSavedKeywords();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const filteredIssues = useMemo(() => {
     const keyword = query.trim().toLowerCase();
 
@@ -405,6 +451,18 @@ export default function IssuesPage() {
     () => getVisiblePages(currentPage, totalPages, 5),
     [currentPage, totalPages]
   );
+
+  const heatCounts = useMemo(() => {
+    return issues.reduce(
+      (acc, issue) => {
+        const tier = getIssueHeatTier(issue?.related_count);
+        if (tier === "hot") acc.hot += 1;
+        else if (tier === "warm") acc.warm += 1;
+        return acc;
+      },
+      { hot: 0, warm: 0 }
+    );
+  }, [issues]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -449,6 +507,32 @@ export default function IssuesPage() {
   const submitSearch = (event) => {
     event?.preventDefault?.();
     setQuery(searchInput.trim());
+  };
+
+  const handleSaveKeyword = async () => {
+    const keyword = searchInput.trim();
+    if (!keyword) {
+      setQuickToast("\uC800\uC7A5\uD560 \uD0A4\uC6CC\uB4DC\uB97C \uC785\uB825\uD574\uC8FC\uC138\uC694.");
+      return;
+    }
+
+    try {
+      setKeywordSaving(true);
+      const items = await saveIssueKeyword(keyword);
+      setSavedKeywordItems(Array.isArray(items) ? items : []);
+      setQuickToast(`"${keyword}" \uD0A4\uC6CC\uB4DC\uB97C \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.`);
+    } catch (saveError) {
+      if (Number(saveError?.response?.status) === 401) {
+        setQuickToast("\uB85C\uADF8\uC778 \uD6C4 \uD0A4\uC6CC\uB4DC\uB97C \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.");
+        return;
+      }
+      setQuickToast(
+        saveError?.response?.data?.message ||
+          "\uD0A4\uC6CC\uB4DC \uC800\uC7A5\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."
+      );
+    } finally {
+      setKeywordSaving(false);
+    }
   };
 
   const closeIssueModal = () => {
@@ -548,16 +632,24 @@ export default function IssuesPage() {
           </div>
         </div>
 
-        <div className="issues-stats issues-stats-single">
+        <div className="issues-stats">
           <div className="issues-stat">
             <div className="issues-stat-label">전체 이슈</div>
             <div className="issues-stat-value">{issues.length}건</div>
+          </div>
+          <div className="issues-stat issues-stat-hot">
+            <div className="issues-stat-label">핫 이슈</div>
+            <div className="issues-stat-value">{heatCounts.hot}건</div>
+          </div>
+          <div className="issues-stat issues-stat-warm">
+            <div className="issues-stat-label">준 이슈</div>
+            <div className="issues-stat-value">{heatCounts.warm}건</div>
           </div>
         </div>
       </div>
 
       <div className="issues-toolbar">
-        <form className="issues-search" onSubmit={submitSearch}>
+        <form className="issues-search issues-search-wide" onSubmit={submitSearch}>
           <input
             className="issues-input"
             type="text"
@@ -568,7 +660,20 @@ export default function IssuesPage() {
           <button className="issues-search-btn" type="submit">
             검색
           </button>
+          <button
+            className="issues-search-btn issues-save-keyword-btn"
+            type="button"
+            onClick={handleSaveKeyword}
+            disabled={keywordSaving}
+          >
+            {keywordSaving ? "\uC800\uC7A5 \uC911..." : "\uD0A4\uC6CC\uB4DC \uC800\uC7A5"}
+          </button>
         </form>
+        <div className="issues-keyword-hint">
+          {keywordLoading
+            ? "\uC800\uC7A5 \uD0A4\uC6CC\uB4DC \uBD88\uB7EC\uC624\uB294 \uC911..."
+            : `\uC800\uC7A5 \uD0A4\uC6CC\uB4DC ${savedKeywordItems.length}\uAC1C`}
+        </div>
       </div>
 
       <div className="issues-grid">
@@ -592,7 +697,7 @@ export default function IssuesPage() {
               {pagedIssues.map((issue) => (
                 <article
                   key={`${issue.id}-${issue.issue_summary_id || "custom"}`}
-                  className="issue-card"
+                  className={`issue-card ${getIssueCardHeatClass(issue.related_count)}`.trim()}
                 >
                   <div
                     role="button"

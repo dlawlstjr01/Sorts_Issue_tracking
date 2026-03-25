@@ -515,6 +515,12 @@
   border-color: #cfe4ff;
 }
 
+.mp-badge.second {
+  background: #fff7ed;
+  color: #c2410c;
+  border-color: #fed7aa;
+}
+
 /* ===== Summary ===== */
 .mp-summary {
   position: relative;

@@ -225,6 +225,26 @@ function pickPreferredIssueTitle(primaryTitle = "", candidateTitles = []) {
   return bestTitle || "(제목 없음)";
 }
 
+function pickMainDisplayTitle(primaryTitle = "", candidateTitles = []) {
+  const preferred = pickPreferredIssueTitle(primaryTitle, candidateTitles);
+  if (!/(?:\.\.\.|…)/.test(preferred)) return preferred;
+
+  const fallback = [primaryTitle, ...candidateTitles]
+    .map((value) => safeString(value).trim())
+    .filter(Boolean)
+    .filter((title) => !/(?:\.\.\.|…)/.test(title))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return fallback || preferred;
+}
+
+function getIssueBadgeType(relatedCount) {
+  const count = Number(relatedCount || 0);
+  if (count >= 8 && count <= 10) return "HOT";
+  if (count >= 4 && count <= 7) return "2ND";
+  return "LATEST";
+}
+
 function getIssuePrimaryTitle(issue = {}) {
   const representative = getRepresentativeArticle(issue);
   return (
@@ -277,6 +297,28 @@ function getIssueSortTime(issue = {}) {
     .filter((value) => Number.isFinite(value) && value > 0);
 
   return candidateTimes.length ? Math.max(...candidateTimes) : 0;
+}
+
+function getIssueRelatedCount(issue = {}) {
+  const directCount = Number(
+    issue?.relatedCount ?? issue?.related_count ?? issue?.raw?.related_count
+  );
+  if (Number.isFinite(directCount) && directCount > 0) return directCount;
+
+  const related = Array.isArray(issue?.related_articles) ? issue.related_articles : [];
+  return related.length;
+}
+
+function getIssueOrderTime(issue = {}) {
+  const createdAt = Number(issue?.createdAt || 0);
+  if (Number.isFinite(createdAt) && createdAt > 0) return createdAt;
+  return getIssueSortTime(issue);
+}
+
+function compareIssuesByRelatedCount(a, b) {
+  const countGap = getIssueRelatedCount(b) - getIssueRelatedCount(a);
+  if (countGap !== 0) return countGap;
+  return getIssueOrderTime(b) - getIssueOrderTime(a);
 }
 
 function getTokenJaccardScore(tokensA, tokensB) {
@@ -637,7 +679,7 @@ function buildIssueIdentity(issueSummary = {}) {
 }
 
 function dedupeIssueSummaries(items = [], limit = MAIN_PAGE_ISSUE_LIMIT) {
-  const sorted = [...items].sort((a, b) => getIssueSortTime(b) - getIssueSortTime(a));
+  const sorted = [...items].sort(compareIssuesByRelatedCount);
   const deduped = [];
 
   sorted.forEach((item) => {
@@ -726,6 +768,7 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
   const related = Array.isArray(issueSummary.related_articles) ? issueSummary.related_articles : [];
   const category = getIssueCategory(issueSummary, representative) || "society";
   const issueTime = getIssueSortTime(issueSummary) || (issueSummary.created_at ? new Date(issueSummary.created_at).getTime() : Date.now());
+  const relatedCount = Number(issueSummary.related_count || related.length || 0);
   const representativeArticleId = safeString(
     issueSummary.article_id || representative?.id || representative?.article_id || ""
   );
@@ -740,7 +783,8 @@ function mapIssueSummaryToMainArticle(issueSummary = {}) {
     articleId: representativeArticleId,
     representativeArticleId,
     category,
-    badge: `묶음 ${Number(issueSummary.related_count || related.length || 0)}`,
+    relatedCount,
+    badge: getIssueBadgeType(relatedCount),
     title: preferredTitle || "(이슈 제목 없음)",
     thumbnailUrl: resolveThumbnailUrl(representative?.thumbnail || issueSummary.thumbnail || "", getFallbackThumb(category)),
     summary: [issueSummary.short_summary || SUMMARY_FALLBACK],
@@ -848,9 +892,22 @@ function buildRecoDisplayItem(item) {
   };
 }
 
-function Badge({ type }) {
-  const isHot = safeString(type).toUpperCase() === "HOT";
-  return <span className={`mp-badge ${isHot ? "hot" : "new"}`}>{isHot ? "🔥 HOT" : "🆕 최신"}</span>;
+function Badge({ type, relatedCount }) {
+  const normalizedType = safeString(type).trim().toUpperCase();
+  const resolvedType =
+    normalizedType === "HOT" || normalizedType === "2ND"
+      ? normalizedType
+      : getIssueBadgeType(relatedCount);
+
+  if (resolvedType === "HOT") {
+    return <span className="mp-badge hot">HOT</span>;
+  }
+
+  if (resolvedType === "2ND") {
+    return <span className="mp-badge second">2nd</span>;
+  }
+
+  return <span className="mp-badge new">최신</span>;
 }
 
 function CategoryIcon({ categoryKey }) {

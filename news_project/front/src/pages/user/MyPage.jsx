@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import SideMenuCard from "../../components/SideMenuCard";
+import { deleteIssueKeyword, fetchIssueKeywords } from "../../api/issuesApi";
 
 export default function MyPage() {
   const navigate = useNavigate();
@@ -16,6 +17,9 @@ export default function MyPage() {
     open: false,
     message: "",
   });
+  const [keywordItems, setKeywordItems] = useState([]);
+  const [keywordLoading, setKeywordLoading] = useState(false);
+  const [keywordDeletingId, setKeywordDeletingId] = useState(null);
 
   const openNotice = (message = "수정 완료") => {
     setNoticeModal({ open: true, message });
@@ -23,6 +27,21 @@ export default function MyPage() {
 
   const closeNotice = () => {
     setNoticeModal((prev) => ({ ...prev, open: false }));
+  };
+
+  const loadKeywordItems = async () => {
+    try {
+      setKeywordLoading(true);
+      const items = await fetchIssueKeywords();
+      setKeywordItems(Array.isArray(items) ? items : []);
+    } catch (err) {
+      if (Number(err?.response?.status) !== 401) {
+        console.error("load keywords failed:", err);
+      }
+      setKeywordItems([]);
+    } finally {
+      setKeywordLoading(false);
+    }
   };
 
   // 원본(취소 시 되돌리기 용)
@@ -86,6 +105,7 @@ export default function MyPage() {
         };
 
         setUser(next);
+        await loadKeywordItems();
         setOrigin(next); // 취소 시 복원용
       } catch (err) {
         openNotice(err.response?.data?.message || "로그인이 필요합니다.");
@@ -254,6 +274,25 @@ export default function MyPage() {
     }
   };
 
+  const handleDeleteKeyword = async (keywordId) => {
+    const id = Number(keywordId || 0);
+    if (!id) return;
+
+    try {
+      setKeywordDeletingId(id);
+      await deleteIssueKeyword(id);
+      setKeywordItems((prev) => prev.filter((item) => Number(item?.id || 0) !== id));
+      openNotice("\uD0A4\uC6CC\uB4DC\uB97C \uC0AD\uC81C\uD588\uC2B5\uB2C8\uB2E4.");
+    } catch (err) {
+      openNotice(
+        err?.response?.data?.message ||
+          "\uD0A4\uC6CC\uB4DC \uC0AD\uC81C\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."
+      );
+    } finally {
+      setKeywordDeletingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="page my-page">
@@ -371,6 +410,40 @@ export default function MyPage() {
               />
             </label>
           </div>
+        </section>
+
+        <section className="my-card">
+          <h3 className="my-section-title">알림 키워드</h3>
+          <p className="my-keyword-desc">
+            이슈 추적에서 저장한 키워드입니다. 삭제하면 해당 키워드 알림이 중단됩니다.
+          </p>
+
+          {keywordLoading ? (
+            <div className="my-keyword-empty">키워드를 불러오는 중...</div>
+          ) : keywordItems.length === 0 ? (
+            <div className="my-keyword-empty">저장된 키워드가 없습니다.</div>
+          ) : (
+            <ul className="my-keyword-list">
+              {keywordItems.map((item) => {
+                const keywordId = Number(item?.id || 0);
+                const keywordText = String(item?.keyword || "").trim();
+
+                return (
+                  <li key={`my-keyword-${keywordId}`} className="my-keyword-item">
+                    <span className="my-keyword-text">{keywordText || "-"}</span>
+                    <button
+                      className="login-btn ghost my-keyword-delete"
+                      type="button"
+                      onClick={() => handleDeleteKeyword(keywordId)}
+                      disabled={keywordDeletingId === keywordId}
+                    >
+                      {keywordDeletingId === keywordId ? "삭제 중..." : "삭제"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </section>
 
         <section className="my-card">

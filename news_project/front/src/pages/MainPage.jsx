@@ -1138,7 +1138,11 @@ export default function MainPage() {
           (issue) => normalizeCategoryKey(issue.category) === normalizeCategoryKey(selectedCategory)
         );
 
-    return [...base].sort(compareIssuesByRelatedCount);
+    return [...base].sort((a, b) => {
+      const aTime = Number(a?.createdAt || 0);
+      const bTime = Number(b?.createdAt || 0);
+      return bTime - aTime;
+    });
   }, [latestIssues, selectedCategory]);
 
   const leftIssueBuckets = useMemo(() => {
@@ -1517,7 +1521,11 @@ export default function MainPage() {
 
         const grouped = items.filter((it) => Number(it?.related_count || 0) >= 2);
 
-        const sortedGrouped = [...grouped].sort(compareIssuesByRelatedCount);
+        const sortedGrouped = [...grouped].sort((a, b) => {
+          const aTime = getIssueSortTime(a);
+          const bTime = getIssueSortTime(b);
+          return bTime - aTime;
+        });
 
         const deduped = dedupeIssueSummaries(sortedGrouped, MAIN_PAGE_ISSUE_LIMIT);
         const nextLatestIssues = deduped.map(mapIssueSummaryToLatestUI);
@@ -2229,7 +2237,7 @@ export default function MainPage() {
                       currentIssueGroup[0] ||
                       null;
 
-                    const currentTitle = pickMainDisplayTitle(
+                    const currentTitle = pickPreferredIssueTitle(
                       currentActiveArticle?.title || currentIssue?.title || article.title,
                       currentIssueGroup.map((item) => item?.title || "")
                     );
@@ -2243,10 +2251,7 @@ export default function MainPage() {
                       <section key={articleId} className="mp-center-inner active mp-center-slide-page">
                         <div className="mp-head">
                           <h1 className="mp-title">{currentTitle}</h1>
-                          <Badge
-                            type={article.badge}
-                            relatedCount={article.relatedCount || article.raw?.related_count || 0}
-                          />
+                          <Badge type={article.badge} />
                         </div>
 
                         <div className="mp-thumb-wrap">

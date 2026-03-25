@@ -697,9 +697,6 @@ export default function ArticleDetailPage() {
             <div className="article-detail-reading-meta">
               {paragraphs.length > 0 && (
                 <>
-                  <span className="article-detail-reading-pill">
-                    약 {estimatedReadMinutes}분 읽기
-                  </span>
                   <span className="article-detail-reading-pill subtle">
                     문단 {paragraphs.length}개
                   </span>

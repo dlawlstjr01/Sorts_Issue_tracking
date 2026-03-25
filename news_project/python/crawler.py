@@ -967,6 +967,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "last_items_count": len(last_items),
+        "is_running": _is_running,
+        "db_host": DB_HOST,
+        "db_port": DB_PORT,
+        "db_name": DB_NAME,
+    }
+
 @app.get("/crawl")
 def get_items():
     return {"items": last_items}

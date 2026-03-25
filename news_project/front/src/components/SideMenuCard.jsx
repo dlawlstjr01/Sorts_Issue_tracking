@@ -70,12 +70,20 @@ const MENU_ITEMS = [
   { key: "support", label: "고객센터", icon: <IconSupport /> },
 ];
 
-const SIDE_MENU_COLLAPSED_KEY = "side_menu_collapsed";
+const SIDE_MENU_COLLAPSED_KEY = "side_menu_collapsed_v2";
 const MOBILE_COLLAPSIBLE_QUERY = "(max-width: 960px)";
 
 const getIsMobileViewport = () => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
   return window.matchMedia(MOBILE_COLLAPSIBLE_QUERY).matches;
+};
+
+const getSavedCollapsedState = () => {
+  if (typeof window === "undefined") return false;
+  const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
+  if (saved === "true") return true;
+  if (saved === "false") return false;
+  return false;
 };
 
 export default function SideMenuCard({
@@ -90,13 +98,9 @@ export default function SideMenuCard({
   const [isMobileViewport, setIsMobileViewport] = useState(() => getIsMobileViewport());
   const isCollapsible = collapsible || (mobileCollapsible && isMobileViewport);
   const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (mobileCollapsible && !collapsible) return getIsMobileViewport();
+    if (mobileCollapsible && !collapsible) return false;
     if (!collapsible) return false;
-    if (typeof window === "undefined") return true;
-    const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
-    if (saved === "true") return true;
-    if (saved === "false") return false;
-    return true;
+    return getSavedCollapsedState();
   });
 
   useEffect(() => {
@@ -126,25 +130,11 @@ export default function SideMenuCard({
     }
 
     if (mobileCollapsible && !collapsible) {
-      setIsCollapsed(isMobileViewport);
-      return;
-    }
-
-    if (typeof window === "undefined") {
-      setIsCollapsed(true);
-      return;
-    }
-
-    const saved = window.localStorage.getItem(SIDE_MENU_COLLAPSED_KEY);
-    if (saved === "true") {
-      setIsCollapsed(true);
-      return;
-    }
-    if (saved === "false") {
       setIsCollapsed(false);
       return;
     }
-    setIsCollapsed(true);
+
+    setIsCollapsed(getSavedCollapsedState());
   }, [collapsible, isCollapsible, isMobileViewport, mobileCollapsible]);
 
   useEffect(() => {

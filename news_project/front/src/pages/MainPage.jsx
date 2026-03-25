@@ -2131,16 +2131,16 @@ export default function MainPage() {
                     onClick={() => setArticleListMode("daily")}
                     aria-pressed={articleListMode === "daily"}
                   >
-                    일간
+                    이슈 목록
                   </button>
-                  <button
+                  {/*<button
                     type="button"
                     className={`mp-article-tab ${articleListMode === "weekly" ? "active" : ""}`}
                     onClick={() => setArticleListMode("weekly")}
                     aria-pressed={articleListMode === "weekly"}
                   >
                     주간
-                  </button>
+                  </button>*/}
                 </div>
               </div>
 
@@ -2270,13 +2270,10 @@ export default function MainPage() {
 
                           <div
                             className="mp-summary-lines mp-summary-scroll"
-                            onWheel={(e) => {
+                            onWheelCapture={(e) => {
                               e.stopPropagation();
                             }}
-                            onMouseEnter={(e) => {
-                              e.stopPropagation();
-                            }}
-                            onClick={(e) => {
+                            onTouchMoveCapture={(e) => {
                               e.stopPropagation();
                             }}
                           >

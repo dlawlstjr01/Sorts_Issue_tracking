@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useLocation, useNavigate } from "react-router-dom";
 import logoImg from "../assets/logo.png";
+import {
+  fetchKeywordAlerts,
+  markAllKeywordAlertsRead,
+  markKeywordAlertRead,
+} from "../api/issuesApi";
 
 function IconBox(props) {
   return (
@@ -331,11 +336,6 @@ export default function Header() {
   const [notifyLoading, setNotifyLoading] = useState(false);
   const [notifyHasError, setNotifyHasError] = useState(false);
   const [notifyKeywordCount, setNotifyKeywordCount] = useState(0);
-  const notifyInitializedRef = useRef(false);
-  const notifySeenSignaturesRef = useRef(new Set());
-  const notifySeenKeysRef = useRef(new Set());
-  const notifyKeywordFingerprintRef = useRef("");
-  const notifyOpenRef = useRef(false);
 
   const stopNavDrag = (pointerId) => {
     const nav = navRef.current;
@@ -426,23 +426,12 @@ export default function Header() {
   }, [location.search]);
 
   useEffect(() => {
-    notifyOpenRef.current = notifyOpen;
-    if (!notifyOpen) return;
-    setNotifyUnreadCount(0);
-    setNotifyItems((prev) => prev.map((item) => (item.isRead ? item : { ...item, isRead: true })));
-  }, [notifyOpen]);
-
-  useEffect(() => {
     if (auth.loggedIn) return;
     setNotifyItems([]);
     setNotifyUnreadCount(0);
     setNotifyLoading(false);
     setNotifyHasError(false);
     setNotifyKeywordCount(0);
-    notifyInitializedRef.current = false;
-    notifySeenSignaturesRef.current = new Set();
-    notifySeenKeysRef.current = new Set();
-    notifyKeywordFingerprintRef.current = "";
   }, [auth.loggedIn]);
 
   useEffect(() => {
@@ -455,126 +444,47 @@ export default function Header() {
       if (inFlight) return;
       inFlight = true;
 
-      const normalizedKeywords = readStoredInterestKeywords()
-        .map((keyword) => String(keyword || "").trim())
-        .filter(Boolean)
-        .map((keyword) => ({ original: keyword, lower: keyword.toLowerCase() }));
-      const keywordFingerprint = normalizedKeywords
-        .map((item) => item.lower)
-        .sort()
-        .join("|");
-
-      if (keywordFingerprint !== notifyKeywordFingerprintRef.current) {
-        notifyKeywordFingerprintRef.current = keywordFingerprint;
-        notifyInitializedRef.current = false;
-        notifySeenSignaturesRef.current = new Set();
-        notifySeenKeysRef.current = new Set();
-        if (mounted) {
-          setNotifyItems([]);
-          setNotifyUnreadCount(0);
-        }
-      }
-
-      if (mounted) {
-        setNotifyKeywordCount(normalizedKeywords.length);
-      }
-
-      if (normalizedKeywords.length === 0) {
-        if (mounted) {
-          setNotifyHasError(false);
-          setNotifyLoading(false);
-        }
-        notifyInitializedRef.current = true;
-        inFlight = false;
-        return;
-      }
-
-      if (mounted && !notifyInitializedRef.current) {
+      if (mounted && notifyItems.length === 0) {
         setNotifyLoading(true);
       }
 
-        try {
-          const res = await axios.get("/tracking/issues", {
-            params: {
-              limit: NOTIFY_FETCH_LIMIT,
-              include_related: 0,
-              include_article_content: 0,
-              refresh_summary: 0,
-            },
+      try {
+        const payload = await fetchKeywordAlerts(NOTIFY_FETCH_LIMIT);
+        if (!mounted) return;
+
+        const nextItems = (Array.isArray(payload.items) ? payload.items : [])
+          .slice(0, NOTIFY_MAX_ITEMS)
+          .map((item, index) => ({
+            id:
+              String(item?.id || "").trim() ||
+              `${item?.keywordId || "kw"}:${item?.issueSummaryId || "issue"}:${index}`,
+            keywordId: Number(item?.keywordId || 0),
+            issueSummaryId: Number(item?.issueSummaryId || 0),
+            articleId: String(item?.articleId || "").trim(),
+            title: String(item?.title || "").trim() || "제목 없음",
+            summary: String(item?.summary || "").trim(),
+            category: String(item?.category || "").trim(),
+            updatedAt: String(item?.updatedAt || "").trim(),
+            publishedAt: String(item?.publishedAt || "").trim(),
+            thumbnail: String(item?.thumbnail || "").trim(),
+            pressName: String(item?.pressName || "").trim(),
+            url: String(item?.url || "").trim(),
+            matchedKeywords: item?.keyword ? [String(item.keyword)] : [],
+            eventType: item?.eventType === "updated" ? "updated" : "new",
+            isRead: Boolean(item?.isRead),
+          }))
+          .sort((a, b) => {
+            if (a.isRead !== b.isRead) return a.isRead ? 1 : -1;
+            return toEpoch(b.updatedAt) - toEpoch(a.updatedAt);
           });
-          if (!mounted) {
-            inFlight = false;
-          return;
-        }
 
-        const sourceItems = res.data?.items || res.data?.issues || res.data?.data || [];
-        const issueItems = Array.isArray(sourceItems) ? sourceItems : [];
-        const mappedCandidates = issueItems
-          .map(mapIssueToNotificationCandidate)
-          .filter((candidate) => candidate && candidate.key);
-
-        const baselineItems = [];
-        const incomingItems = [];
-
-        mappedCandidates.forEach((candidate) => {
-          const searchText = buildNotificationSearchText(candidate);
-          if (!searchText) return;
-
-          const matchedKeywords = normalizedKeywords
-            .filter(({ lower }) => searchText.includes(lower))
-            .map(({ original }) => original);
-          if (matchedKeywords.length === 0) return;
-
-          const signature = buildNotificationSignature(candidate);
-          const articleKey = String(candidate.key || "");
-          const isKnownKey = notifySeenKeysRef.current.has(articleKey);
-          const isKnownSignature = notifySeenSignaturesRef.current.has(signature);
-
-          notifySeenKeysRef.current.add(articleKey);
-          notifySeenSignaturesRef.current.add(signature);
-
-          const nextItem = {
-            id: signature,
-            signature,
-            articleKey,
-            articleId: candidate.articleId,
-            title: candidate.title,
-            summary: candidate.summary,
-            category: candidate.category,
-            updatedAt: candidate.updatedAt,
-            publishedAt: candidate.publishedAt,
-            thumbnail: candidate.thumbnail,
-            pressName: candidate.pressName,
-            url: candidate.url,
-            matchedKeywords,
-            eventType: isKnownKey ? "updated" : "new",
-            isRead: notifyOpenRef.current,
-          };
-
-          if (!notifyInitializedRef.current) {
-            baselineItems.push({ ...nextItem, isRead: true });
-            return;
-          }
-
-          if (isKnownSignature) return;
-          incomingItems.push(nextItem);
-        });
-
-        if (!notifyInitializedRef.current) {
-          const sortedBaseline = baselineItems
-            .sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt))
-            .slice(0, NOTIFY_MAX_ITEMS);
-          setNotifyItems(sortedBaseline);
-          setNotifyUnreadCount(0);
-          notifyInitializedRef.current = true;
-        } else if (incomingItems.length > 0) {
-          const sortedIncoming = incomingItems.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
-          setNotifyItems((prev) => mergeNotificationItems(sortedIncoming, prev));
-          if (!notifyOpenRef.current) {
-            setNotifyUnreadCount((prev) => Math.min(99, prev + sortedIncoming.length));
-          }
-        }
-
+        setNotifyItems(nextItems);
+        setNotifyUnreadCount(
+          Number.isFinite(Number(payload.unreadCount))
+            ? Math.max(0, Number(payload.unreadCount))
+            : nextItems.filter((item) => !item.isRead).length
+        );
+        setNotifyKeywordCount(Array.isArray(payload.keywords) ? payload.keywords.length : 0);
         setNotifyHasError(false);
       } catch (e) {
         if (mounted) setNotifyHasError(true);
@@ -634,25 +544,47 @@ export default function Header() {
     }
   };
 
-  const handleMarkAllNotificationsRead = () => {
-    setNotifyUnreadCount(0);
-    setNotifyItems((prev) => prev.map((item) => (item.isRead ? item : { ...item, isRead: true })));
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      await markAllKeywordAlertsRead();
+      setNotifyUnreadCount(0);
+      setNotifyItems((prev) =>
+        prev.map((item) => (item.isRead ? item : { ...item, isRead: true }))
+      );
+      setNotifyHasError(false);
+    } catch (error) {
+      console.error("mark all notifications read failed:", error);
+      setNotifyHasError(true);
+    }
   };
 
   const handleNotificationSelect = async (item) => {
     if (!item) return;
 
     const wasUnread = !item.isRead;
-    setNotifyItems((prev) =>
-      prev.map((entry) => (entry.id === item.id ? { ...entry, isRead: true } : entry))
-    );
-    if (wasUnread) {
-      setNotifyUnreadCount((prev) => Math.max(0, prev - 1));
+
+    if (wasUnread && item.keywordId > 0 && item.issueSummaryId > 0) {
+      try {
+        await markKeywordAlertRead({
+          keywordId: item.keywordId,
+          issueSummaryId: item.issueSummaryId,
+        });
+
+        setNotifyItems((prev) =>
+          prev.map((entry) => (entry.id === item.id ? { ...entry, isRead: true } : entry))
+        );
+        setNotifyUnreadCount((prev) => Math.max(0, prev - 1));
+        setNotifyHasError(false);
+      } catch (error) {
+        console.error("mark notification read failed:", error);
+        setNotifyHasError(true);
+      }
     }
+
     setNotifyOpen(false);
 
     const targetUrl = String(item.url || "").trim();
-    const articleId = String(item.articleId || item.articleKey || item.id || "").trim();
+    const articleId = String(item.articleId || item.id || "").trim();
     const fallbackPayload = {
       id: articleId || `url:${targetUrl || item.title}`,
       title: item.title || "제목 없음",

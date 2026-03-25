@@ -309,12 +309,61 @@ function filterItemsBySelectedPresses(items, pressNames) {
   });
 }
 
-function appendKeywordWhere(where, params, rawKeyword) {
+function appendKeywordWhere(where, params, rawKeyword, options = {}) {
   const keyword = String(rawKeyword || "").trim();
   if (!keyword) return;
 
-  where.push("(title LIKE ? OR content LIKE ?)");
-  params.push(`%${keyword}%`, `%${keyword}%`);
+  const { includeContent = false } = options;
+
+  if (includeContent) {
+    where.push("(title LIKE ? OR content LIKE ?)");
+    params.push(`%${keyword}%`, `%${keyword}%`);
+    return;
+  }
+
+  where.push("title LIKE ?");
+  params.push(`%${keyword}%`);
+}
+
+function buildDedupedArticlesFromSql(whereSql, options = {}) {
+  const { includeContent = false } = options;
+
+  return `
+    FROM (
+      SELECT
+        id,
+        url,
+        title,
+        thumbnail,
+        ${includeContent ? "content," : ""}
+        category,
+        published_at,
+        created_at,
+        ROW_NUMBER() OVER (
+          PARTITION BY
+            CASE
+              WHEN NULLIF(TRIM(COALESCE(url, '')), '') IS NOT NULL
+                THEN CONCAT('url:', LOWER(TRIM(url)))
+              WHEN NULLIF(TRIM(COALESCE(title, '')), '') IS NOT NULL
+                OR COALESCE(published_at, created_at) IS NOT NULL
+                THEN CONCAT(
+                  'title:',
+                  LOWER(TRIM(COALESCE(title, ''))),
+                  '|published:',
+                  COALESCE(
+                    DATE_FORMAT(COALESCE(published_at, created_at), '%Y-%m-%d %H:%i:%s'),
+                    ''
+                  )
+                )
+              ELSE CONCAT('id:', CAST(id AS CHAR))
+            END
+          ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+        ) AS dedup_rank
+      FROM articles
+      ${whereSql}
+    ) deduped_articles
+    WHERE dedup_rank = 1
+  `;
 }
 
 exports.listArticles = async ({
@@ -343,7 +392,7 @@ exports.listArticles = async ({
     params.push(String(category));
   }
 
-  appendKeywordWhere(where, params, q);
+  appendKeywordWhere(where, params, q, { includeContent: false });
 
   if (date_from && isDateString(date_from)) {
     where.push("COALESCE(published_at, created_at) >= ?");
@@ -374,15 +423,17 @@ exports.listArticles = async ({
   if (cached) return cached;
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const dedupedFromSql = buildDedupedArticlesFromSql(whereSql, {
+    includeContent: false,
+  });
 
   const rowsPromise =
     offset >= cappedTotalLimit
       ? Promise.resolve([[]])
       : db.query(
         `
-          SELECT id, url, title, thumbnail, content, category, published_at, created_at
-          FROM articles
-          ${whereSql}
+          SELECT id, url, title, thumbnail, category, published_at, created_at
+          ${dedupedFromSql}
           ORDER BY COALESCE(published_at, created_at) DESC, id DESC
           LIMIT ? OFFSET ?
           `,
@@ -393,14 +444,14 @@ exports.listArticles = async ({
     ? db.query(
       `
         SELECT COUNT(*) AS cnt
-        FROM articles
-        ${whereSql}
+        ${dedupedFromSql}
         `,
       params
     )
     : Promise.resolve([[{ cnt: null }]]);
 
   let pressesPromise = Promise.resolve([[]]);
+
   if (includePresses) {
     const whereForPressList = [];
     const pressParams = [];
@@ -410,15 +461,15 @@ exports.listArticles = async ({
       pressParams.push(String(category));
     }
 
-    appendKeywordWhere(whereForPressList, pressParams, q);
+    appendKeywordWhere(whereForPressList, pressParams, q, { includeContent: false });
 
     if (date_from && isDateString(date_from)) {
-      whereForPressList.push("published_at >= ?");
+      whereForPressList.push("COALESCE(published_at, created_at) >= ?");
       pressParams.push(`${String(date_from)} 00:00:00`);
     }
 
     if (date_to && isDateString(date_to)) {
-      whereForPressList.push("published_at < DATE_ADD(?, INTERVAL 1 DAY)");
+      whereForPressList.push("COALESCE(published_at, created_at) < DATE_ADD(?, INTERVAL 1 DAY)");
       pressParams.push(String(date_to));
     }
 
@@ -426,11 +477,14 @@ exports.listArticles = async ({
       ? `WHERE ${whereForPressList.join(" AND ")}`
       : "";
 
+    const dedupedPressFromSql = buildDedupedArticlesFromSql(pressWhereSql, {
+      includeContent: false,
+    });
+
     pressesPromise = db.query(
       `
       SELECT url
-      FROM articles
-      ${pressWhereSql}
+      ${dedupedPressFromSql}
       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
       LIMIT 5000
       `,
@@ -462,7 +516,6 @@ exports.listArticles = async ({
     for (const row of pressRows || []) {
       const pressName = resolvePressByUrl(row.url);
       if (!pressName) continue;
-
       pressCountMap.set(pressName, (pressCountMap.get(pressName) || 0) + 1);
     }
 
@@ -600,7 +653,9 @@ function severityByStatus(status) {
   return "보통";
 }
 
-exports.getIssues = async () => {
+exports.getIssues = async (limit = 100) => {
+  const safeLimit = Math.min(Math.max(Number(limit) || 100, 1), 1000);
+
   const [rows] = await db.query(
     `
     SELECT
@@ -616,38 +671,102 @@ exports.getIssues = async () => {
       a.category,
       a.published_at,
       a.created_at AS article_created_at,
-      a.url
+      a.url,
+      a.thumbnail,
+      a.content
     FROM issue_summaries i
     JOIN articles a
       ON i.article_id = a.id
     ORDER BY i.created_at DESC, i.id DESC
-    LIMIT 100
-    `
+    LIMIT ?
+    `,
+    [safeLimit]
   );
 
-  return rows.map((row) => ({
-    id: row.issue_summary_id,
-    issue_summary_id: row.issue_summary_id,
-    issue_id: null,
-    article_id: row.article_id,
-    title: row.title || "제목 없음",
-    summary:
-      row.short_summary ||
-      row.ultra_short ||
-      row.background ||
-      "요약 내용이 없습니다.",
-    short_summary: row.short_summary || "",
-    ultra_short: row.ultra_short || "",
-    background: row.background || "",
-    keywords: row.keywords || "",
-    related_count: Number(row.related_count || 0),
-    category: row.category || "산업",
-    status: "요약완료",
-    updatedAt: formatIssueDate(
-      row.published_at || row.summary_created_at || row.article_created_at
-    ),
-    priority: priorityByCategory(row.category),
-    severity: severityByStatus("요약완료"),
-    press_name: resolvePressByUrl(row.url),
-  }));
+  if (!rows.length) return [];
+
+  const summaryIds = rows.map((row) => Number(row.issue_summary_id)).filter(Number.isFinite);
+
+  const [relatedRows] = await db.query(
+    `
+    SELECT
+      isa.issue_summary_id,
+      isa.article_id,
+      isa.sort_order,
+      isa.is_representative,
+      a.id,
+      a.title,
+      a.url,
+      a.thumbnail,
+      a.content,
+      a.category,
+      a.published_at,
+      a.created_at
+    FROM issue_summary_articles isa
+    JOIN articles a
+      ON isa.article_id = a.id
+    WHERE isa.issue_summary_id IN (?)
+    ORDER BY isa.issue_summary_id ASC, isa.sort_order ASC, isa.id ASC
+    `,
+    [summaryIds]
+  );
+
+  const relatedMap = new Map();
+
+  for (const row of relatedRows) {
+    const key = Number(row.issue_summary_id);
+    if (!relatedMap.has(key)) relatedMap.set(key, []);
+
+    relatedMap.get(key).push({
+      id: row.id,
+      article_id: row.article_id,
+      title: row.title || "제목 없음",
+      url: row.url || "",
+      thumbnail: row.thumbnail || "",
+      content: row.content || "",
+      category: row.category || "",
+      published_at: row.published_at || null,
+      created_at: row.created_at || null,
+      sort_order: Number(row.sort_order || 0),
+      is_representative: Number(row.is_representative || 0) === 1,
+    });
+  }
+
+  return rows.map((row) => {
+    const issueSummaryId = Number(row.issue_summary_id);
+    const relatedArticles = relatedMap.get(issueSummaryId) || [];
+    const articleIds = relatedArticles.map((item) => item.article_id);
+
+    return {
+      id: issueSummaryId,
+      issue_summary_id: issueSummaryId,
+      article_id: row.article_id,
+      title: row.title || "제목 없음",
+      url: row.url || "",
+      thumbnail: row.thumbnail || "",
+      content: row.content || "",
+      summary:
+        row.short_summary ||
+        row.ultra_short ||
+        row.background ||
+        "요약 내용이 없습니다.",
+      short_summary: row.short_summary || "",
+      ultra_short: row.ultra_short || "",
+      background: row.background || "",
+      keywords: row.keywords || "",
+      related_count: relatedArticles.length,
+      related_articles: relatedArticles,
+      article_ids: articleIds,
+      category: row.category || "산업",
+      status: "요약완료",
+      updatedAt: formatIssueDate(
+        row.published_at || row.summary_created_at || row.article_created_at
+      ),
+      created_at: row.summary_created_at || null,
+      published_at: row.published_at || null,
+      priority: priorityByCategory(row.category),
+      severity: severityByStatus("요약완료"),
+      press_name: resolvePressByUrl(row.url),
+    };
+  });
 };

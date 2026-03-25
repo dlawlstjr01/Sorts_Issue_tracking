@@ -8,9 +8,9 @@ import "../../CSS/common.css";
 import "../../CSS/main.css";
 import "../../CSS/sub.css";
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 25;
 const PAGINATION_GROUP_SIZE = 10;
-const ARTICLE_LIST_NEWS_CACHE_PREFIX = "articleListNews:v1:";
+const ARTICLE_LIST_NEWS_CACHE_PREFIX = "articleListNews:v3:";
 const ARTICLE_LIST_PRESS_CACHE_PREFIX = "articleListPresses:v1:";
 const ARTICLE_LIST_CACHE_TTL = 1000 * 60 * 3;
 
@@ -276,38 +276,6 @@ function resolvePressByUrl(rawUrl) {
     if (host === rule.domain || host.endsWith(`.${rule.domain}`)) return rule.press;
   }
   return null;
-}
-
-function buildNewsDedupKey(item) {
-  const title = String(item?.title || "").trim();
-  const published = String(item?.published_at || item?.created_at || "").trim();
-  if (title && published) return `title:${title}|published:${published}`;
-
-  const url = String(item?.url || "").trim();
-  if (url) return `url:${url}`;
-
-  if (title || published) return `title:${title}|published:${published}`;
-  return `id:${String(item?.id || "")}`;
-}
-
-function dedupeNewsItems(items) {
-  const dedup = new Map();
-
-  for (const item of items || []) {
-    const key = buildNewsDedupKey(item);
-    const current = dedup.get(key);
-
-    if (!current) {
-      dedup.set(key, item);
-      continue;
-    }
-
-    const currentTs = new Date(current.published_at || current.created_at || 0).getTime() || 0;
-    const nextTs = new Date(item.published_at || item.created_at || 0).getTime() || 0;
-    if (nextTs >= currentTs) dedup.set(key, item);
-  }
-
-  return Array.from(dedup.values());
 }
 
 function getHangulInitial(char) {
@@ -581,18 +549,17 @@ export default function ArticleListPage() {
         press_name: item?.press_name || "기타",
       }));
 
-      const dedupedItems = dedupeNewsItems(normalizedItems);
       const resolvedTotal =
         data.total === null || data.total === undefined
-          ? dedupedItems.length
+          ? normalizedItems.length
           : Number(data.total) || 0;
 
       writeTimedCache(`${ARTICLE_LIST_NEWS_CACHE_PREFIX}${cacheKey}`, {
-        items: dedupedItems,
+        items: normalizedItems,
         total: resolvedTotal,
       });
 
-      setNewsItems(dedupedItems);
+      setNewsItems(normalizedItems);
       setTotal(resolvedTotal);
       setCurrentPage(targetPage);
     } catch (err) {

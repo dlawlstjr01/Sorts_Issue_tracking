@@ -32,7 +32,10 @@ router.get(
 );
 
 // 카카오 로그인 시작
-router.get("/kakao", passport.authenticate("kakao", { session: false }));
+router.get(
+  "/kakao",
+  passport.authenticate("kakao", { session: false })
+);
 
 // 카카오 콜백
 router.get(

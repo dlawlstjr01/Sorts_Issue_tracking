@@ -3,6 +3,25 @@ const db = require("../config/DB");
 
 const RECO_BASE_URL = process.env.RECO_BASE_URL || "http://reco:8000";
 
+function getRecoBaseUrlCandidates() {
+  const candidates = [RECO_BASE_URL];
+
+  try {
+    const parsed = new URL(RECO_BASE_URL);
+    if (parsed.hostname === "reco") {
+      parsed.hostname = "127.0.0.1";
+      candidates.push(parsed.toString().replace(/\/$/, ""));
+
+      parsed.hostname = "localhost";
+      candidates.push(parsed.toString().replace(/\/$/, ""));
+    }
+  } catch (_) {
+    // Ignore invalid URL here and let the actual request raise the error.
+  }
+
+  return Array.from(new Set(candidates));
+}
+
 /**
  * 최근 본 기사 article_id 목록을 user_log에서 가져오기 (중복 제거, 최근 순 유지)
  */
@@ -37,8 +56,6 @@ async function fetchRecentSeenArticleIds(userId, limit = 80) {
  * - 비로그인: GET /reco?k=...
  */
 async function fetchRecoFromPython({ userId, k }) {
-  const url = `${RECO_BASE_URL}/reco`;
-
   const params = { k };
 
   // 로그인 사용자일 때만 userId 전달
@@ -46,8 +63,19 @@ async function fetchRecoFromPython({ userId, k }) {
     params.userId = Number(userId);
   }
 
-  const res = await axios.get(url, { params, timeout: 8000 });
-  return res.data; // { items: [...] }
+  const baseUrls = getRecoBaseUrlCandidates();
+  let lastError = null;
+
+  for (const baseUrl of baseUrls) {
+    try {
+      const res = await axios.get(`${baseUrl}/reco`, { params, timeout: 8000 });
+      return res.data; // { items: [...] }
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError;
 }
 
 /**

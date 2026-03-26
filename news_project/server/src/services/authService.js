@@ -228,6 +228,8 @@ exports.signToken = ({ userId, loginId }) => {
 
 // 소셜 로그인용 upsert
 exports.upsertSocialUser = async ({ provider, sns_id, sns_email }) => {
+  const socialId = String(sns_id);
+  const fallbackEmail = `${provider}_${socialId}@social.local`;
   if (!provider || !sns_id) throw makeError("소셜 정보(provider/sns_id)가 누락되었습니다.", 400);
 
   // 1) provider + sns_id로 기존 계정 찾기
@@ -238,21 +240,27 @@ exports.upsertSocialUser = async ({ provider, sns_id, sns_email }) => {
     WHERE provider = ? AND sns_id = ?
     LIMIT 1
     `,
-    [provider, String(sns_id)]
+    [provider, socialId]
   );
 
   if (found.length) {
     const user = found[0];
     // 소셜 이메일이 변경되어 있으면 최신값으로 갱신
     if (sns_email && user.sns_email !== sns_email) {
-      await db.query(`UPDATE users SET sns_email = ? WHERE id = ?`, [sns_email, user.id]);
+      const shouldSyncLoginEmail = !user.email || user.email === fallbackEmail;
+      if (shouldSyncLoginEmail) {
+        await db.query(`UPDATE users SET email = ?, sns_email = ? WHERE id = ?`, [sns_email, sns_email, user.id]);
+        user.email = sns_email;
+      } else {
+        await db.query(`UPDATE users SET sns_email = ? WHERE id = ?`, [sns_email, user.id]);
+      }
       user.sns_email = sns_email;
     }
     return user;
   }
 
   // 2) 신규 소셜 계정 생성
-  if (!sns_email) {
+  if (!sns_email && process.env.REQUIRE_SOCIAL_EMAIL === "true") {
     throw makeError("소셜 이메일을 받지 못했습니다. 이메일 동의가 필요합니다.", 400);
   }
 
@@ -262,17 +270,17 @@ exports.upsertSocialUser = async ({ provider, sns_id, sns_email }) => {
     INSERT INTO users (login_id, password, name, email, phone, sns_email, provider, sns_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
     `,
-    [null, dummyPasswordHash, null, sns_email, null, sns_email, provider, String(sns_id)]
+    [null, dummyPasswordHash, null, sns_email || fallbackEmail, null, sns_email, provider, socialId]
   );
 
   return {
     id: result.insertId,
     login_id: null,
-    email: sns_email,
+    email: sns_email || fallbackEmail,
     phone: null,
-    sns_email,
+    sns_email: sns_email || null,
     provider,
-    sns_id: String(sns_id),
+    sns_id: socialId,
   };
 };
 
